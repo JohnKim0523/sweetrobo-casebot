@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "cors": "^2.8.5",
+    "fabric": "^6.7.1"
+  },
+  "devDependencies": {
+    "@types/fabric": "^5.3.10"
+  }
+}
