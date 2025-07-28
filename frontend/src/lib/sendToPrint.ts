@@ -1,5 +1,5 @@
 export async function sendToPrint(imageBase64: string, phoneModel: string) {
-  const res = await fetch('http://localhost:3000/print/send', {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/print/send`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
