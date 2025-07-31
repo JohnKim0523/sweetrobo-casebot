@@ -24,3 +24,24 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Fabric.js canvas container styling */
+.canvas-container {
+  overflow: visible !important;
+  position: absolute !important;
+}
+
+/* Ensure Fabric.js controls are visible outside canvas bounds */
+.upper-canvas {
+  overflow: visible !important;
+}
+
+/* Make controls more visible on mobile */
+.canvas-container .upper-canvas {
+  overflow: visible !important;
+}
+
+/* Ensure object controls are always on top */
+.canvas-container canvas {
+  overflow: visible !important;
+}
