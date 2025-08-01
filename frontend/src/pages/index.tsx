@@ -26,13 +26,37 @@ export default function Home() {
 
   useEffect(() => {
     if (canvasRef.current && fabric) {
+      // Create canvas with extended interaction area
       const fabricCanvas = new fabric.Canvas(canvasRef.current, {
-        width: 200,  // Exact phone case width
-        height: 450, // Exact phone case height
-        backgroundColor: 'white',
+        width: 400,  // Extended width for controls
+        height: 650, // Extended height for controls
+        backgroundColor: 'transparent',
         containerClass: 'canvas-container',
         selection: true,
         preserveObjectStacking: true
+      });
+      
+      // Create visible canvas area (phone case)
+      const canvasBackground = new fabric.Rect({
+        left: 100,
+        top: 100,
+        width: 200,
+        height: 450,
+        fill: 'white',
+        selectable: false,
+        evented: false,
+        excludeFromExport: true
+      });
+      
+      fabricCanvas.add(canvasBackground);
+      
+      // Set up clipping to hide image parts outside phone case
+      fabricCanvas.clipPath = new fabric.Rect({
+        left: 100,
+        top: 100,
+        width: 200,
+        height: 450,
+        absolutePositioned: true
       });
       
       // Configure default control settings for mobile-friendly interaction
@@ -46,8 +70,8 @@ export default function Home() {
 
       // Add border as a fabric object so it's included in the export
       const border = new fabric.Rect({
-        left: 0.5,
-        top: 0.5,
+        left: 100.5,
+        top: 100.5,
         width: 199,
         height: 449,
         fill: 'transparent',
@@ -57,11 +81,11 @@ export default function Home() {
         evented: false
       });
 
-      // Create crosshair guidelines
-      const centerX = 100; // Center of canvas
-      const centerY = 225; // Center of canvas
+      // Create crosshair guidelines (adjusted for padding)
+      const centerX = 200; // Center of phone case (100px padding + 100px half width)
+      const centerY = 325; // Center of phone case (100px padding + 225px half height)
       
-      const verticalLine = new fabric.Line([centerX, 0, centerX, 450], {
+      const verticalLine = new fabric.Line([centerX, 100, centerX, 550], {
         stroke: '#00ff00',
         strokeWidth: 1,
         strokeDashArray: [5, 5],
@@ -74,7 +98,7 @@ export default function Home() {
         hasBorders: false
       });
       
-      const horizontalLine = new fabric.Line([0, centerY, 200, centerY], {
+      const horizontalLine = new fabric.Line([100, centerY, 300, centerY], {
         stroke: '#00ff00',
         strokeWidth: 1,
         strokeDashArray: [5, 5],
@@ -358,12 +382,12 @@ export default function Home() {
             const scale = Math.min(180 / fabricImage.width!, 430 / fabricImage.height!);
             fabricImage.scale(scale);
             
-            // Center the image on the phone case
+            // Center the image on the phone case (accounting for padding)
             const imgWidth = fabricImage.width! * scale;
             const imgHeight = fabricImage.height! * scale;
             fabricImage.set({
-              left: (200 - imgWidth) / 2, // Center on canvas
-              top: (450 - imgHeight) / 2  // Center on canvas
+              left: 100 + (200 - imgWidth) / 2, // Center on phone case
+              top: 100 + (450 - imgHeight) / 2  // Center on phone case
             });
 
             // Add image normally - crosshairs will stay on top due to render order
@@ -417,9 +441,13 @@ export default function Home() {
         
         canvas.renderAll();
         
-        // Export the entire canvas (which is now just the phone case)
+        // Export only the phone case area (cropping out the padding)
         const dataURL = canvas.toDataURL({
           format: 'png',
+          left: 100,
+          top: 100,
+          width: 200,
+          height: 450,
           multiplier: 1
         });
         
@@ -483,7 +511,7 @@ export default function Home() {
       <h1 className="text-3xl font-bold mb-8">Phone Case Designer</h1>
       
       <div className="flex gap-8">
-        <div className="relative" style={{ width: '200px', height: '450px', overflow: 'visible', padding: '20px' }}>
+        <div className="relative" style={{ width: '400px', height: '650px', overflow: 'visible' }}>
           <canvas ref={canvasRef} style={{ position: 'absolute' }} />
         </div>
         

@@ -27,21 +27,18 @@ body {
 
 /* Fabric.js canvas container styling */
 .canvas-container {
+  position: relative !important;
   overflow: visible !important;
-  position: absolute !important;
 }
 
-/* Ensure Fabric.js controls are visible outside canvas bounds */
+/* Allow controls to extend beyond canvas */
 .upper-canvas {
-  overflow: visible !important;
+  position: absolute !important;
+  left: -20px !important;
+  top: -20px !important;
 }
 
-/* Make controls more visible on mobile */
-.canvas-container .upper-canvas {
-  overflow: visible !important;
-}
-
-/* Ensure object controls are always on top */
-.canvas-container canvas {
-  overflow: visible !important;
+/* Clip the main canvas content */
+.lower-canvas {
+  clip-path: inset(0px);
 }
