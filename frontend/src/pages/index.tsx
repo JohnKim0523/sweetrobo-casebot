@@ -9,10 +9,13 @@ export default function Home() {
   const [crosshairLines, setCrosshairLines] = useState<{vertical: any, horizontal: any}>({vertical: null, horizontal: null});
   const [isSnapping, setIsSnapping] = useState(false);
   const snapStateRef = useRef<{x: boolean, y: boolean}>({x: false, y: false});
-  const hasSnappedRef = useRef<{x: boolean, y: boolean}>({x: false, y: false});
+  const hasSnappedRef = useRef<{x: boolean, y: boolean, rotation: boolean}>({x: false, y: false, rotation: false});
   const mouseCanvasPos = useRef<{x: number, y: number}>({x: 0, y: 0});
   const lockMousePos = useRef<{x: number, y: number}>({x: 0, y: 0});
   const lockedObjectPos = useRef<{x: number, y: number}>({x: 0, y: 0});
+  const lockMouseAngle = useRef<number>(0);
+  const lockedRotation = useRef<number>(0);
+  const isRotating = useRef<boolean>(false);
 
   useEffect(() => {
     // Dynamically import fabric to avoid SSR issues
@@ -127,6 +130,11 @@ export default function Home() {
       fabricCanvas.on('object:moving', function(e: any) {
         const obj = e.target;
         
+        // Skip position snapping if we're rotating
+        if (isRotating.current) {
+          return;
+        }
+        
         // Get current mouse position
         const mousePos = mouseCanvasPos.current;
         
@@ -135,8 +143,8 @@ export default function Home() {
         const isLockedY = hasSnappedRef.current.y;
         
         // Thresholds
-        const snapZone = 10; // Zone to trigger initial snap
-        const releaseDistance = 20; // Mouse must move this far from lock position to release
+        const snapZone = 5; // Zone to trigger initial snap
+        const releaseDistance = 15; // Mouse must move this far from lock position to release
         
         // If locked, check distance from lock position (not from center)
         if (isLockedX || isLockedY) {
@@ -228,9 +236,87 @@ export default function Home() {
         fabricCanvas.renderAll();
       });
       
+      // Track when rotation starts
+      fabricCanvas.on('rotating:start', function(e: any) {
+        isRotating.current = true;
+      });
+      
+      // Handle rotation snapping
+      fabricCanvas.on('object:rotating', function(e: any) {
+        const obj = e.target;
+        isRotating.current = true;
+        
+        // Store the center position to prevent drift
+        const centerPoint = obj.getCenterPoint();
+        const currentAngle = obj.angle;
+        const mousePos = mouseCanvasPos.current;
+        
+        // Normalize angle to 0-360 range
+        const normalizedAngle = ((currentAngle % 360) + 360) % 360;
+        
+        // Thresholds for rotation
+        const rotationSnapZone = 5; // Degrees to trigger snap
+        const rotationReleaseThreshold = 10; // Degrees to release
+        
+        const isLockedRotation = hasSnappedRef.current.rotation;
+        
+        if (isLockedRotation) {
+          // Calculate mouse angle change since lock
+          const objCenter = obj.getCenterPoint();
+          const currentMouseAngle = Math.atan2(mousePos.y - objCenter.y, mousePos.x - objCenter.x) * 180 / Math.PI;
+          const angleDiff = Math.abs(currentMouseAngle - lockMouseAngle.current);
+          
+          if (angleDiff > rotationReleaseThreshold) {
+            // Release rotation lock
+            hasSnappedRef.current.rotation = false;
+          } else {
+            // Keep locked to the snapped angle
+            obj.angle = lockedRotation.current;
+          }
+        } else {
+          // Check if close to cardinal directions (0, 90, 180, 270)
+          let snapAngle = -1;
+          
+          // Check 0/360 degrees
+          if (normalizedAngle < rotationSnapZone || normalizedAngle > (360 - rotationSnapZone)) {
+            snapAngle = 0;
+          }
+          // Check 90 degrees
+          else if (Math.abs(normalizedAngle - 90) < rotationSnapZone) {
+            snapAngle = 90;
+          }
+          // Check 180 degrees
+          else if (Math.abs(normalizedAngle - 180) < rotationSnapZone) {
+            snapAngle = 180;
+          }
+          // Check 270 degrees
+          else if (Math.abs(normalizedAngle - 270) < rotationSnapZone) {
+            snapAngle = 270;
+          }
+          
+          if (snapAngle >= 0) {
+            // Snap to the detected angle
+            obj.angle = snapAngle;
+            hasSnappedRef.current.rotation = true;
+            
+            // Save mouse angle at lock time
+            const objCenter = obj.getCenterPoint();
+            lockMouseAngle.current = Math.atan2(mousePos.y - objCenter.y, mousePos.x - objCenter.x) * 180 / Math.PI;
+            lockedRotation.current = snapAngle;
+          }
+        }
+        
+        // Ensure object stays at same position during rotation
+        obj.setPositionByOrigin(centerPoint, 'center', 'center');
+        obj.setCoords();
+        fabricCanvas.renderAll();
+      });
+      
       // Handle object modifications (scaling, rotating)
       fabricCanvas.on('object:modified', function(e: any) {
-        // Crosshairs are kept on top via object:added event
+        // Reset rotation lock and flag on modification end
+        hasSnappedRef.current.rotation = false;
+        isRotating.current = false;
       });
       
       // Reset snap indicators on mouse up
@@ -239,6 +325,8 @@ export default function Home() {
         horizontalLine.set({ stroke: '#00ff00', strokeWidth: 1, opacity: 0.5 });
         fabricCanvas.renderAll();
         setIsSnapping(false);
+        // Reset rotation flag
+        isRotating.current = false;
         // Don't reset snap state here - let the object:moving handler manage it based on position
       });
       
