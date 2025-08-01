@@ -8,6 +8,11 @@ export default function Home() {
   const [fabric, setFabric] = useState<any>(null);
   const [crosshairLines, setCrosshairLines] = useState<{vertical: any, horizontal: any}>({vertical: null, horizontal: null});
   const [isSnapping, setIsSnapping] = useState(false);
+  const snapStateRef = useRef<{x: boolean, y: boolean}>({x: false, y: false});
+  const hasSnappedRef = useRef<{x: boolean, y: boolean}>({x: false, y: false});
+  const mouseCanvasPos = useRef<{x: number, y: number}>({x: 0, y: 0});
+  const lockMousePos = useRef<{x: number, y: number}>({x: 0, y: 0});
+  const lockedObjectPos = useRef<{x: number, y: number}>({x: 0, y: 0});
 
   useEffect(() => {
     // Dynamically import fabric to avoid SSR issues
@@ -112,35 +117,114 @@ export default function Home() {
       fabricCanvas.controlsAboveOverlay = true;
       fabricCanvas.preserveObjectStacking = true;
       
-      // Set up object movement handling with snap-to-center
+      // Store mouse position on canvas for snap detection
+      fabricCanvas.on('mouse:move', function(opt: any) {
+        const pointer = fabricCanvas.getPointer(opt.e);
+        mouseCanvasPos.current = { x: pointer.x, y: pointer.y };
+      });
+      
+      // Set up smooth magnetic snap-to-center
       fabricCanvas.on('object:moving', function(e: any) {
         const obj = e.target;
-        const objBoundingRect = obj.getBoundingRect(true);
         
-        // Snap to center functionality
-        const snapThreshold = 10;
-        const objCenterX = objBoundingRect.left + objBoundingRect.width / 2;
-        const objCenterY = objBoundingRect.top + objBoundingRect.height / 2;
-        let snapped = false;
+        // Get current mouse position
+        const mousePos = mouseCanvasPos.current;
         
-        if (Math.abs(objCenterX - centerX) < snapThreshold) {
-          obj.left = centerX - (objBoundingRect.width / 2 - (obj.left - objBoundingRect.left));
-          verticalLine.set({ stroke: '#ff0000', strokeWidth: 2 });
-          snapped = true;
+        // Check if we're currently locked
+        const isLockedX = hasSnappedRef.current.x;
+        const isLockedY = hasSnappedRef.current.y;
+        
+        // Thresholds
+        const snapZone = 20; // Zone to trigger initial snap
+        const releaseDistance = 30; // Mouse must move this far from lock position to release
+        
+        // If locked, check distance from lock position (not from center)
+        if (isLockedX || isLockedY) {
+          let forceX = obj.left;
+          let forceY = obj.top;
+          
+          // Check X-axis lock
+          if (isLockedX) {
+            const mouseDistanceFromLockX = Math.abs(mousePos.x - lockMousePos.current.x);
+            if (mouseDistanceFromLockX > releaseDistance) {
+              // Mouse moved far enough from lock position - release
+              hasSnappedRef.current.x = false;
+              verticalLine.set({ stroke: '#00ff00', strokeWidth: 1, opacity: 0.5 });
+            } else {
+              // Still locked - force to locked position
+              forceX = lockedObjectPos.current.x;
+              verticalLine.set({ stroke: '#ff0000', strokeWidth: 2 });
+            }
+          }
+          
+          // Check Y-axis lock
+          if (isLockedY) {
+            const mouseDistanceFromLockY = Math.abs(mousePos.y - lockMousePos.current.y);
+            if (mouseDistanceFromLockY > releaseDistance) {
+              // Mouse moved far enough from lock position - release
+              hasSnappedRef.current.y = false;
+              horizontalLine.set({ stroke: '#00ff00', strokeWidth: 1, opacity: 0.5 });
+            } else {
+              // Still locked - force to locked position
+              forceY = lockedObjectPos.current.y;
+              horizontalLine.set({ stroke: '#ff0000', strokeWidth: 2 });
+            }
+          }
+          
+          // Force object to locked position
+          obj.left = forceX;
+          obj.top = forceY;
+          obj.setCoords();
         }
         
-        if (Math.abs(objCenterY - centerY) < snapThreshold) {
-          obj.top = centerY - (objBoundingRect.height / 2 - (obj.top - objBoundingRect.top));
-          horizontalLine.set({ stroke: '#ff0000', strokeWidth: 2 });
-          snapped = true;
+        // If not locked, check for initial snap
+        if (!isLockedX || !isLockedY) {
+          const objBoundingRect = obj.getBoundingRect(true);
+          const objCenterX = objBoundingRect.left + objBoundingRect.width / 2;
+          const objCenterY = objBoundingRect.top + objBoundingRect.height / 2;
+          const objDistanceX = Math.abs(objCenterX - centerX);
+          const objDistanceY = Math.abs(objCenterY - centerY);
+          
+          // Check X-axis for initial snap
+          if (!isLockedX && objDistanceX < snapZone) {
+            // Use setPositionByOrigin to center properly with transformations
+            const currentCenter = obj.getCenterPoint();
+            obj.setPositionByOrigin(
+              new fabric.Point(centerX, currentCenter.y),
+              'center',
+              'center'
+            );
+            obj.setCoords();
+            hasSnappedRef.current.x = true;
+            // Save mouse position at moment of lock
+            lockMousePos.current.x = mousePos.x;
+            lockedObjectPos.current.x = obj.left;
+            verticalLine.set({ stroke: '#ff0000', strokeWidth: 2 });
+          } else if (!isLockedX) {
+            verticalLine.set({ stroke: '#00ff00', strokeWidth: 1, opacity: 0.5 });
+          }
+          
+          // Check Y-axis for initial snap
+          if (!isLockedY && objDistanceY < snapZone) {
+            // Use setPositionByOrigin to center properly with transformations
+            const currentCenter = obj.getCenterPoint();
+            obj.setPositionByOrigin(
+              new fabric.Point(currentCenter.x, centerY),
+              'center',
+              'center'
+            );
+            obj.setCoords();
+            hasSnappedRef.current.y = true;
+            // Save mouse position at moment of lock
+            lockMousePos.current.y = mousePos.y;
+            lockedObjectPos.current.y = obj.top;
+            horizontalLine.set({ stroke: '#ff0000', strokeWidth: 2 });
+          } else if (!isLockedY) {
+            horizontalLine.set({ stroke: '#00ff00', strokeWidth: 1, opacity: 0.5 });
+          }
         }
         
-        if (!snapped && isSnapping) {
-          verticalLine.set({ stroke: '#00ff00', strokeWidth: 1 });
-          horizontalLine.set({ stroke: '#00ff00', strokeWidth: 1 });
-        }
-        
-        setIsSnapping(snapped);
+        setIsSnapping(hasSnappedRef.current.x || hasSnappedRef.current.y);
         fabricCanvas.renderAll();
       });
       
@@ -151,21 +235,11 @@ export default function Home() {
       
       // Reset snap indicators on mouse up
       fabricCanvas.on('mouse:up', function() {
-        if (isSnapping) {
-          verticalLine.set({ stroke: '#00ff00', strokeWidth: 1 });
-          horizontalLine.set({ stroke: '#00ff00', strokeWidth: 1 });
-          fabricCanvas.renderAll();
-          setIsSnapping(false);
-        }
-      });
-      
-      fabricCanvas.on('mouse:up', function() {
-        if (isSnapping) {
-          verticalLine.set({ stroke: '#00ff00', strokeWidth: 1 });
-          horizontalLine.set({ stroke: '#00ff00', strokeWidth: 1 });
-          fabricCanvas.renderAll();
-          setIsSnapping(false);
-        }
+        verticalLine.set({ stroke: '#00ff00', strokeWidth: 1, opacity: 0.5 });
+        horizontalLine.set({ stroke: '#00ff00', strokeWidth: 1, opacity: 0.5 });
+        fabricCanvas.renderAll();
+        setIsSnapping(false);
+        // Don't reset snap state here - let the object:moving handler manage it based on position
       });
       
       setCanvas(fabricCanvas);
