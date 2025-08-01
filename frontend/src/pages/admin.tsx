@@ -64,8 +64,8 @@ export default function AdminDashboard({ designs: initialDesigns }: AdminPagePro
             <img 
               src={design.url} 
               alt={`Design ${design.filename}`}
-              className="w-32 h-auto mx-auto rounded mb-4"
-              style={{ maxHeight: '280px' }}
+              className="w-40 h-auto mx-auto rounded mb-4"
+              style={{ maxHeight: '360px' }}
             />
             <p className="text-sm text-gray-600">
               Submitted: {new Date(design.timestamp).toLocaleString()}

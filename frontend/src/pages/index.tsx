@@ -19,8 +19,8 @@ export default function Home() {
   useEffect(() => {
     if (canvasRef.current && fabric) {
       const fabricCanvas = new fabric.Canvas(canvasRef.current, {
-        width: 150,  // Exact phone case width
-        height: 350, // Exact phone case height
+        width: 200,  // Exact phone case width
+        height: 450, // Exact phone case height
         backgroundColor: 'white',
         containerClass: 'canvas-container',
         selection: true,
@@ -36,24 +36,24 @@ export default function Home() {
       fabric.Object.prototype.borderScaleFactor = 2;
       fabric.Object.prototype.padding = 10; // Reduced padding around objects
 
-      // Phone case is the entire canvas - no padding needed
-      const phoneCase = new fabric.Rect({
-        left: 0,
-        top: 0,
-        width: 150,
-        height: 350,
-        fill: 'white',
+      // Add border as a fabric object so it's included in the export
+      const border = new fabric.Rect({
+        left: 0.5,
+        top: 0.5,
+        width: 199,
+        height: 449,
+        fill: 'transparent',
         stroke: '#333',
-        strokeWidth: 2,
+        strokeWidth: 1,
         selectable: false,
         evented: false
       });
 
       // Create crosshair guidelines
-      const centerX = 75; // Center of canvas
-      const centerY = 175; // Center of canvas
+      const centerX = 100; // Center of canvas
+      const centerY = 225; // Center of canvas
       
-      const verticalLine = new fabric.Line([centerX, 0, centerX, 350], {
+      const verticalLine = new fabric.Line([centerX, 0, centerX, 450], {
         stroke: '#00ff00',
         strokeWidth: 1,
         strokeDashArray: [5, 5],
@@ -66,7 +66,7 @@ export default function Home() {
         hasBorders: false
       });
       
-      const horizontalLine = new fabric.Line([0, centerY, 150, centerY], {
+      const horizontalLine = new fabric.Line([0, centerY, 200, centerY], {
         stroke: '#00ff00',
         strokeWidth: 1,
         strokeDashArray: [5, 5],
@@ -79,7 +79,7 @@ export default function Home() {
         hasBorders: false
       });
 
-      fabricCanvas.add(phoneCase);
+      fabricCanvas.add(border);
       
       // Add crosshairs after other elements are set up
       // This ensures they're always on top initially
@@ -193,15 +193,15 @@ export default function Home() {
             }
 
             // Scale image to fit within phone case
-            const scale = Math.min(125 / fabricImage.width!, 325 / fabricImage.height!);
+            const scale = Math.min(180 / fabricImage.width!, 430 / fabricImage.height!);
             fabricImage.scale(scale);
             
             // Center the image on the phone case
             const imgWidth = fabricImage.width! * scale;
             const imgHeight = fabricImage.height! * scale;
             fabricImage.set({
-              left: (150 - imgWidth) / 2, // Center on canvas
-              top: (350 - imgHeight) / 2  // Center on canvas
+              left: (200 - imgWidth) / 2, // Center on canvas
+              top: (450 - imgHeight) / 2  // Center on canvas
             });
 
             // Add image normally - crosshairs will stay on top due to render order
@@ -232,8 +232,8 @@ export default function Home() {
       try {
         // Create a temporary canvas for the phone case area
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = 150;  // Phone case width
-        tempCanvas.height = 350; // Phone case height
+        tempCanvas.width = 200;  // Phone case width
+        tempCanvas.height = 450; // Phone case height
         const ctx = tempCanvas.getContext('2d');
         
         if (!ctx) {
@@ -243,7 +243,7 @@ export default function Home() {
         
         // Fill with white background
         ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, 150, 350);
+        ctx.fillRect(0, 0, 200, 450);
         
         // Method 1: Use Fabric's built-in toDataURL with cropping
         // Hide crosshairs before export
@@ -273,7 +273,7 @@ export default function Home() {
             return obj !== crosshairLines.vertical && 
                    obj !== crosshairLines.horizontal && 
                    !(obj.fill === '#f0f0f0') &&
-                   !(obj.stroke === '#333' && obj.width === 150);
+                   !(obj.stroke === '#333' && obj.width === 200);
           }).map((obj: any) => ({
           type: obj.type,
           left: obj.left,
@@ -288,8 +288,8 @@ export default function Home() {
           strokeWidth: obj.strokeWidth,
           src: obj.type === 'image' ? obj.getSrc() : undefined
         })),
-          canvasWidth: 150,  // Phone case width
-          canvasHeight: 350, // Phone case height
+          canvasWidth: 200,  // Phone case width
+          canvasHeight: 450, // Phone case height
           backgroundColor: 'white'
         };
         
@@ -321,7 +321,7 @@ export default function Home() {
       <h1 className="text-3xl font-bold mb-8">Phone Case Designer</h1>
       
       <div className="flex gap-8">
-        <div className="relative" style={{ width: '150px', height: '350px', overflow: 'visible', padding: '20px' }}>
+        <div className="relative" style={{ width: '200px', height: '450px', overflow: 'visible', padding: '20px' }}>
           <canvas ref={canvasRef} style={{ position: 'absolute' }} />
         </div>
         
