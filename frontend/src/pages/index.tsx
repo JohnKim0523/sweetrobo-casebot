@@ -135,8 +135,8 @@ export default function Home() {
         const isLockedY = hasSnappedRef.current.y;
         
         // Thresholds
-        const snapZone = 20; // Zone to trigger initial snap
-        const releaseDistance = 30; // Mouse must move this far from lock position to release
+        const snapZone = 10; // Zone to trigger initial snap
+        const releaseDistance = 20; // Mouse must move this far from lock position to release
         
         // If locked, check distance from lock position (not from center)
         if (isLockedX || isLockedY) {
