@@ -2,15 +2,15 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 
 // Canvas dimensions - matching actual printer dimensions: 100mm × 185mm (portrait)
-// Scale up by 3x for better UI visibility while maintaining exact ratio
-const SCALE_FACTOR = 3;  // 3x larger for UI
-const DISPLAY_WIDTH = 100 * SCALE_FACTOR;   // 300 pixels (represents 100mm)
-const DISPLAY_HEIGHT = 185 * SCALE_FACTOR;  // 555 pixels (represents 185mm)
+// Scale up by 2.5x for better fit on screen without scrolling
+const SCALE_FACTOR = 2.5;  // 2.5x for better screen fit
+const DISPLAY_WIDTH = 100 * SCALE_FACTOR;   // 250 pixels (represents 100mm)
+const DISPLAY_HEIGHT = 185 * SCALE_FACTOR;  // 462.5 pixels (represents 185mm)
 
 // Add padding for controls to be visible outside canvas
-const CONTROL_PADDING = 150; // Extra space around canvas for controls
-const CANVAS_TOTAL_WIDTH = DISPLAY_WIDTH + (CONTROL_PADDING * 2);   // 600px total
-const CANVAS_TOTAL_HEIGHT = DISPLAY_HEIGHT + (CONTROL_PADDING * 2); // 855px total
+const CONTROL_PADDING = 100; // Reduced padding for better fit
+const CANVAS_TOTAL_WIDTH = DISPLAY_WIDTH + (CONTROL_PADDING * 2);   // 450px total
+const CANVAS_TOTAL_HEIGHT = DISPLAY_HEIGHT + (CONTROL_PADDING * 2); // 662.5px total
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -40,7 +40,7 @@ export default function Home() {
       const fabricCanvas = new fabric.Canvas(canvasRef.current, {
         width: CANVAS_TOTAL_WIDTH,   // Full width with padding
         height: CANVAS_TOTAL_HEIGHT,  // Full height with padding
-        backgroundColor: 'transparent', // Transparent background for padding area
+        backgroundColor: '#0a0a0a', // Match body background from globals.css
         containerClass: 'canvas-container',
         selection: true,
         preserveObjectStacking: true
@@ -530,14 +530,14 @@ export default function Home() {
         canvas.renderAll();
         
         // Export ONLY the white canvas area (not the padding)
-        // Crop from CONTROL_PADDING position and scale down to printer size
+        // ALWAYS export at 100x185 regardless of UI scale
         const dataURL = canvas.toDataURL({
           format: 'png',
           left: CONTROL_PADDING,    // Start from canvas area, not padding
           top: CONTROL_PADDING,     // Start from canvas area, not padding
           width: DISPLAY_WIDTH,     // Only the white canvas width
           height: DISPLAY_HEIGHT,   // Only the white canvas height
-          multiplier: 1 / SCALE_FACTOR // Scale down by 3x to get 100x185 for printer
+          multiplier: 1 / SCALE_FACTOR // Scale down to exact 100x185 for printer
         });
         
         // Export at 1:1 scale - no multiplier
@@ -551,7 +551,7 @@ export default function Home() {
           top: CONTROL_PADDING,     // Crop from canvas area only
           width: DISPLAY_WIDTH,     // Only white canvas area
           height: DISPLAY_HEIGHT,   // Only white canvas area
-          multiplier: 1 / SCALE_FACTOR, // Scale down to 100x185 for printer
+          multiplier: 1 / SCALE_FACTOR, // ALWAYS outputs 100x185 for printer
           enableRetinaScaling: false,
           withoutTransform: false,
           withoutShadow: true
@@ -687,27 +687,30 @@ export default function Home() {
     <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center p-4">
       <h1 className="text-3xl font-bold mb-6">Phone Case Designer</h1>
       
-      {/* Canvas with padding for controls */}
-      <div className="mb-6 bg-gray-800 p-2 rounded-lg shadow-2xl">
-        <canvas ref={canvasRef} />
-      </div>
-      
-      {/* Controls below canvas for more space */}
-      <div className="flex gap-4 flex-wrap justify-center">
-        <div 
-          {...getRootProps()} 
-          className="border-2 border-dashed border-gray-500 px-8 py-4 rounded cursor-pointer hover:border-gray-400 transition"
-        >
-          <input {...getInputProps()} />
-          <p className="text-center">Drop an image here<br/>or click to upload</p>
+      {/* Canvas and controls side by side */}
+      <div className="flex gap-6 items-start">
+        {/* Canvas with padding for controls */}
+        <div>
+          <canvas ref={canvasRef} />
         </div>
         
-        <button
-          onClick={handleSubmit}
-          className="bg-purple-600 hover:bg-purple-700 px-8 py-4 rounded font-semibold transition"
-        >
-          Submit Design
-        </button>
+        {/* Controls to the right of canvas */}
+        <div className="flex flex-col gap-4">
+          <div 
+            {...getRootProps()} 
+            className="border-2 border-dashed border-gray-500 px-8 py-4 rounded cursor-pointer hover:border-gray-400 transition"
+          >
+            <input {...getInputProps()} />
+            <p className="text-center">Drop an image here<br/>or click to upload</p>
+          </div>
+          
+          <button
+            onClick={handleSubmit}
+            className="bg-purple-600 hover:bg-purple-700 px-8 py-4 rounded font-semibold transition"
+          >
+            Submit Design
+          </button>
+        </div>
       </div>
     </div>
   );
