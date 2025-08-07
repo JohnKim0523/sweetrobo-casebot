@@ -1,6 +1,12 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 
+// Canvas dimensions - matching actual printer dimensions: 100mm × 185mm (portrait)
+// Scale up by 3x for better UI visibility while maintaining exact ratio
+const SCALE_FACTOR = 3;  // 3x larger for UI
+const DISPLAY_WIDTH = 100 * SCALE_FACTOR;   // 300 pixels (represents 100mm)
+const DISPLAY_HEIGHT = 185 * SCALE_FACTOR;  // 555 pixels (represents 185mm)
+
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvas, setCanvas] = useState<any>(null);
@@ -26,37 +32,13 @@ export default function Home() {
 
   useEffect(() => {
     if (canvasRef.current && fabric) {
-      // Create canvas with extended interaction area
       const fabricCanvas = new fabric.Canvas(canvasRef.current, {
-        width: 400,  // Extended width for controls
-        height: 650, // Extended height for controls
-        backgroundColor: 'transparent',
+        width: DISPLAY_WIDTH,   // 100px
+        height: DISPLAY_HEIGHT,  // 200px
+        backgroundColor: 'white',
         containerClass: 'canvas-container',
         selection: true,
         preserveObjectStacking: true
-      });
-      
-      // Create visible canvas area (phone case)
-      const canvasBackground = new fabric.Rect({
-        left: 100,
-        top: 100,
-        width: 200,
-        height: 450,
-        fill: 'white',
-        selectable: false,
-        evented: false,
-        excludeFromExport: true
-      });
-      
-      fabricCanvas.add(canvasBackground);
-      
-      // Set up clipping to hide image parts outside phone case
-      fabricCanvas.clipPath = new fabric.Rect({
-        left: 100,
-        top: 100,
-        width: 200,
-        height: 450,
-        absolutePositioned: true
       });
       
       // Configure default control settings for mobile-friendly interaction
@@ -68,12 +50,12 @@ export default function Home() {
       fabric.Object.prototype.borderScaleFactor = 2;
       fabric.Object.prototype.padding = 10; // Reduced padding around objects
 
-      // Add border as a fabric object so it's included in the export
+      // Add border as a fabric object
       const border = new fabric.Rect({
-        left: 100.5,
-        top: 100.5,
-        width: 199,
-        height: 449,
+        left: 0,
+        top: 0,
+        width: DISPLAY_WIDTH,  // 100px
+        height: DISPLAY_HEIGHT, // 200px
         fill: 'transparent',
         stroke: '#333',
         strokeWidth: 1,
@@ -81,11 +63,11 @@ export default function Home() {
         evented: false
       });
 
-      // Create crosshair guidelines (adjusted for padding)
-      const centerX = 200; // Center of phone case (100px padding + 100px half width)
-      const centerY = 325; // Center of phone case (100px padding + 225px half height)
+      // Create crosshair guidelines
+      const centerX = DISPLAY_WIDTH / 2;   // 50px
+      const centerY = DISPLAY_HEIGHT / 2;  // 100px
       
-      const verticalLine = new fabric.Line([centerX, 100, centerX, 550], {
+      const verticalLine = new fabric.Line([centerX, 0, centerX, DISPLAY_HEIGHT], {
         stroke: '#00ff00',
         strokeWidth: 1,
         strokeDashArray: [5, 5],
@@ -98,7 +80,7 @@ export default function Home() {
         hasBorders: false
       });
       
-      const horizontalLine = new fabric.Line([100, centerY, 300, centerY], {
+      const horizontalLine = new fabric.Line([0, centerY, DISPLAY_WIDTH, centerY], {
         stroke: '#00ff00',
         strokeWidth: 1,
         strokeDashArray: [5, 5],
@@ -159,6 +141,43 @@ export default function Home() {
           return;
         }
         
+        // Enforce canvas boundaries with more lenient approach for rotated objects
+        const objBounds = obj.getBoundingRect(true, true);
+        
+        // Only enforce boundaries if object is completely outside canvas
+        // This allows free movement while preventing objects from getting lost
+        let needsAdjustment = false;
+        let adjustX = 0;
+        let adjustY = 0;
+        
+        // Check if completely outside canvas boundaries
+        if (objBounds.left > DISPLAY_WIDTH) {
+          // Completely off the right edge
+          adjustX = DISPLAY_WIDTH - objBounds.left - objBounds.width;
+          needsAdjustment = true;
+        } else if (objBounds.left + objBounds.width < 0) {
+          // Completely off the left edge
+          adjustX = -objBounds.left;
+          needsAdjustment = true;
+        }
+        
+        if (objBounds.top > DISPLAY_HEIGHT) {
+          // Completely off the bottom edge
+          adjustY = DISPLAY_HEIGHT - objBounds.top - objBounds.height;
+          needsAdjustment = true;
+        } else if (objBounds.top + objBounds.height < 0) {
+          // Completely off the top edge
+          adjustY = -objBounds.top;
+          needsAdjustment = true;
+        }
+        
+        // Apply adjustment if needed
+        if (needsAdjustment) {
+          obj.left += adjustX;
+          obj.top += adjustY;
+          obj.setCoords();
+        }
+        
         // Get current mouse position
         const mousePos = mouseCanvasPos.current;
         
@@ -210,6 +229,9 @@ export default function Home() {
         }
         
         // If not locked, check for initial snap
+        const centerX = DISPLAY_WIDTH / 2;   // 50px
+        const centerY = DISPLAY_HEIGHT / 2;  // 100px
+        
         if (!isLockedX || !isLockedY) {
           const objBoundingRect = obj.getBoundingRect(true);
           const objCenterX = objBoundingRect.left + objBoundingRect.width / 2;
@@ -338,6 +360,46 @@ export default function Home() {
       
       // Handle object modifications (scaling, rotating)
       fabricCanvas.on('object:modified', function(e: any) {
+        const obj = e.target;
+        
+        // Gentle boundary enforcement after modifications
+        // Only pull back if completely outside canvas
+        const objBounds = obj.getBoundingRect(true, true);
+        
+        // Check if object is completely outside and needs to be pulled back
+        if (objBounds.left > DISPLAY_WIDTH || 
+            objBounds.left + objBounds.width < 0 ||
+            objBounds.top > DISPLAY_HEIGHT || 
+            objBounds.top + objBounds.height < 0) {
+          
+          // Pull object back to nearest edge
+          const currentCenter = obj.getCenterPoint();
+          let newCenterX = currentCenter.x;
+          let newCenterY = currentCenter.y;
+          
+          // Only constrain if completely outside
+          if (objBounds.left > DISPLAY_WIDTH) {
+            newCenterX = DISPLAY_WIDTH - objBounds.width / 2;
+          } else if (objBounds.left + objBounds.width < 0) {
+            newCenterX = objBounds.width / 2;
+          }
+          
+          if (objBounds.top > DISPLAY_HEIGHT) {
+            newCenterY = DISPLAY_HEIGHT - objBounds.height / 2;
+          } else if (objBounds.top + objBounds.height < 0) {
+            newCenterY = objBounds.height / 2;
+          }
+          
+          obj.setPositionByOrigin(
+            new fabric.Point(newCenterX, newCenterY),
+            'center',
+            'center'
+          );
+        }
+        
+        obj.setCoords();
+        fabricCanvas.renderAll();
+        
         // Reset rotation lock and flag on modification end
         hasSnappedRef.current.rotation = false;
         isRotating.current = false;
@@ -378,16 +440,18 @@ export default function Home() {
               canvas.remove(uploadedImage);
             }
 
-            // Scale image to fit within phone case
-            const scale = Math.min(180 / fabricImage.width!, 430 / fabricImage.height!);
+            // Scale image to fit within display canvas
+            const maxDisplayWidth = DISPLAY_WIDTH * 0.8;  // 80% of canvas width
+            const maxDisplayHeight = DISPLAY_HEIGHT * 0.8; // 80% of canvas height
+            const scale = Math.min(maxDisplayWidth / fabricImage.width!, maxDisplayHeight / fabricImage.height!);
             fabricImage.scale(scale);
             
-            // Center the image on the phone case (accounting for padding)
-            const imgWidth = fabricImage.width! * scale;
-            const imgHeight = fabricImage.height! * scale;
+            // Center the image on the canvas
             fabricImage.set({
-              left: 100 + (200 - imgWidth) / 2, // Center on phone case
-              top: 100 + (450 - imgHeight) / 2  // Center on phone case
+              left: DISPLAY_WIDTH / 2,  // Center position
+              top: DISPLAY_HEIGHT / 2,  // Center position
+              originX: 'center',
+              originY: 'center'
             });
 
             // Add image normally - crosshairs will stay on top due to render order
@@ -416,45 +480,99 @@ export default function Home() {
   const handleSubmit = async () => {
     if (canvas) {
       try {
-        // Create a temporary canvas for the phone case area
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = 200;  // Phone case width
-        tempCanvas.height = 450; // Phone case height
-        const ctx = tempCanvas.getContext('2d');
-        
-        if (!ctx) {
-          alert('Failed to create canvas context');
-          return;
-        }
-        
-        // Fill with white background
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, 200, 450);
-        
-        // Method 1: Use Fabric's built-in toDataURL with cropping
-        // Hide crosshairs before export
+        // First, temporarily hide crosshair lines
         const originalVerticalVisible = crosshairLines.vertical?.visible;
         const originalHorizontalVisible = crosshairLines.horizontal?.visible;
-        
         if (crosshairLines.vertical) crosshairLines.vertical.visible = false;
         if (crosshairLines.horizontal) crosshairLines.horizontal.visible = false;
         
+        // Also hide the border rect
+        const borderRect = canvas.getObjects().find((obj: any) => 
+          obj.type === 'rect' && obj.stroke === '#333' && obj.fill === 'transparent'
+        );
+        const originalBorderVisible = borderRect?.visible;
+        if (borderRect) borderRect.visible = false;
+        
+        // Export the canvas directly
         canvas.renderAll();
         
-        // Export only the phone case area (cropping out the padding)
+        // Export at printer size (100x185) by scaling down from display size
+        // Display is 3x larger, so divide by SCALE_FACTOR to get printer size
         const dataURL = canvas.toDataURL({
           format: 'png',
-          left: 100,
-          top: 100,
-          width: 200,
-          height: 450,
-          multiplier: 1
+          left: 0,
+          top: 0,
+          width: DISPLAY_WIDTH,   // 300px display size
+          height: DISPLAY_HEIGHT, // 555px display size
+          multiplier: 1 / SCALE_FACTOR // Scale down by 3x to get 100x185 for printer
         });
         
-        // Restore crosshairs
+        // Export at 1:1 scale - no multiplier
+        // This was likely working before
+        const printerMultiplier = 1; // No scaling - exact size
+        
+        const jpegDataURL = canvas.toDataURL({
+          format: 'jpeg',
+          quality: 0.95,
+          left: 0,
+          top: 0,
+          width: DISPLAY_WIDTH,   // 300px display
+          height: DISPLAY_HEIGHT, // 555px display
+          multiplier: 1 / SCALE_FACTOR, // Scale down to 100x185 for printer
+          enableRetinaScaling: false,
+          withoutTransform: false,
+          withoutShadow: true
+        });
+        
+        // Restore crosshair and border visibility
         if (crosshairLines.vertical) crosshairLines.vertical.visible = originalVerticalVisible;
         if (crosshairLines.horizontal) crosshairLines.horizontal.visible = originalHorizontalVisible;
+        if (borderRect) borderRect.visible = originalBorderVisible;
         canvas.renderAll();
+        
+        // Debug: Check if image is actually in the export
+        console.log('=== CANVAS EXPORT DEBUG ===');
+        console.log('Canvas dimensions:', { width: DISPLAY_WIDTH, height: DISPLAY_HEIGHT });
+        console.log('Canvas aspect ratio:', DISPLAY_WIDTH / DISPLAY_HEIGHT);
+        console.log('Canvas objects before export:', canvas.getObjects().map((obj: any) => ({
+          type: obj.type,
+          visible: obj.visible,
+          left: obj.left,
+          top: obj.top,
+          width: obj.width,
+          height: obj.height,
+          scaleX: obj.scaleX,
+          scaleY: obj.scaleY
+        })));
+        
+        // Check what's visible in the canvas bounds
+        const visibleObjects = canvas.getObjects().filter((obj: any) => {
+          if (!obj.visible) return false;
+          const bounds = obj.getBoundingRect();
+          return bounds.left < DISPLAY_WIDTH && 
+                 bounds.top < DISPLAY_HEIGHT && 
+                 bounds.left + bounds.width > 0 && 
+                 bounds.top + bounds.height > 0;
+        });
+        console.log('Objects visible in canvas bounds:', visibleObjects.length);
+        
+        // Create a test export to verify content
+        const testExport = canvas.toDataURL({
+          format: 'png',
+          left: 0,
+          top: 0,
+          width: DISPLAY_WIDTH,
+          height: DISPLAY_HEIGHT,
+          multiplier: 1
+        });
+        console.log('Test export (100x200) data URL length:', testExport.length);
+        console.log('Test export starts with:', testExport.substring(0, 50));
+        
+        // Debug: Check data URL
+        console.log('JPEG multiplier:', printerMultiplier);
+        console.log('JPEG export size:', `${DISPLAY_WIDTH * printerMultiplier}x${DISPLAY_HEIGHT * printerMultiplier}`);
+        console.log('JPEG data URL starts with:', jpegDataURL.substring(0, 50));
+        console.log('JPEG data size:', jpegDataURL.length);
         
         // Get canvas state for debugging
         const canvasData = {
@@ -462,8 +580,7 @@ export default function Home() {
             // Filter out UI elements
             return obj !== crosshairLines.vertical && 
                    obj !== crosshairLines.horizontal && 
-                   !(obj.fill === '#f0f0f0') &&
-                   !(obj.stroke === '#333' && obj.width === 200);
+                   !(obj.type === 'rect' && obj.stroke === '#333' && obj.fill === 'transparent');
           }).map((obj: any) => ({
           type: obj.type,
           left: obj.left,
@@ -478,12 +595,12 @@ export default function Home() {
           strokeWidth: obj.strokeWidth,
           src: obj.type === 'image' ? obj.getSrc() : undefined
         })),
-          canvasWidth: 200,  // Phone case width
-          canvasHeight: 450, // Phone case height
+          width: DISPLAY_WIDTH,   // 100px = 100mm exact
+          height: DISPLAY_HEIGHT, // 200px = 200mm exact
           backgroundColor: 'white'
         };
         
-        // Send to backend
+        // Send to backend (save locally)
         const response = await fetch('/api/submit-design', {
           method: 'POST',
           headers: {
@@ -496,8 +613,35 @@ export default function Home() {
           }),
         });
 
-        if (response.ok) {
-          alert('Design submitted successfully!');
+        if (!response.ok) {
+          alert('Failed to save design locally');
+          return;
+        }
+        
+        // Also send to printer
+        console.log('Sending to printer...');
+        console.log('JPEG data URL length:', jpegDataURL.length);
+        console.log('JPEG data URL preview:', jpegDataURL.substring(0, 100));
+        
+        const printerResponse = await fetch('/api/printer-submit', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            imageData: jpegDataURL,  // Use JPEG for printer
+            canvasData: canvasData
+          }),
+        });
+        
+        if (printerResponse.ok) {
+          const printerData = await printerResponse.json();
+          console.log('Printer response:', printerData);
+          alert('Design submitted successfully to printer!');
+        } else {
+          const error = await printerResponse.json();
+          console.error('Printer submission failed:', error);
+          alert('Design saved locally but failed to send to printer: ' + error.error);
         }
       } catch (error) {
         console.error('Error submitting design:', error);
@@ -511,8 +655,8 @@ export default function Home() {
       <h1 className="text-3xl font-bold mb-8">Phone Case Designer</h1>
       
       <div className="flex gap-8">
-        <div className="relative" style={{ width: '400px', height: '650px', overflow: 'visible' }}>
-          <canvas ref={canvasRef} style={{ position: 'absolute' }} />
+        <div className="relative border-2 border-gray-500 rounded" style={{ width: `${DISPLAY_WIDTH}px`, height: `${DISPLAY_HEIGHT}px`, overflow: 'hidden' }}>
+          <canvas ref={canvasRef} />
         </div>
         
         <div className="flex flex-col gap-4">
