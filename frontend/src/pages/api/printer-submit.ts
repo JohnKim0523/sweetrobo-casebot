@@ -486,7 +486,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const designTop = 0;    
     const designRight = printerCanvasWidth;  // 100
     const designBottom = printerCanvasHeight; // 185
-    
     // Exact dimensions
     const designWidth = printerCanvasWidth;  // 100
     const designHeight = printerCanvasHeight; // 185
