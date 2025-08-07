@@ -7,6 +7,11 @@ const SCALE_FACTOR = 3;  // 3x larger for UI
 const DISPLAY_WIDTH = 100 * SCALE_FACTOR;   // 300 pixels (represents 100mm)
 const DISPLAY_HEIGHT = 185 * SCALE_FACTOR;  // 555 pixels (represents 185mm)
 
+// Add padding for controls to be visible outside canvas
+const CONTROL_PADDING = 150; // Extra space around canvas for controls
+const CANVAS_TOTAL_WIDTH = DISPLAY_WIDTH + (CONTROL_PADDING * 2);   // 600px total
+const CANVAS_TOTAL_HEIGHT = DISPLAY_HEIGHT + (CONTROL_PADDING * 2); // 855px total
+
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvas, setCanvas] = useState<any>(null);
@@ -33,12 +38,35 @@ export default function Home() {
   useEffect(() => {
     if (canvasRef.current && fabric) {
       const fabricCanvas = new fabric.Canvas(canvasRef.current, {
-        width: DISPLAY_WIDTH,   // 100px
-        height: DISPLAY_HEIGHT,  // 200px
-        backgroundColor: 'white',
+        width: CANVAS_TOTAL_WIDTH,   // Full width with padding
+        height: CANVAS_TOTAL_HEIGHT,  // Full height with padding
+        backgroundColor: 'transparent', // Transparent background for padding area
         containerClass: 'canvas-container',
         selection: true,
         preserveObjectStacking: true
+      });
+      
+      // Add white background rectangle for the actual canvas area
+      const canvasBackground = new fabric.Rect({
+        left: CONTROL_PADDING,
+        top: CONTROL_PADDING,
+        width: DISPLAY_WIDTH,
+        height: DISPLAY_HEIGHT,
+        fill: 'white',
+        selectable: false,
+        evented: false,
+        excludeFromExport: true
+      });
+      
+      fabricCanvas.add(canvasBackground);
+      
+      // Set up clipping to hide image parts outside white canvas area
+      fabricCanvas.clipPath = new fabric.Rect({
+        left: CONTROL_PADDING,
+        top: CONTROL_PADDING,
+        width: DISPLAY_WIDTH,
+        height: DISPLAY_HEIGHT,
+        absolutePositioned: true
       });
       
       // Configure default control settings for mobile-friendly interaction
@@ -50,24 +78,24 @@ export default function Home() {
       fabric.Object.prototype.borderScaleFactor = 2;
       fabric.Object.prototype.padding = 10; // Reduced padding around objects
 
-      // Add border as a fabric object
+      // Add border as a fabric object (positioned with padding)
       const border = new fabric.Rect({
-        left: 0,
-        top: 0,
-        width: DISPLAY_WIDTH,  // 100px
-        height: DISPLAY_HEIGHT, // 200px
+        left: CONTROL_PADDING,
+        top: CONTROL_PADDING,
+        width: DISPLAY_WIDTH,
+        height: DISPLAY_HEIGHT,
         fill: 'transparent',
         stroke: '#333',
-        strokeWidth: 1,
+        strokeWidth: 2,
         selectable: false,
         evented: false
       });
 
-      // Create crosshair guidelines
-      const centerX = DISPLAY_WIDTH / 2;   // 50px
-      const centerY = DISPLAY_HEIGHT / 2;  // 100px
+      // Create crosshair guidelines (accounting for padding)
+      const centerX = CONTROL_PADDING + DISPLAY_WIDTH / 2;
+      const centerY = CONTROL_PADDING + DISPLAY_HEIGHT / 2;
       
-      const verticalLine = new fabric.Line([centerX, 0, centerX, DISPLAY_HEIGHT], {
+      const verticalLine = new fabric.Line([centerX, CONTROL_PADDING, centerX, CONTROL_PADDING + DISPLAY_HEIGHT], {
         stroke: '#00ff00',
         strokeWidth: 1,
         strokeDashArray: [5, 5],
@@ -80,7 +108,7 @@ export default function Home() {
         hasBorders: false
       });
       
-      const horizontalLine = new fabric.Line([0, centerY, DISPLAY_WIDTH, centerY], {
+      const horizontalLine = new fabric.Line([CONTROL_PADDING, centerY, CONTROL_PADDING + DISPLAY_WIDTH, centerY], {
         stroke: '#00ff00',
         strokeWidth: 1,
         strokeDashArray: [5, 5],
@@ -150,24 +178,29 @@ export default function Home() {
         let adjustX = 0;
         let adjustY = 0;
         
-        // Check if completely outside canvas boundaries
-        if (objBounds.left > DISPLAY_WIDTH) {
+        // Check if completely outside canvas boundaries (accounting for padding)
+        const canvasLeft = CONTROL_PADDING;
+        const canvasRight = CONTROL_PADDING + DISPLAY_WIDTH;
+        const canvasTop = CONTROL_PADDING;
+        const canvasBottom = CONTROL_PADDING + DISPLAY_HEIGHT;
+        
+        if (objBounds.left > canvasRight) {
           // Completely off the right edge
-          adjustX = DISPLAY_WIDTH - objBounds.left - objBounds.width;
+          adjustX = canvasRight - objBounds.left - objBounds.width;
           needsAdjustment = true;
-        } else if (objBounds.left + objBounds.width < 0) {
+        } else if (objBounds.left + objBounds.width < canvasLeft) {
           // Completely off the left edge
-          adjustX = -objBounds.left;
+          adjustX = canvasLeft - objBounds.left;
           needsAdjustment = true;
         }
         
-        if (objBounds.top > DISPLAY_HEIGHT) {
+        if (objBounds.top > canvasBottom) {
           // Completely off the bottom edge
-          adjustY = DISPLAY_HEIGHT - objBounds.top - objBounds.height;
+          adjustY = canvasBottom - objBounds.top - objBounds.height;
           needsAdjustment = true;
-        } else if (objBounds.top + objBounds.height < 0) {
+        } else if (objBounds.top + objBounds.height < canvasTop) {
           // Completely off the top edge
-          adjustY = -objBounds.top;
+          adjustY = canvasTop - objBounds.top;
           needsAdjustment = true;
         }
         
@@ -229,8 +262,8 @@ export default function Home() {
         }
         
         // If not locked, check for initial snap
-        const centerX = DISPLAY_WIDTH / 2;   // 50px
-        const centerY = DISPLAY_HEIGHT / 2;  // 100px
+        const centerX = CONTROL_PADDING + DISPLAY_WIDTH / 2;   // Center with padding
+        const centerY = CONTROL_PADDING + DISPLAY_HEIGHT / 2;  // Center with padding
         
         if (!isLockedX || !isLockedY) {
           const objBoundingRect = obj.getBoundingRect(true);
@@ -446,10 +479,10 @@ export default function Home() {
             const scale = Math.min(maxDisplayWidth / fabricImage.width!, maxDisplayHeight / fabricImage.height!);
             fabricImage.scale(scale);
             
-            // Center the image on the canvas
+            // Center the image on the canvas (accounting for padding)
             fabricImage.set({
-              left: DISPLAY_WIDTH / 2,  // Center position
-              top: DISPLAY_HEIGHT / 2,  // Center position
+              left: CONTROL_PADDING + DISPLAY_WIDTH / 2,  // Center position with padding
+              top: CONTROL_PADDING + DISPLAY_HEIGHT / 2,   // Center position with padding
               originX: 'center',
               originY: 'center'
             });
@@ -496,14 +529,14 @@ export default function Home() {
         // Export the canvas directly
         canvas.renderAll();
         
-        // Export at printer size (100x185) by scaling down from display size
-        // Display is 3x larger, so divide by SCALE_FACTOR to get printer size
+        // Export ONLY the white canvas area (not the padding)
+        // Crop from CONTROL_PADDING position and scale down to printer size
         const dataURL = canvas.toDataURL({
           format: 'png',
-          left: 0,
-          top: 0,
-          width: DISPLAY_WIDTH,   // 300px display size
-          height: DISPLAY_HEIGHT, // 555px display size
+          left: CONTROL_PADDING,    // Start from canvas area, not padding
+          top: CONTROL_PADDING,     // Start from canvas area, not padding
+          width: DISPLAY_WIDTH,     // Only the white canvas width
+          height: DISPLAY_HEIGHT,   // Only the white canvas height
           multiplier: 1 / SCALE_FACTOR // Scale down by 3x to get 100x185 for printer
         });
         
@@ -514,10 +547,10 @@ export default function Home() {
         const jpegDataURL = canvas.toDataURL({
           format: 'jpeg',
           quality: 0.95,
-          left: 0,
-          top: 0,
-          width: DISPLAY_WIDTH,   // 300px display
-          height: DISPLAY_HEIGHT, // 555px display
+          left: CONTROL_PADDING,    // Crop from canvas area only
+          top: CONTROL_PADDING,     // Crop from canvas area only
+          width: DISPLAY_WIDTH,     // Only white canvas area
+          height: DISPLAY_HEIGHT,   // Only white canvas area
           multiplier: 1 / SCALE_FACTOR, // Scale down to 100x185 for printer
           enableRetinaScaling: false,
           withoutTransform: false,
@@ -545,22 +578,22 @@ export default function Home() {
           scaleY: obj.scaleY
         })));
         
-        // Check what's visible in the canvas bounds
+        // Check what's visible in the canvas bounds (accounting for padding)
         const visibleObjects = canvas.getObjects().filter((obj: any) => {
           if (!obj.visible) return false;
           const bounds = obj.getBoundingRect();
-          return bounds.left < DISPLAY_WIDTH && 
-                 bounds.top < DISPLAY_HEIGHT && 
-                 bounds.left + bounds.width > 0 && 
-                 bounds.top + bounds.height > 0;
+          return bounds.left < CONTROL_PADDING + DISPLAY_WIDTH && 
+                 bounds.top < CONTROL_PADDING + DISPLAY_HEIGHT && 
+                 bounds.left + bounds.width > CONTROL_PADDING && 
+                 bounds.top + bounds.height > CONTROL_PADDING;
         });
         console.log('Objects visible in canvas bounds:', visibleObjects.length);
         
         // Create a test export to verify content
         const testExport = canvas.toDataURL({
           format: 'png',
-          left: 0,
-          top: 0,
+          left: CONTROL_PADDING,
+          top: CONTROL_PADDING,
           width: DISPLAY_WIDTH,
           height: DISPLAY_HEIGHT,
           multiplier: 1
@@ -651,30 +684,30 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center p-8">
-      <h1 className="text-3xl font-bold mb-8">Phone Case Designer</h1>
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center p-4">
+      <h1 className="text-3xl font-bold mb-6">Phone Case Designer</h1>
       
-      <div className="flex gap-8">
-        <div className="relative border-2 border-gray-500 rounded" style={{ width: `${DISPLAY_WIDTH}px`, height: `${DISPLAY_HEIGHT}px`, overflow: 'hidden' }}>
-          <canvas ref={canvasRef} />
+      {/* Canvas with padding for controls */}
+      <div className="mb-6 bg-gray-800 p-2 rounded-lg shadow-2xl">
+        <canvas ref={canvasRef} />
+      </div>
+      
+      {/* Controls below canvas for more space */}
+      <div className="flex gap-4 flex-wrap justify-center">
+        <div 
+          {...getRootProps()} 
+          className="border-2 border-dashed border-gray-500 px-8 py-4 rounded cursor-pointer hover:border-gray-400 transition"
+        >
+          <input {...getInputProps()} />
+          <p className="text-center">Drop an image here<br/>or click to upload</p>
         </div>
         
-        <div className="flex flex-col gap-4">
-          <div 
-            {...getRootProps()} 
-            className="border-2 border-dashed border-gray-500 p-8 rounded cursor-pointer hover:border-gray-400 transition"
-          >
-            <input {...getInputProps()} />
-            <p>Drop an image here or click to upload</p>
-          </div>
-          
-          <button
-            onClick={handleSubmit}
-            className="bg-purple-600 hover:bg-purple-700 px-6 py-3 rounded font-semibold transition"
-          >
-            Submit Design
-          </button>
-        </div>
+        <button
+          onClick={handleSubmit}
+          className="bg-purple-600 hover:bg-purple-700 px-8 py-4 rounded font-semibold transition"
+        >
+          Submit Design
+        </button>
       </div>
     </div>
   );

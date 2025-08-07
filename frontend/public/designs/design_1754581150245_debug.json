@@ -1,0 +1,23 @@
+{
+  "objects": [
+    {
+      "type": "rect",
+      "left": 150,
+      "top": 150,
+      "width": 300,
+      "height": 555,
+      "scaleX": 1,
+      "scaleY": 1,
+      "angle": 0,
+      "fill": "white",
+      "stroke": null,
+      "strokeWidth": 1
+    }
+  ],
+  "width": 300,
+  "height": 555,
+  "backgroundColor": "white",
+  "timestamp": 1754581150245,
+  "submittedAt": "2025-08-07T15:39:11.130Z",
+  "imageSize": 960
+}
