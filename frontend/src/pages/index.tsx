@@ -1,6 +1,7 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Modal from 'react-modal';
+import 'cropperjs/dist/cropper.css';
 
 // Set app element for accessibility
 if (typeof window !== 'undefined') {
@@ -40,6 +41,7 @@ export default function Home() {
   const [currentMask, setCurrentMask] = useState<string | null>(null);  // Current mask being drawn
   const [aiError, setAiError] = useState<string | null>(null);
   const [editHistory, setEditHistory] = useState<string[]>([]);
+  const [cropHistory, setCropHistory] = useState<string[]>([]);
   const [drawingMode, setDrawingMode] = useState<boolean>(false);
   const [drawnMask, setDrawnMask] = useState<string | null>(null);
   const [isManipulating, setIsManipulating] = useState<boolean>(false);
@@ -47,6 +49,11 @@ export default function Home() {
   const [cropRect, setCropRect] = useState<{left: number, top: number, width: number, height: number} | null>(null);
   const snapStateRef = useRef<{x: boolean, y: boolean}>({x: false, y: false});
   const hasSnappedRef = useRef<{x: boolean, y: boolean, rotation: boolean, borderLeft: boolean, borderRight: boolean, borderTop: boolean, borderBottom: boolean}>({x: false, y: false, rotation: false, borderLeft: false, borderRight: false, borderTop: false, borderBottom: false});
+  const dragStartBounds = useRef<{left: number, top: number, right: number, bottom: number, width: number, height: number} | null>(null);
+  const [showCropper, setShowCropper] = useState(false);
+  const cropperRef = useRef<any>(null);
+  const cropperImageRef = useRef<HTMLImageElement | null>(null);
+  const cropperElementRef = useRef<HTMLImageElement | null>(null);
   const mouseCanvasPos = useRef<{x: number, y: number}>({x: 0, y: 0});
   const lockMousePos = useRef<{x: number, y: number}>({x: 0, y: 0});
   const lockedObjectPos = useRef<{x: number, y: number}>({x: 0, y: 0});
@@ -202,95 +209,144 @@ export default function Home() {
         ctx.restore();
       };
       
-      // Custom scissor icon renderer for crop controls
-      const renderScissorIcon = (ctx: CanvasRenderingContext2D, left: number, top: number, styleOverride: any, fabricObject: any) => {
-        const size = fabricObject.cornerSize || 15;
-        
+      // Generic arrow renderer that rotates with the object
+      const renderArrow = (ctx: CanvasRenderingContext2D, left: number, top: number, styleOverride: any, fabricObject: any, direction: 'up' | 'down' | 'left' | 'right') => {
+        const size = 12;
         ctx.save();
-        ctx.strokeStyle = '#FF6B35';
-        ctx.fillStyle = '#FF6B35';
+        ctx.strokeStyle = '#4CAF50';
+        ctx.fillStyle = '#4CAF50';
         ctx.lineWidth = 2;
         
-        // Draw scissor shape
-        const halfSize = size / 2;
+        // Move to arrow position
+        ctx.translate(left, top);
         
-        // Left blade
-        ctx.beginPath();
-        ctx.arc(left - halfSize/2, top - halfSize/2, 3, 0, 2 * Math.PI);
-        ctx.fill();
+        // Determine base rotation for the arrow direction
+        let baseRotation = 0;
+        switch (direction) {
+          case 'up': baseRotation = 0; break;
+          case 'right': baseRotation = Math.PI / 2; break;
+          case 'down': baseRotation = Math.PI; break;
+          case 'left': baseRotation = -Math.PI / 2; break;
+        }
         
-        // Right blade  
-        ctx.beginPath();
-        ctx.arc(left + halfSize/2, top - halfSize/2, 3, 0, 2 * Math.PI);
-        ctx.fill();
+        // Get object rotation in radians
+        const objectRotation = (fabricObject.angle || 0) * Math.PI / 180;
         
-        // Scissor handles (lines)
-        ctx.beginPath();
-        ctx.moveTo(left - halfSize/2, top - halfSize/2);
-        ctx.lineTo(left - halfSize/4, top + halfSize/2);
-        ctx.stroke();
+        // Apply total rotation (base direction + object rotation)
+        ctx.rotate(baseRotation + objectRotation);
         
+        // Draw upward-pointing arrow (will be rotated to correct direction)
         ctx.beginPath();
-        ctx.moveTo(left + halfSize/2, top - halfSize/2);
-        ctx.lineTo(left + halfSize/4, top + halfSize/2);
-        ctx.stroke();
-        
-        // Connecting pivot
-        ctx.beginPath();
-        ctx.arc(left, top, 2, 0, 2 * Math.PI);
+        ctx.moveTo(0, -size/2);
+        ctx.lineTo(-size/3, size/6);
+        ctx.lineTo(size/3, size/6);
+        ctx.closePath();
         ctx.fill();
         
         ctx.restore();
       };
+
+      // Individual arrow renderers for each direction
+      const renderUpArrow = (ctx: CanvasRenderingContext2D, left: number, top: number, styleOverride: any, fabricObject: any) => {
+        renderArrow(ctx, left, top, styleOverride, fabricObject, 'up');
+      };
+
+      const renderDownArrow = (ctx: CanvasRenderingContext2D, left: number, top: number, styleOverride: any, fabricObject: any) => {
+        renderArrow(ctx, left, top, styleOverride, fabricObject, 'down');
+      };
+
+      const renderLeftArrow = (ctx: CanvasRenderingContext2D, left: number, top: number, styleOverride: any, fabricObject: any) => {
+        renderArrow(ctx, left, top, styleOverride, fabricObject, 'left');
+      };
+
+      const renderRightArrow = (ctx: CanvasRenderingContext2D, left: number, top: number, styleOverride: any, fabricObject: any) => {
+        renderArrow(ctx, left, top, styleOverride, fabricObject, 'right');
+      };
       
-      // Crop action handler
-      const cropActionHandler = (eventData: any, transform: any, x: number, y: number) => {
-        // This will be called when crop control is dragged
-        const target = transform.target as any;
-        if (!target || target.type !== 'image') return false;
+      // Scale action handler - resizes the image uniformly
+      const scaleActionHandler = fabric.controlsUtils.scalingEqually;
+      
+      // Reset drag bounds when drag ends
+      const resetDragBounds = () => {
+        dragStartBounds.current = null;
+      };
+      
+      // Apply final crop when drag ends (for top/left scissors)
+      const applyFinalCrop = (target: any) => {
+        console.log('applyFinalCrop called for:', target._lastCropControl);
+        if (!target || target.type !== 'image' || !target._element) return;
         
-        // Get the current crop rect or initialize it
-        const currentCrop = target._cropRect || {
-          left: 0,
-          top: 0,
-          width: target.width || 100,
-          height: target.height || 100
-        };
+        // Get the current visible bounds
+        const currentBounds = target.getBoundingRect();
         
-        // Calculate new crop dimensions based on drag
-        const pointer = fabricCanvas.getPointer(eventData.e);
-        const imageLeft = target.left - ((target.width || 0) * (target.scaleX || 1)) / 2;
-        const imageTop = target.top - ((target.height || 0) * (target.scaleY || 1)) / 2;
+        // Create a temporary canvas for the cropped image
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d');
         
-        // Update crop rect based on which corner was dragged
-        const newCrop = { ...currentCrop };
-        const targetWidth = target.width || 100;
-        const targetHeight = target.height || 100;
-        const targetScaleX = target.scaleX || 1;
-        const targetScaleY = target.scaleY || 1;
+        if (!tempCtx) return;
         
-        // Simple crop resize logic
-        if (x < 0 && y < 0) { // top-left
-          newCrop.left = Math.max(0, (pointer.x - imageLeft) / targetScaleX);
-          newCrop.top = Math.max(0, (pointer.y - imageTop) / targetScaleY);
-        } else if (x > 0 && y < 0) { // top-right
-          newCrop.width = Math.min(targetWidth, (pointer.x - imageLeft) / targetScaleX);
-          newCrop.top = Math.max(0, (pointer.y - imageTop) / targetScaleY);
-        } else if (x < 0 && y > 0) { // bottom-left
-          newCrop.left = Math.max(0, (pointer.x - imageLeft) / targetScaleX);
-          newCrop.height = Math.min(targetHeight, (pointer.y - imageTop) / targetScaleY);
-        } else if (x > 0 && y > 0) { // bottom-right
-          newCrop.width = Math.min(targetWidth, (pointer.x - imageLeft) / targetScaleX);
-          newCrop.height = Math.min(targetHeight, (pointer.y - imageTop) / targetScaleY);
+        // Set the temp canvas size to match the current visible size
+        tempCanvas.width = currentBounds.width;
+        tempCanvas.height = currentBounds.height;
+        
+        // Get the original image element
+        const origImg = target._element;
+        
+        // Calculate what portion of the original image is currently visible
+        // This accounts for any previous crops or scales
+        const scaleX = target.scaleX || 1;
+        const scaleY = target.scaleY || 1;
+        
+        // For top crop: we want to show the bottom portion of the image
+        // For left crop: we want to show the right portion of the image
+        let sourceX = 0;
+        let sourceY = 0;
+        let sourceWidth = target.width;
+        let sourceHeight = target.height;
+        
+        if (target._lastCropControl === 'mt') {
+          // Top crop: Calculate how much was cropped from top
+          const cropRatio = currentBounds.height / (origImg.naturalHeight || origImg.height);
+          sourceY = origImg.naturalHeight - (currentBounds.height / scaleY);
+          sourceHeight = currentBounds.height / scaleY;
+        } else if (target._lastCropControl === 'ml') {
+          // Left crop: Calculate how much was cropped from left
+          sourceX = origImg.naturalWidth - (currentBounds.width / scaleX);
+          sourceWidth = currentBounds.width / scaleX;
         }
         
-        // Store crop rect in a custom property
-        target._cropRect = newCrop;
+        console.log('Drawing from source:', sourceX, sourceY, sourceWidth, sourceHeight);
+        console.log('To destination:', 0, 0, tempCanvas.width, tempCanvas.height);
         
-        // For now, just update the visual feedback
-        fabricCanvas.renderAll();
+        // Draw the cropped portion
+        tempCtx.drawImage(
+          origImg,
+          sourceX, sourceY, sourceWidth, sourceHeight,
+          0, 0, tempCanvas.width, tempCanvas.height
+        );
         
-        return true;
+        // Convert to data URL and create a new Fabric image
+        const dataURL = tempCanvas.toDataURL('image/png');
+        
+        fabric.Image.fromURL(dataURL, (newImg: any) => {
+          // Copy properties from old image
+          newImg.set({
+            left: target.left,
+            top: target.top,
+            angle: target.angle,
+            flipX: target.flipX,
+            flipY: target.flipY
+          });
+          
+          // Replace the old image
+          const canvas = target.canvas;
+          if (canvas) {
+            canvas.remove(target);
+            canvas.add(newImg);
+            canvas.setActiveObject(newImg);
+            canvas.renderAll();
+          }
+        });
       };
       
       // Define control sets for different modes
@@ -342,72 +398,43 @@ export default function Home() {
           actionName: 'rotate',
           render: renderRotationIcon
         }),
-        // Middle scaling controls
+        // Add middle side controls for proper scaling
         mt: new fabric.Control({
           x: 0,
           y: -0.5,
           actionHandler: fabric.controlsUtils.scalingYOrSkewingX,
           cursorStyleHandler: fabric.controlsUtils.scaleSkewCursorStyleHandler,
-          actionName: 'scaling'
+          actionName: 'scaling',
+          render: renderUpArrow
         }),
         mb: new fabric.Control({
           x: 0,
           y: 0.5,
           actionHandler: fabric.controlsUtils.scalingYOrSkewingX,
           cursorStyleHandler: fabric.controlsUtils.scaleSkewCursorStyleHandler,
-          actionName: 'scaling'
+          actionName: 'scaling',
+          render: renderDownArrow
         }),
         ml: new fabric.Control({
           x: -0.5,
           y: 0,
           actionHandler: fabric.controlsUtils.scalingXOrSkewingY,
           cursorStyleHandler: fabric.controlsUtils.scaleSkewCursorStyleHandler,
-          actionName: 'scaling'
+          actionName: 'scaling',
+          render: renderLeftArrow
         }),
         mr: new fabric.Control({
           x: 0.5,
           y: 0,
           actionHandler: fabric.controlsUtils.scalingXOrSkewingY,
           cursorStyleHandler: fabric.controlsUtils.scaleSkewCursorStyleHandler,
-          actionName: 'scaling'
+          actionName: 'scaling',
+          render: renderRightArrow
         })
       };
       
-      cropControls.current = {
-        // Corner crop controls with scissor icons
-        tl: new fabric.Control({
-          x: -0.5,
-          y: -0.5,
-          actionHandler: cropActionHandler,
-          cursorStyleHandler: () => 'nw-resize',
-          actionName: 'crop',
-          render: renderScissorIcon
-        }),
-        tr: new fabric.Control({
-          x: 0.5,
-          y: -0.5,
-          actionHandler: cropActionHandler,
-          cursorStyleHandler: () => 'ne-resize',
-          actionName: 'crop',
-          render: renderScissorIcon
-        }),
-        bl: new fabric.Control({
-          x: -0.5,
-          y: 0.5,
-          actionHandler: cropActionHandler,
-          cursorStyleHandler: () => 'sw-resize',
-          actionName: 'crop',
-          render: renderScissorIcon
-        }),
-        br: new fabric.Control({
-          x: 0.5,
-          y: 0.5,
-          actionHandler: cropActionHandler,
-          cursorStyleHandler: () => 'se-resize',
-          actionName: 'crop',
-          render: renderScissorIcon
-        })
-      };
+      // Use the normal controls for crop mode as well (no special crop controls needed)
+      cropControls.current = normalControls.current;
       
       // Apply normal controls by default
       fabric.Object.prototype.controls = normalControls.current;
@@ -869,6 +896,18 @@ export default function Home() {
         scalingBorderLock.current = {left: false, right: false, top: false, bottom: false};
         // Show buttons again
         setIsManipulating(false);
+        
+        // Apply final crop if it was a top/left scissor drag
+        const activeObject = fabricCanvas.getActiveObject();
+        if (activeObject && activeObject._lastCropControl) {
+          if (activeObject._lastCropControl === 'mt' || activeObject._lastCropControl === 'ml') {
+            applyFinalCrop(activeObject);
+          }
+          delete activeObject._lastCropControl;
+        }
+        
+        // Reset drag bounds for cropping
+        resetDragBounds();
         // Don't reset snap state here - let the object:moving handler manage it based on position
       });
       
@@ -879,6 +918,39 @@ export default function Home() {
       };
     }
   }, [fabric, isCropMode]);
+
+  // Initialize Cropper when modal opens
+  useEffect(() => {
+    const initCropper = async () => {
+      if (showCropper && cropperElementRef.current && !cropperRef.current) {
+        // Dynamically import Cropper to avoid SSR issues
+        const Cropper = (await import('cropperjs')).default;
+        cropperRef.current = new Cropper(cropperElementRef.current, {
+          aspectRatio: NaN, // Free aspect ratio
+          viewMode: 1,
+          dragMode: 'move',
+          autoCropArea: 1,
+          restore: false,
+          guides: true,
+          center: true,
+          highlight: true,
+          cropBoxMovable: true,
+          cropBoxResizable: true,
+          toggleDragModeOnDblclick: false,
+        });
+      }
+    };
+    
+    initCropper();
+    
+    // Cleanup on unmount or when modal closes
+    return () => {
+      if (cropperRef.current) {
+        cropperRef.current.destroy();
+        cropperRef.current = null;
+      }
+    };
+  }, [showCropper]);
 
   const onDrop = (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0 && canvas && fabric) {
@@ -1595,6 +1667,73 @@ export default function Home() {
     }
   };
   
+  const undoCrop = () => {
+    if (cropHistory.length === 0 || !canvas || !fabric) return;
+    
+    console.log('Undo Crop: History length before:', cropHistory.length);
+    
+    // Get the previous crop state (last item in history)
+    const previousCropStateStr = cropHistory[cropHistory.length - 1];
+    console.log('Undo Crop: Previous state exists:', !!previousCropStateStr);
+    
+    // Remove the last state from crop history
+    setCropHistory(prev => prev.slice(0, -1));
+    
+    // Remove the current uploaded image
+    if (uploadedImage) {
+      console.log('Undo Crop: Removing current image');
+      canvas.remove(uploadedImage);
+      setUploadedImage(null);
+    }
+    
+    // Restore the previous crop state using Image element approach
+    console.log('Undo Crop: Creating image element from previous data...');
+    const imgElement = new Image();
+    imgElement.crossOrigin = 'anonymous';
+    
+    imgElement.onload = () => {
+      console.log('Undo Crop: Image element loaded, creating fabric image...');
+      const restoredImg = new fabric.Image(imgElement);
+      console.log('Undo Crop: Restored fabric image created:', restoredImg);
+      
+      // Scale image to fit within display canvas if needed
+      const maxDisplayWidth = DISPLAY_WIDTH * 0.8;  // 80% of canvas width
+      const maxDisplayHeight = DISPLAY_HEIGHT * 0.8; // 80% of canvas height
+      const scale = Math.min(maxDisplayWidth / restoredImg.width!, maxDisplayHeight / restoredImg.height!);
+      if (scale < 1) {
+        restoredImg.scale(scale);
+      }
+      
+      // Center the restored image on the canvas (accounting for padding)
+      restoredImg.set({
+        left: CONTROL_PADDING + DISPLAY_WIDTH / 2,  // Center position with padding
+        top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,   // Center position with padding
+        originX: 'center',
+        originY: 'center',
+        // Apply custom control settings to this specific image
+        hasBorders: false,
+        borderColor: 'transparent'
+      });
+      
+      // Apply normal controls to the restored image
+      restoredImg.controls = normalControls.current;
+      
+      // Add the restored image back to canvas
+      canvas.add(restoredImg);
+      canvas.setActiveObject(restoredImg);
+      setUploadedImage(restoredImg);
+      canvas.renderAll();
+      
+      console.log('Undo Crop: Image restored successfully');
+    };
+    
+    imgElement.onerror = (error) => {
+      console.error('Undo Crop: Failed to load previous image:', error);
+    };
+    
+    imgElement.src = previousCropStateStr;
+  };
+
   const undoLastEdit = () => {
     if (editHistory.length === 0 || !canvas || !fabric) return;
     
@@ -1847,53 +1986,111 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white text-white flex flex-col items-center justify-center overflow-hidden">
-      {/* Mobile container */}
+      {/* Mobile container - centered on desktop, full on mobile */}
       <div className="w-full max-w-md h-screen relative bg-gray-900">
-        {/* Canvas centered in mobile view - removed header */}
+        {/* Canvas centered in mobile view */}
         <div className="absolute inset-0 flex items-center justify-center">
           <canvas ref={canvasRef} />
         </div>
         
-        {/* Right side controls - icon buttons - moved more inward to avoid cutoff */}
-        <div className={`absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2 transition-opacity duration-200 z-20 ${isManipulating ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+        {/* Right side controls - floating buttons */}
+        <div className={`absolute right-3 top-1/2 -translate-y-1/2 flex flex-col gap-3 transition-opacity duration-200 z-20 ${isManipulating ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
           {/* Upload Button */}
           <div {...getRootProps()}>
             <input {...getInputProps()} />
-            <button className="w-12 h-12 bg-gray-800 rounded-lg flex flex-col items-center justify-center hover:bg-gray-700 transition">
+            <button className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600">
               <span className="text-xl">📁</span>
-              <span className="text-[8px]">Upload</span>
             </button>
           </div>
           
           {/* AI Create Button */}
           <button
             onClick={() => setShowCreateModal(true)}
-            className="w-12 h-12 bg-gray-800 rounded-lg flex flex-col items-center justify-center hover:bg-gray-700 transition"
+            className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
           >
             <span className="text-xl">🎨</span>
-            <span className="text-[8px]">Create</span>
           </button>
-          
           {/* AI Edit Button */}
           {uploadedImage && (
             <button
               onClick={() => setShowAIModal(true)}
-              className="w-12 h-12 bg-gray-800 rounded-lg flex flex-col items-center justify-center hover:bg-gray-700 transition"
+              className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
             >
               <span className="text-xl">✏️</span>
-              <span className="text-[8px]">Edit</span>
             </button>
           )}
-          
           
           {/* AI Masking Button */}
           {uploadedImage && (
             <button
               onClick={() => startMaskDrawing()}
-              className="w-12 h-12 bg-gray-800 rounded-lg flex flex-col items-center justify-center hover:bg-gray-700 transition"
+              className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
             >
               <span className="text-xl">🎭</span>
-              <span className="text-[8px]">Mask</span>
+            </button>
+          )}
+          
+          {/* Crop Button */}
+          {uploadedImage && (
+            <button
+              onClick={() => {
+                if (uploadedImage && uploadedImage.type === 'image') {
+                  // Export the current image state
+                  const imageDataUrl = uploadedImage.toDataURL({
+                    format: 'png',
+                    multiplier: 2,
+                    quality: 1.0
+                  });
+                  
+                  // Store the target for later use when cropping is done
+                  (window as any).currentCropTarget = uploadedImage;
+                  
+                  // Create an image element for cropper
+                  const img = new Image();
+                  img.onload = () => {
+                    cropperImageRef.current = img;
+                    setShowCropper(true);
+                  };
+                  img.src = imageDataUrl;
+                }
+              }}
+              className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
+            >
+              <span className="text-xl">✂️</span>
+            </button>
+          )}
+          
+          {/* Delete Button */}
+          {uploadedImage && (
+            <button
+              onClick={() => {
+                if (uploadedImage && canvas) {
+                  // Remove the image from canvas
+                  canvas.remove(uploadedImage);
+                  canvas.renderAll();
+                  
+                  // Clear the uploaded image state
+                  setUploadedImage(null);
+                  
+                  // Clear crop history since image is deleted
+                  setCropHistory([]);
+                  
+                  console.log('Image deleted from canvas');
+                }
+              }}
+              className="w-14 h-14 bg-red-600 rounded-xl flex items-center justify-center hover:bg-red-700 transition shadow-lg border border-red-500"
+            >
+              <span className="text-xl">🗑️</span>
+            </button>
+          )}
+          
+          {/* Undo Crop Button */}
+          {cropHistory.length > 0 && (
+            <button
+              onClick={undoCrop}
+              className="w-14 h-14 bg-orange-600 rounded-xl flex items-center justify-center hover:bg-orange-700 transition shadow-lg border border-orange-500"
+            >
+              <span className="text-xl">↶</span>
             </button>
           )}
           
@@ -1901,50 +2098,63 @@ export default function Home() {
           {editHistory.length > 0 && (
             <button
               onClick={undoLastEdit}
-              className="w-12 h-12 bg-gray-800 rounded-lg flex flex-col items-center justify-center hover:bg-gray-700 transition"
+              className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
             >
               <span className="text-xl">↩️</span>
-              <span className="text-[8px]">Undo</span>
             </button>
           )}
         </div>
         
-        {/* Bottom controls */}
-        <div className="absolute bottom-0 left-0 right-0 bg-gray-900 p-4 flex justify-between items-center">
+        {/* Bottom controls - mobile friendly */}
+        <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center">
           {/* Rotate buttons */}
-          <div className="flex gap-2">
-            <button 
-              onClick={() => {
-                if (uploadedImage && canvas) {
-                  const angle = uploadedImage.angle - 90;
-                  uploadedImage.rotate(angle);
-                  canvas.renderAll();
-                }
-              }}
-              className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700"
-            >
-              ↺
-            </button>
-            <button 
-              onClick={() => {
-                if (uploadedImage && canvas) {
-                  const angle = uploadedImage.angle + 90;
-                  uploadedImage.rotate(angle);
-                  canvas.renderAll();
-                }
-              }}
-              className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700"
-            >
-              ↻
-            </button>
-          </div>
+          {uploadedImage && (
+            <div className="flex gap-2">
+              <button 
+                onClick={() => {
+                  if (uploadedImage && canvas) {
+                    const angle = uploadedImage.angle - 90;
+                    uploadedImage.rotate(angle);
+                    // Force control refresh by re-setting controls
+                    uploadedImage.controls = normalControls.current;
+                    canvas.renderAll();
+                    // Trigger object selection to refresh controls
+                    canvas.setActiveObject(uploadedImage);
+                    canvas.requestRenderAll();
+                  }
+                }}
+                className="w-12 h-12 bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center shadow-lg text-xl font-bold border border-purple-400"
+              >
+                ↺
+              </button>
+              
+              <button 
+                onClick={() => {
+                  if (uploadedImage && canvas) {
+                    const angle = uploadedImage.angle + 90;
+                    uploadedImage.rotate(angle);
+                    // Force control refresh by re-setting controls
+                    uploadedImage.controls = normalControls.current;
+                    canvas.renderAll();
+                    // Trigger object selection to refresh controls
+                    canvas.setActiveObject(uploadedImage);
+                    canvas.requestRenderAll();
+                  }
+                }}
+                className="w-12 h-12 bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center shadow-lg text-xl font-bold border border-purple-400"
+              >
+                ↻
+              </button>
+            </div>
+          )}
           
-          {/* Submit/OK button */}
+          {/* Submit button */}
           <button
             onClick={handleSubmit}
-            className="px-8 py-2 bg-purple-600 hover:bg-purple-700 rounded-full font-semibold transition"
+            className="bg-gradient-to-r from-blue-600 to-blue-800 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:from-blue-700 hover:to-blue-900 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-400"
+            disabled={!uploadedImage}
           >
-            Submit
+            Submit Design
           </button>
         </div>
       </div>
@@ -1953,7 +2163,7 @@ export default function Home() {
       <Modal
         isOpen={showAIModal}
         onRequestClose={() => !isProcessing && setShowAIModal(false)}
-        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4"
+        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-4 w-full max-w-sm mx-4 max-h-[90vh] overflow-y-auto"
         overlayClassName="fixed inset-0 bg-black bg-opacity-75 z-50"
       >
         <div className="text-white">
@@ -2080,7 +2290,7 @@ export default function Home() {
       <Modal
         isOpen={showCreateModal}
         onRequestClose={() => !isProcessing && setShowCreateModal(false)}
-        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4"
+        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-4 w-full max-w-sm mx-4 max-h-[90vh] overflow-y-auto"
         overlayClassName="fixed inset-0 bg-black bg-opacity-75 z-50"
       >
         <div className="text-white">
@@ -2210,7 +2420,7 @@ export default function Home() {
             clearMaskDrawing();
           }
         }}
-        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4"
+        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-4 w-full max-w-sm mx-4 max-h-[90vh] overflow-y-auto"
         overlayClassName="fixed inset-0 bg-black bg-opacity-75 z-50"
       >
         <div className="text-white">
@@ -2324,6 +2534,145 @@ export default function Home() {
           )}
         </div>
       </Modal>
+
+      {/* Cropper Modal */}
+      {showCropper && (
+        <div className="fixed inset-0 bg-black bg-opacity-90 z-50">
+          <div className="w-full h-full max-w-sm mx-auto bg-gray-800 flex flex-col">
+            <div className="p-3 border-b border-gray-600">
+              <h2 className="text-white text-lg font-semibold">Crop Image</h2>
+            </div>
+            <div className="flex-1 p-3 flex items-center justify-center overflow-hidden">
+              <div className="w-full max-w-[280px] max-h-[400px] flex items-center justify-center">
+                <img 
+                  ref={cropperElementRef}
+                  src={cropperImageRef.current?.src}
+                  style={{ maxWidth: '280px', maxHeight: '400px', objectFit: 'contain', display: 'block' }}
+                />
+              </div>
+            </div>
+            <div className="p-3 border-t border-gray-600">
+              <div className="flex gap-2 w-full">
+                <button
+                  onClick={() => {
+                    if (cropperRef.current) {
+                      console.log('Cropper instance exists:', cropperRef.current);
+                      // Get the cropped canvas using v1 API with high quality options
+                      const croppedCanvas = cropperRef.current.getCroppedCanvas({
+                        maxWidth: 4096,
+                        maxHeight: 4096,
+                        fillColor: '#fff',
+                        imageSmoothingEnabled: true,
+                        imageSmoothingQuality: 'high'
+                      });
+                      console.log('Cropped canvas:', croppedCanvas);
+                      if (!croppedCanvas) {
+                        console.error('Failed to get cropped canvas');
+                        return;
+                      }
+                      
+                      const croppedDataUrl = croppedCanvas.toDataURL('image/png', 1.0);
+                      console.log('Cropped data URL length:', croppedDataUrl.length);
+                      
+                      // Save current image state to crop history before cropping
+                      const target = (window as any).currentCropTarget;
+                      if (target) {
+                        const currentImageData = target.toDataURL({
+                          format: 'png',
+                          multiplier: 2,
+                          quality: 1.0
+                        });
+                        setCropHistory(prev => [...prev, currentImageData]);
+                      }
+                      
+                      // Create new fabric image from cropped result using Image element
+                      console.log('Creating image element from cropped data...');
+                      const imgElement = new Image();
+                      imgElement.crossOrigin = 'anonymous';
+                      
+                      imgElement.onload = () => {
+                        console.log('Image element loaded, creating fabric image...');
+                        const newImg = new fabric.Image(imgElement);
+                        console.log('New fabric image created:', newImg);
+                        
+                        console.log('Current crop target:', target);
+                        
+                        if (target && canvas) {
+                          // Copy position and rotation from original
+                          newImg.set({
+                            left: target.left,
+                            top: target.top,
+                            angle: target.angle || 0,
+                            originX: 'center',
+                            originY: 'center'
+                          });
+                          
+                          // Scale to fit if needed
+                          const maxWidth = DISPLAY_WIDTH * 0.8;
+                          const maxHeight = DISPLAY_HEIGHT * 0.8;
+                          const scale = Math.min(maxWidth / newImg.width!, maxHeight / newImg.height!);
+                          if (scale < 1) {
+                            newImg.scale(scale);
+                          }
+                          
+                          // Apply normal controls to the new image
+                          newImg.controls = normalControls.current;
+                          
+                          // Remove old image and add new one
+                          canvas.remove(target);
+                          canvas.add(newImg);
+                          canvas.setActiveObject(newImg);
+                          setUploadedImage(newImg);
+                          canvas.renderAll();
+                          
+                          console.log('Crop applied successfully!');
+                        }
+                        
+                        // Clean up and close modal AFTER the image is processed
+                        if (cropperRef.current) {
+                          cropperRef.current.destroy();
+                          cropperRef.current = null;
+                        }
+                        cropperImageRef.current = null;
+                        setShowCropper(false);
+                      };
+                      
+                      imgElement.onerror = (error) => {
+                        console.error('Failed to load cropped image:', error);
+                        // Clean up on error
+                        if (cropperRef.current) {
+                          cropperRef.current.destroy();
+                          cropperRef.current = null;
+                        }
+                        cropperImageRef.current = null;
+                        setShowCropper(false);
+                      };
+                      
+                      imgElement.src = croppedDataUrl;
+                    }
+                  }}
+                  className="flex-1 px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 font-medium text-sm"
+                >
+                  Apply Crop
+                </button>
+                <button
+                  onClick={() => {
+                    if (cropperRef.current) {
+                      cropperRef.current.destroy();
+                      cropperRef.current = null;
+                    }
+                    cropperImageRef.current = null;
+                    setShowCropper(false);
+                  }}
+                  className="flex-1 px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 font-medium text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

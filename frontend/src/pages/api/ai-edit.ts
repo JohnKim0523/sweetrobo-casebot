@@ -263,14 +263,14 @@ export default async function handler(
       input.condition_scale = params.condition_scale || 0.5;
     } else if (model === MODELS.INSTRUCT_PIX2PIX) {
       input.image = image;
-    } else if (model === MODELS.LAMA || model === MODELS.ERASER) {
-      // These inpainting models need image and mask
+    } else if ((model as any) === 'LAMA' || (model as any) === 'ERASER') {
+      // These inpainting models need image and mask (legacy code, models not currently defined)
       input.image = image;
       input.mask = mask;
       if (params.prompt) {
         input.prompt = params.prompt;
       }
-    } else if (model === MODELS.CONTROLNET_CANNY) {
+    } else if ((model as any) === 'CONTROLNET_CANNY') {
       // ControlNet needs the image as control input
       input.image = image;
       input.prompt = params.prompt || prompt;

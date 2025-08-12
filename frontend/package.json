@@ -13,6 +13,7 @@
     "axios": "^1.11.0",
     "blueimp-canvas-to-blob": "^3.29.0",
     "canvas-to-blob": "^1.0.0",
+    "cropperjs": "^1.6.2",
     "fabric": "^6.7.1",
     "next": "15.4.4",
     "qrcode.react": "^4.2.0",
