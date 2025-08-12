@@ -98,14 +98,178 @@ export default function Home() {
         absolutePositioned: true
       });
       
-      // Configure default control settings for mobile-friendly interaction
+      // Configure custom control settings to match the reference design
       fabric.Object.prototype.transparentCorners = false;
       fabric.Object.prototype.cornerColor = '#2196F3';
-      fabric.Object.prototype.cornerSize = 10; // Scaled down
-      fabric.Object.prototype.cornerStyle = 'circle';
-      fabric.Object.prototype.borderColor = '#2196F3';
-      fabric.Object.prototype.borderScaleFactor = 2;
-      fabric.Object.prototype.padding = 10; // Reduced padding around objects
+      fabric.Object.prototype.cornerSize = 15;
+      fabric.Object.prototype.cornerStyle = 'rect';
+      fabric.Object.prototype.borderColor = 'transparent';
+      fabric.Object.prototype.borderScaleFactor = 0;
+      fabric.Object.prototype.hasBorders = false;
+      fabric.Object.prototype.padding = 15;
+      
+      // Custom L-shaped corner renderer
+      const renderLCorner = (ctx: CanvasRenderingContext2D, left: number, top: number, styleOverride: any, fabricObject: any, flipX = false, flipY = false) => {
+        const size = fabricObject.cornerSize || 15;
+        const armLength = size * 0.8;
+        
+        ctx.save();
+        ctx.strokeStyle = '#2196F3';
+        ctx.fillStyle = '#2196F3';
+        ctx.lineWidth = 2;
+        
+        // Draw L-shape
+        ctx.beginPath();
+        // Vertical arm
+        ctx.moveTo(left, top + (flipY ? -armLength : armLength));
+        ctx.lineTo(left, top);
+        // Horizontal arm
+        ctx.lineTo(left + (flipX ? -armLength : armLength), top);
+        ctx.stroke();
+        
+        // Corner dot
+        ctx.beginPath();
+        ctx.arc(left, top, 3, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // End dots
+        ctx.beginPath();
+        ctx.arc(left + (flipX ? -armLength : armLength), top, 2, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.arc(left, top + (flipY ? -armLength : armLength), 2, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        ctx.restore();
+      };
+      
+      // Custom rotation icon renderer with square and circular arrows
+      const renderRotationIcon = (ctx: CanvasRenderingContext2D, left: number, top: number, styleOverride: any, fabricObject: any) => {
+        const size = (fabricObject.cornerSize || 15) + 4;
+        
+        ctx.save();
+        ctx.fillStyle = '#2196F3';
+        ctx.strokeStyle = '#2196F3';
+        
+        // Square background
+        ctx.fillRect(left - size/2, top - size/2, size, size);
+        
+        // Circular arrows inside (white on blue)
+        ctx.strokeStyle = 'white';
+        ctx.fillStyle = 'white';
+        ctx.lineWidth = 1.5;
+        const radius = size * 0.25;
+        
+        // Outer circular arrow
+        ctx.beginPath();
+        ctx.arc(left, top, radius, -Math.PI/2, Math.PI);
+        ctx.stroke();
+        
+        // Arrow head for outer
+        ctx.beginPath();
+        ctx.moveTo(left - radius + 2, top + 3);
+        ctx.lineTo(left - radius - 2, top);
+        ctx.lineTo(left - radius + 2, top - 3);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Inner circular arrow
+        ctx.beginPath();
+        ctx.arc(left, top, radius * 0.6, Math.PI/2, -Math.PI);
+        ctx.stroke();
+        
+        // Arrow head for inner
+        ctx.beginPath();
+        ctx.moveTo(left + radius * 0.6 - 2, top - 2);
+        ctx.lineTo(left + radius * 0.6 + 2, top);
+        ctx.lineTo(left + radius * 0.6 - 2, top + 2);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.restore();
+      };
+      
+      // Apply custom controls using Fabric.js control system
+      fabric.Object.prototype.controls = {
+        // Corner controls with L-shapes
+        tl: new fabric.Control({
+          x: -0.5,
+          y: -0.5,
+          actionHandler: fabric.controlsUtils.scalingEqually,
+          cursorStyleHandler: fabric.controlsUtils.scaleSkewCursorStyleHandler,
+          actionName: 'scaling',
+          render: (ctx: any, left: number, top: number, styleOverride: any, fabricObject: any) => 
+            renderLCorner(ctx, left, top, styleOverride, fabricObject, false, false)
+        }),
+        tr: new fabric.Control({
+          x: 0.5,
+          y: -0.5,
+          actionHandler: fabric.controlsUtils.scalingEqually,
+          cursorStyleHandler: fabric.controlsUtils.scaleSkewCursorStyleHandler,
+          actionName: 'scaling',
+          render: (ctx: any, left: number, top: number, styleOverride: any, fabricObject: any) => 
+            renderLCorner(ctx, left, top, styleOverride, fabricObject, true, false)
+        }),
+        bl: new fabric.Control({
+          x: -0.5,
+          y: 0.5,
+          actionHandler: fabric.controlsUtils.scalingEqually,
+          cursorStyleHandler: fabric.controlsUtils.scaleSkewCursorStyleHandler,
+          actionName: 'scaling',
+          render: (ctx: any, left: number, top: number, styleOverride: any, fabricObject: any) => 
+            renderLCorner(ctx, left, top, styleOverride, fabricObject, false, true)
+        }),
+        br: new fabric.Control({
+          x: 0.5,
+          y: 0.5,
+          actionHandler: fabric.controlsUtils.scalingEqually,
+          cursorStyleHandler: fabric.controlsUtils.scaleSkewCursorStyleHandler,
+          actionName: 'scaling',
+          render: (ctx: any, left: number, top: number, styleOverride: any, fabricObject: any) => 
+            renderLCorner(ctx, left, top, styleOverride, fabricObject, true, true)
+        }),
+        // Custom rotation control
+        mtr: new fabric.Control({
+          x: 0,
+          y: -0.5,
+          offsetY: -40,
+          actionHandler: fabric.controlsUtils.rotationWithSnapping,
+          cursorStyleHandler: fabric.controlsUtils.rotationStyleHandler,
+          actionName: 'rotate',
+          render: renderRotationIcon
+        }),
+        // Middle scaling controls (keep simple for now)
+        mt: new fabric.Control({
+          x: 0,
+          y: -0.5,
+          actionHandler: fabric.controlsUtils.scalingYOrSkewingX,
+          cursorStyleHandler: fabric.controlsUtils.scaleSkewCursorStyleHandler,
+          actionName: 'scaling'
+        }),
+        mb: new fabric.Control({
+          x: 0,
+          y: 0.5,
+          actionHandler: fabric.controlsUtils.scalingYOrSkewingX,
+          cursorStyleHandler: fabric.controlsUtils.scaleSkewCursorStyleHandler,
+          actionName: 'scaling'
+        }),
+        ml: new fabric.Control({
+          x: -0.5,
+          y: 0,
+          actionHandler: fabric.controlsUtils.scalingXOrSkewingY,
+          cursorStyleHandler: fabric.controlsUtils.scaleSkewCursorStyleHandler,
+          actionName: 'scaling'
+        }),
+        mr: new fabric.Control({
+          x: 0.5,
+          y: 0,
+          actionHandler: fabric.controlsUtils.scalingXOrSkewingY,
+          cursorStyleHandler: fabric.controlsUtils.scaleSkewCursorStyleHandler,
+          actionName: 'scaling'
+        })
+      };
+      
 
       // Add border as a fabric object (positioned with padding)
       const border = new fabric.Rect({
@@ -271,7 +435,7 @@ export default function Home() {
         
         // If not locked, check for initial snap
         const centerX = CONTROL_PADDING + DISPLAY_WIDTH / 2;   // Center with padding
-        const centerY = CONTROL_PADDING + DISPLAY_HEIGHT / 2;  // Center with padding
+        const centerY = VERTICAL_PADDING + DISPLAY_HEIGHT / 2;  // Center with padding
         
         if (!isLockedX || !isLockedY) {
           const objBoundingRect = obj.getBoundingRect(true);
@@ -604,7 +768,10 @@ export default function Home() {
               left: CONTROL_PADDING + DISPLAY_WIDTH / 2,  // Center position with padding
               top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,   // Center position with padding
               originX: 'center',
-              originY: 'center'
+              originY: 'center',
+              // Apply custom control settings to this specific image
+              hasBorders: false,
+              borderColor: 'transparent'
             });
 
             // Add image normally - crosshairs will stay on top due to render order
@@ -951,6 +1118,9 @@ export default function Home() {
           top: VERTICAL_PADDING,
           scaleX: 1,  // No scaling needed - already at display size
           scaleY: 1,  // No scaling needed - already at display size
+          // Apply custom control settings
+          hasBorders: false,
+          borderColor: 'transparent'
         });
         
         canvas.add(fabricImage);
@@ -1091,6 +1261,9 @@ export default function Home() {
           top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
           originX: 'center',
           originY: 'center',
+          // Apply custom control settings
+          hasBorders: false,
+          borderColor: 'transparent'
         });
         
         console.log('Adding new image to canvas with scale:', scale);
@@ -1221,6 +1394,9 @@ export default function Home() {
           top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
           originX: 'center',
           originY: 'center',
+          // Apply custom control settings
+          hasBorders: false,
+          borderColor: 'transparent'
         });
         
         canvas.add(fabricImage);
@@ -1294,6 +1470,9 @@ export default function Home() {
             angle: previousState.angle || 0,
             flipX: previousState.flipX || false,
             flipY: previousState.flipY || false,
+            // Apply custom control settings
+            hasBorders: false,
+            borderColor: 'transparent'
           });
           
           canvas.add(fabricImage);
