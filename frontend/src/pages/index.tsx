@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import Modal from 'react-modal';
 
@@ -43,6 +43,8 @@ export default function Home() {
   const [drawingMode, setDrawingMode] = useState<boolean>(false);
   const [drawnMask, setDrawnMask] = useState<string | null>(null);
   const [isManipulating, setIsManipulating] = useState<boolean>(false);
+  const [isCropMode, setIsCropMode] = useState<boolean>(false);
+  const [cropRect, setCropRect] = useState<{left: number, top: number, width: number, height: number} | null>(null);
   const snapStateRef = useRef<{x: boolean, y: boolean}>({x: false, y: false});
   const hasSnappedRef = useRef<{x: boolean, y: boolean, rotation: boolean, borderLeft: boolean, borderRight: boolean, borderTop: boolean, borderBottom: boolean}>({x: false, y: false, rotation: false, borderLeft: false, borderRight: false, borderTop: false, borderBottom: false});
   const mouseCanvasPos = useRef<{x: number, y: number}>({x: 0, y: 0});
@@ -63,6 +65,10 @@ export default function Home() {
       setFabric(fabricModule);
     });
   }, []);
+
+  // Define control sets at component level to avoid scope issues
+  const normalControls = useRef<any>(null);
+  const cropControls = useRef<any>(null);
 
   useEffect(() => {
     if (canvasRef.current && fabric) {
@@ -117,6 +123,12 @@ export default function Home() {
         ctx.strokeStyle = '#2196F3';
         ctx.fillStyle = '#2196F3';
         ctx.lineWidth = 2;
+        
+        // Apply object rotation to the control
+        const angle = fabricObject.angle || 0;
+        ctx.translate(left, top);
+        ctx.rotate((angle * Math.PI) / 180);
+        ctx.translate(-left, -top);
         
         // Draw L-shape
         ctx.beginPath();
@@ -190,8 +202,99 @@ export default function Home() {
         ctx.restore();
       };
       
-      // Apply custom controls using Fabric.js control system
-      fabric.Object.prototype.controls = {
+      // Custom scissor icon renderer for crop controls
+      const renderScissorIcon = (ctx: CanvasRenderingContext2D, left: number, top: number, styleOverride: any, fabricObject: any) => {
+        const size = fabricObject.cornerSize || 15;
+        
+        ctx.save();
+        ctx.strokeStyle = '#FF6B35';
+        ctx.fillStyle = '#FF6B35';
+        ctx.lineWidth = 2;
+        
+        // Draw scissor shape
+        const halfSize = size / 2;
+        
+        // Left blade
+        ctx.beginPath();
+        ctx.arc(left - halfSize/2, top - halfSize/2, 3, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Right blade  
+        ctx.beginPath();
+        ctx.arc(left + halfSize/2, top - halfSize/2, 3, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Scissor handles (lines)
+        ctx.beginPath();
+        ctx.moveTo(left - halfSize/2, top - halfSize/2);
+        ctx.lineTo(left - halfSize/4, top + halfSize/2);
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.moveTo(left + halfSize/2, top - halfSize/2);
+        ctx.lineTo(left + halfSize/4, top + halfSize/2);
+        ctx.stroke();
+        
+        // Connecting pivot
+        ctx.beginPath();
+        ctx.arc(left, top, 2, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        ctx.restore();
+      };
+      
+      // Crop action handler
+      const cropActionHandler = (eventData: any, transform: any, x: number, y: number) => {
+        // This will be called when crop control is dragged
+        const target = transform.target as any;
+        if (!target || target.type !== 'image') return false;
+        
+        // Get the current crop rect or initialize it
+        const currentCrop = target._cropRect || {
+          left: 0,
+          top: 0,
+          width: target.width || 100,
+          height: target.height || 100
+        };
+        
+        // Calculate new crop dimensions based on drag
+        const pointer = fabricCanvas.getPointer(eventData.e);
+        const imageLeft = target.left - ((target.width || 0) * (target.scaleX || 1)) / 2;
+        const imageTop = target.top - ((target.height || 0) * (target.scaleY || 1)) / 2;
+        
+        // Update crop rect based on which corner was dragged
+        const newCrop = { ...currentCrop };
+        const targetWidth = target.width || 100;
+        const targetHeight = target.height || 100;
+        const targetScaleX = target.scaleX || 1;
+        const targetScaleY = target.scaleY || 1;
+        
+        // Simple crop resize logic
+        if (x < 0 && y < 0) { // top-left
+          newCrop.left = Math.max(0, (pointer.x - imageLeft) / targetScaleX);
+          newCrop.top = Math.max(0, (pointer.y - imageTop) / targetScaleY);
+        } else if (x > 0 && y < 0) { // top-right
+          newCrop.width = Math.min(targetWidth, (pointer.x - imageLeft) / targetScaleX);
+          newCrop.top = Math.max(0, (pointer.y - imageTop) / targetScaleY);
+        } else if (x < 0 && y > 0) { // bottom-left
+          newCrop.left = Math.max(0, (pointer.x - imageLeft) / targetScaleX);
+          newCrop.height = Math.min(targetHeight, (pointer.y - imageTop) / targetScaleY);
+        } else if (x > 0 && y > 0) { // bottom-right
+          newCrop.width = Math.min(targetWidth, (pointer.x - imageLeft) / targetScaleX);
+          newCrop.height = Math.min(targetHeight, (pointer.y - imageTop) / targetScaleY);
+        }
+        
+        // Store crop rect in a custom property
+        target._cropRect = newCrop;
+        
+        // For now, just update the visual feedback
+        fabricCanvas.renderAll();
+        
+        return true;
+      };
+      
+      // Define control sets for different modes
+      normalControls.current = {
         // Corner controls with L-shapes
         tl: new fabric.Control({
           x: -0.5,
@@ -239,7 +342,7 @@ export default function Home() {
           actionName: 'rotate',
           render: renderRotationIcon
         }),
-        // Middle scaling controls (keep simple for now)
+        // Middle scaling controls
         mt: new fabric.Control({
           x: 0,
           y: -0.5,
@@ -269,6 +372,45 @@ export default function Home() {
           actionName: 'scaling'
         })
       };
+      
+      cropControls.current = {
+        // Corner crop controls with scissor icons
+        tl: new fabric.Control({
+          x: -0.5,
+          y: -0.5,
+          actionHandler: cropActionHandler,
+          cursorStyleHandler: () => 'nw-resize',
+          actionName: 'crop',
+          render: renderScissorIcon
+        }),
+        tr: new fabric.Control({
+          x: 0.5,
+          y: -0.5,
+          actionHandler: cropActionHandler,
+          cursorStyleHandler: () => 'ne-resize',
+          actionName: 'crop',
+          render: renderScissorIcon
+        }),
+        bl: new fabric.Control({
+          x: -0.5,
+          y: 0.5,
+          actionHandler: cropActionHandler,
+          cursorStyleHandler: () => 'sw-resize',
+          actionName: 'crop',
+          render: renderScissorIcon
+        }),
+        br: new fabric.Control({
+          x: 0.5,
+          y: 0.5,
+          actionHandler: cropActionHandler,
+          cursorStyleHandler: () => 'se-resize',
+          actionName: 'crop',
+          render: renderScissorIcon
+        })
+      };
+      
+      // Apply normal controls by default
+      fabric.Object.prototype.controls = normalControls.current;
       
 
       // Add border as a fabric object (positioned with padding)
@@ -736,7 +878,7 @@ export default function Home() {
         fabricCanvas.dispose();
       };
     }
-  }, [fabric]);
+  }, [fabric, isCropMode]);
 
   const onDrop = (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0 && canvas && fabric) {
@@ -772,6 +914,16 @@ export default function Home() {
               // Apply custom control settings to this specific image
               hasBorders: false,
               borderColor: 'transparent'
+            });
+            
+            // Add crop mode toggle functionality
+            fabricImage.on('selected', () => {
+              if (isCropMode && cropControls.current) {
+                (fabricImage as any).controls = cropControls.current;
+              } else if (normalControls.current) {
+                (fabricImage as any).controls = normalControls.current;
+              }
+              canvas.renderAll();
             });
 
             // Add image normally - crosshairs will stay on top due to render order
@@ -1266,6 +1418,16 @@ export default function Home() {
           borderColor: 'transparent'
         });
         
+        // Add crop mode toggle functionality for AI edited images
+        fabricImage.on('selected', () => {
+          if (isCropMode && cropControls.current) {
+            (fabricImage as any).controls = cropControls.current;
+          } else if (normalControls.current) {
+            (fabricImage as any).controls = normalControls.current;
+          }
+          canvas.renderAll();
+        });
+        
         console.log('Adding new image to canvas with scale:', scale);
         canvas.add(fabricImage);
         canvas.setActiveObject(fabricImage);
@@ -1403,6 +1565,16 @@ export default function Home() {
         canvas.setActiveObject(fabricImage);
         canvas.renderAll();
         setUploadedImage(fabricImage);
+        
+        // Add crop mode toggle functionality for AI generated images
+        fabricImage.on('selected', () => {
+          if (isCropMode && cropControls.current) {
+            (fabricImage as any).controls = cropControls.current;
+          } else if (normalControls.current) {
+            (fabricImage as any).controls = normalControls.current;
+          }
+          canvas.renderAll();
+        });
         
         console.log('Generated image successfully added to canvas');
       };
@@ -1712,6 +1884,7 @@ export default function Home() {
               <span className="text-[8px]">Edit</span>
             </button>
           )}
+          
           
           {/* AI Masking Button */}
           {uploadedImage && (
