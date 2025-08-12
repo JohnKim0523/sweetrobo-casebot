@@ -9,14 +9,14 @@ if (typeof window !== 'undefined') {
 }
 
 // Canvas dimensions - matching actual printer dimensions: 100mm × 185mm (portrait)
-// Scale up by 2.5x for better fit on screen without scrolling
-const SCALE_FACTOR = 2.5;  // 2.5x for better screen fit
-const DISPLAY_WIDTH = 100 * SCALE_FACTOR;   // 250 pixels (represents 100mm)
-const DISPLAY_HEIGHT = 185 * SCALE_FACTOR;  // 462.5 pixels (represents 185mm)
+// Balanced scale for mobile usability + precision
+const SCALE_FACTOR = 2.2;  // 2.2x for good balance of size and mobile fit
+const DISPLAY_WIDTH = 100 * SCALE_FACTOR;   // 220 pixels (represents 100mm)
+const DISPLAY_HEIGHT = 185 * SCALE_FACTOR;  // 407 pixels (represents 185mm)
 
-// Mobile-optimized padding for controls - calculate to center canvas
-const CANVAS_TOTAL_WIDTH = 400;   // Total width for blue area
-const CANVAS_TOTAL_HEIGHT = 650;  // Total height for blue area
+// Mobile-optimized container dimensions - maximizes usable space
+const CANVAS_TOTAL_WIDTH = 360;   // Total width - fits most mobile screens with controls
+const CANVAS_TOTAL_HEIGHT = 600;  // Total height for good aspect ratio
 // Center the canvas by calculating padding dynamically
 const CONTROL_PADDING = (CANVAS_TOTAL_WIDTH - DISPLAY_WIDTH) / 2; // This centers the canvas horizontally
 const VERTICAL_PADDING = (CANVAS_TOTAL_HEIGHT - DISPLAY_HEIGHT) / 2; // This centers the canvas vertically
@@ -1633,6 +1633,9 @@ export default function Home() {
           borderColor: 'transparent'
         });
         
+        // Apply normal controls (L-shaped corners) to AI generated images
+        fabricImage.controls = normalControls.current;
+        
         canvas.add(fabricImage);
         canvas.setActiveObject(fabricImage);
         canvas.renderAll();
@@ -1986,7 +1989,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-white text-white flex flex-col items-center justify-center overflow-hidden">
-      {/* Mobile container - centered on desktop, full on mobile */}
+      {/* Mobile container - optimized for mobile screens */}
       <div className="w-full max-w-md h-screen relative bg-gray-900">
         {/* Canvas centered in mobile view */}
         <div className="absolute inset-0 flex items-center justify-center">
@@ -2115,11 +2118,16 @@ export default function Home() {
                   if (uploadedImage && canvas) {
                     const angle = uploadedImage.angle - 90;
                     uploadedImage.rotate(angle);
-                    // Force control refresh by re-setting controls
+                    
+                    // Properly refresh controls like manual rotation
                     uploadedImage.controls = normalControls.current;
-                    canvas.renderAll();
-                    // Trigger object selection to refresh controls
+                    
+                    // Deselect and reselect to force control recalculation
+                    canvas.discardActiveObject();
                     canvas.setActiveObject(uploadedImage);
+                    
+                    // Force complete canvas refresh
+                    canvas.renderAll();
                     canvas.requestRenderAll();
                   }
                 }}
@@ -2133,11 +2141,16 @@ export default function Home() {
                   if (uploadedImage && canvas) {
                     const angle = uploadedImage.angle + 90;
                     uploadedImage.rotate(angle);
-                    // Force control refresh by re-setting controls
+                    
+                    // Properly refresh controls like manual rotation
                     uploadedImage.controls = normalControls.current;
-                    canvas.renderAll();
-                    // Trigger object selection to refresh controls
+                    
+                    // Deselect and reselect to force control recalculation
+                    canvas.discardActiveObject();
                     canvas.setActiveObject(uploadedImage);
+                    
+                    // Force complete canvas refresh
+                    canvas.renderAll();
                     canvas.requestRenderAll();
                   }
                 }}
