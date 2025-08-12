@@ -11,14 +11,28 @@ export const config = {
 }
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  console.log('🔍 Admin dashboard API called:', req.method);
+  
   if (req.method === 'POST') {
     try {
       const { design, debugData, timestamp: clientTimestamp } = req.body;
+      console.log('🔍 Received submission:', {
+        hasDesign: !!design,
+        designLength: design?.length,
+        hasDebugData: !!debugData,
+        timestamp: clientTimestamp
+      });
       
       // Create designs directory if it doesn't exist
       const designsDir = path.join(process.cwd(), 'public', 'designs');
+      console.log('🔍 Working directory:', process.cwd());
+      console.log('🔍 Designs directory path:', designsDir);
+      console.log('🔍 Directory exists:', fs.existsSync(designsDir));
+      
       if (!fs.existsSync(designsDir)) {
+        console.log('🔍 Creating designs directory...');
         fs.mkdirSync(designsDir, { recursive: true });
+        console.log('🔍 Directory created successfully');
       }
       
       // Generate unique filename

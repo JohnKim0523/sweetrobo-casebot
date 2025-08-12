@@ -261,34 +261,30 @@ async function uploadImageToColorPark(imageBase64: string, token: string, canvas
       throw new Error('Invalid image data format');
     }
     
-    // Convert base64 to buffer
+    // Convert base64 to buffer while preserving format
     const base64Data = finalImage.replace(/^data:image\/(png|jpeg);base64,/, '');
     const imageBuffer = Buffer.from(base64Data, 'base64');
     
     console.log('Image buffer size:', imageBuffer.length, 'bytes');
     console.log('First 20 bytes of image:', imageBuffer.slice(0, 20));
     
-    // Verify it's a valid JPEG
+    // Detect actual image format
     const isJPEG = imageBuffer[0] === 0xFF && imageBuffer[1] === 0xD8;
     const isPNG = imageBuffer[0] === 0x89 && imageBuffer[1] === 0x50;
     console.log('Image format check - JPEG:', isJPEG, 'PNG:', isPNG);
     
-    // DEBUG: Save the image locally to inspect what we're actually sending
-    if (process.env.NODE_ENV === 'development') {
-      const fs = require('fs');
-      const path = require('path');
-      const debugDir = path.join(process.cwd(), 'public', 'debug');
-      if (!fs.existsSync(debugDir)) {
-        fs.mkdirSync(debugDir, { recursive: true });
-      }
-      const debugFile = path.join(debugDir, `upload_${Date.now()}.jpeg`);
-      fs.writeFileSync(debugFile, imageBuffer);
-      console.log('🔍 DEBUG: Saved uploaded image to:', debugFile);
-    }
+    // Use appropriate file extension based on actual format
+    const imageFormat = isPNG ? 'png' : 'jpeg';
+    const contentType = isPNG ? 'image/png' : 'image/jpeg';
     
-    // Generate timestamp for unique filename
+    // Debug logging without saving files
+    console.log('🔍 Image format detected:', imageFormat);
+    console.log('🔍 Content type:', contentType);
+    console.log('🔍 Buffer size:', imageBuffer.length, 'bytes');
+    
+    // Generate timestamp for unique filename with proper extension
     const timestamp = Date.now();
-    const filename = `api/render/${timestamp}.jpeg`;
+    const filename = `api/render/${timestamp}.${imageFormat}`;
     
     // Build multipart form data manually
     const boundary = `----WebKitFormBoundary${Math.random().toString(16).slice(2)}`;
@@ -347,8 +343,8 @@ async function uploadImageToColorPark(imageBase64: string, token: string, canvas
     // Add file field (must be last for OSS)
     formParts.push(
       `--${boundary}`,
-      `Content-Disposition: form-data; name="file"; filename="${timestamp}.jpeg"`,
-      'Content-Type: image/jpeg',
+      `Content-Disposition: form-data; name="file"; filename="${timestamp}.${imageFormat}"`,
+      `Content-Type: ${contentType}`,
       ''
     );
     

@@ -1833,33 +1833,26 @@ export default function Home() {
         // Export the canvas directly
         canvas.renderAll();
         
-        // Export ONLY the white canvas area (not the padding)
-        // ALWAYS export at 100x185 regardless of UI scale
+        // Export at HIGH QUALITY for both admin dashboard and printer
+        // Use higher multiplier to maintain quality, then let printer API handle scaling
+        const qualityMultiplier = 4; // 4x resolution for quality preservation
+        
         const dataURL = canvas.toDataURL({
           format: 'png',
-          left: CONTROL_PADDING,    // Start from canvas area, not padding
-          top: VERTICAL_PADDING,     // Start from canvas area, not padding
-          width: DISPLAY_WIDTH,     // Only the white canvas width
-          height: DISPLAY_HEIGHT,   // Only the white canvas height
-          multiplier: 1 / SCALE_FACTOR // Scale down to exact 100x185 for printer
-        });
-        
-        // Export at 1:1 scale - no multiplier
-        // This was likely working before
-        const printerMultiplier = 1; // No scaling - exact size
-        
-        const jpegDataURL = canvas.toDataURL({
-          format: 'jpeg',
-          quality: 0.95,
-          left: CONTROL_PADDING,    // Crop from canvas area only
-          top: VERTICAL_PADDING,     // Crop from canvas area only
-          width: DISPLAY_WIDTH,     // Only white canvas area
-          height: DISPLAY_HEIGHT,   // Only white canvas area
-          multiplier: 1 / SCALE_FACTOR, // ALWAYS outputs 100x185 for printer
+          quality: 1.0, // Maximum PNG quality
+          left: CONTROL_PADDING,
+          top: VERTICAL_PADDING,
+          width: DISPLAY_WIDTH,
+          height: DISPLAY_HEIGHT,
+          multiplier: qualityMultiplier, // HIGH resolution export
           enableRetinaScaling: false,
           withoutTransform: false,
           withoutShadow: true
         });
+        
+        // Use SAME high-quality image for printer (no separate JPEG conversion)
+        // This prevents quality loss from format conversion
+        const jpegDataURL = dataURL;
         
         // Restore crosshair and border visibility
         if (crosshairLines.vertical) crosshairLines.vertical.visible = originalVerticalVisible;
@@ -1906,10 +1899,10 @@ export default function Home() {
         console.log('Test export starts with:', testExport.substring(0, 50));
         
         // Debug: Check data URL
-        console.log('JPEG multiplier:', printerMultiplier);
-        console.log('JPEG export size:', `${DISPLAY_WIDTH * printerMultiplier}x${DISPLAY_HEIGHT * printerMultiplier}`);
-        console.log('JPEG data URL starts with:', jpegDataURL.substring(0, 50));
-        console.log('JPEG data size:', jpegDataURL.length);
+        console.log('High-quality PNG multiplier:', qualityMultiplier);
+        console.log('Export size:', `${DISPLAY_WIDTH * qualityMultiplier}x${DISPLAY_HEIGHT * qualityMultiplier}`);
+        console.log('PNG data URL starts with:', dataURL.substring(0, 50));
+        console.log('PNG data size:', dataURL.length);
         
         // Get canvas state for debugging
         const canvasData = {
