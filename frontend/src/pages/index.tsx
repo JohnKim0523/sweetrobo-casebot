@@ -1,5 +1,11 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
+import Modal from 'react-modal';
+
+// Set app element for accessibility
+if (typeof window !== 'undefined') {
+  Modal.setAppElement('#__next');
+}
 
 // Canvas dimensions - matching actual printer dimensions: 100mm × 185mm (portrait)
 // Scale up by 2.5x for better fit on screen without scrolling
@@ -7,10 +13,12 @@ const SCALE_FACTOR = 2.5;  // 2.5x for better screen fit
 const DISPLAY_WIDTH = 100 * SCALE_FACTOR;   // 250 pixels (represents 100mm)
 const DISPLAY_HEIGHT = 185 * SCALE_FACTOR;  // 462.5 pixels (represents 185mm)
 
-// Add padding for controls to be visible outside canvas
-const CONTROL_PADDING = 100; // Reduced padding for better fit
-const CANVAS_TOTAL_WIDTH = DISPLAY_WIDTH + (CONTROL_PADDING * 2);   // 450px total
-const CANVAS_TOTAL_HEIGHT = DISPLAY_HEIGHT + (CONTROL_PADDING * 2); // 662.5px total
+// Mobile-optimized padding for controls - calculate to center canvas
+const CANVAS_TOTAL_WIDTH = 400;   // Total width for blue area
+const CANVAS_TOTAL_HEIGHT = 650;  // Total height for blue area
+// Center the canvas by calculating padding dynamically
+const CONTROL_PADDING = (CANVAS_TOTAL_WIDTH - DISPLAY_WIDTH) / 2; // This centers the canvas horizontally
+const VERTICAL_PADDING = (CANVAS_TOTAL_HEIGHT - DISPLAY_HEIGHT) / 2; // This centers the canvas vertically
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -19,14 +27,35 @@ export default function Home() {
   const [fabric, setFabric] = useState<any>(null);
   const [crosshairLines, setCrosshairLines] = useState<{vertical: any, horizontal: any}>({vertical: null, horizontal: null});
   const [isSnapping, setIsSnapping] = useState(false);
+  
+  // AI Editing states
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showMaskModal, setShowMaskModal] = useState(false);  // New modal for mask editing
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [createPrompt, setCreatePrompt] = useState('');
+  const [maskPrompt, setMaskPrompt] = useState('');  // Separate prompt for mask editing
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isMaskDrawing, setIsMaskDrawing] = useState(false);  // New state for mask drawing mode
+  const [currentMask, setCurrentMask] = useState<string | null>(null);  // Current mask being drawn
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [editHistory, setEditHistory] = useState<string[]>([]);
+  const [drawingMode, setDrawingMode] = useState<boolean>(false);
+  const [drawnMask, setDrawnMask] = useState<string | null>(null);
+  const [isManipulating, setIsManipulating] = useState<boolean>(false);
   const snapStateRef = useRef<{x: boolean, y: boolean}>({x: false, y: false});
-  const hasSnappedRef = useRef<{x: boolean, y: boolean, rotation: boolean}>({x: false, y: false, rotation: false});
+  const hasSnappedRef = useRef<{x: boolean, y: boolean, rotation: boolean, borderLeft: boolean, borderRight: boolean, borderTop: boolean, borderBottom: boolean}>({x: false, y: false, rotation: false, borderLeft: false, borderRight: false, borderTop: false, borderBottom: false});
   const mouseCanvasPos = useRef<{x: number, y: number}>({x: 0, y: 0});
   const lockMousePos = useRef<{x: number, y: number}>({x: 0, y: 0});
   const lockedObjectPos = useRef<{x: number, y: number}>({x: 0, y: 0});
+  const borderLockMousePos = useRef<{x: number, y: number}>({x: 0, y: 0});
+  const borderLockedPos = useRef<{x: number, y: number}>({x: 0, y: 0});
   const lockMouseAngle = useRef<number>(0);
   const lockedRotation = useRef<number>(0);
   const isRotating = useRef<boolean>(false);
+  const isScaling = useRef<boolean>(false);
+  const scalingBorderLock = useRef<{left: boolean, right: boolean, top: boolean, bottom: boolean}>({left: false, right: false, top: false, bottom: false});
+  const scalingLockMousePos = useRef<{x: number, y: number}>({x: 0, y: 0});
 
   useEffect(() => {
     // Dynamically import fabric to avoid SSR issues
@@ -40,7 +69,7 @@ export default function Home() {
       const fabricCanvas = new fabric.Canvas(canvasRef.current, {
         width: CANVAS_TOTAL_WIDTH,   // Full width with padding
         height: CANVAS_TOTAL_HEIGHT,  // Full height with padding
-        backgroundColor: '#0a0a0a', // Match body background from globals.css
+        backgroundColor: '#1a1a2e', // Dark blue background to match mobile app
         containerClass: 'canvas-container',
         selection: true,
         preserveObjectStacking: true
@@ -49,7 +78,7 @@ export default function Home() {
       // Add white background rectangle for the actual canvas area
       const canvasBackground = new fabric.Rect({
         left: CONTROL_PADDING,
-        top: CONTROL_PADDING,
+        top: VERTICAL_PADDING,
         width: DISPLAY_WIDTH,
         height: DISPLAY_HEIGHT,
         fill: 'white',
@@ -63,7 +92,7 @@ export default function Home() {
       // Set up clipping to hide image parts outside white canvas area
       fabricCanvas.clipPath = new fabric.Rect({
         left: CONTROL_PADDING,
-        top: CONTROL_PADDING,
+        top: VERTICAL_PADDING,
         width: DISPLAY_WIDTH,
         height: DISPLAY_HEIGHT,
         absolutePositioned: true
@@ -81,10 +110,10 @@ export default function Home() {
       // Add border as a fabric object (positioned with padding)
       const border = new fabric.Rect({
         left: CONTROL_PADDING,
-        top: CONTROL_PADDING,
+        top: VERTICAL_PADDING,
         width: DISPLAY_WIDTH,
         height: DISPLAY_HEIGHT,
-        fill: 'transparent',
+        fill: 'white',  // White background for the actual canvas area
         stroke: '#333',
         strokeWidth: 2,
         selectable: false,
@@ -93,9 +122,9 @@ export default function Home() {
 
       // Create crosshair guidelines (accounting for padding)
       const centerX = CONTROL_PADDING + DISPLAY_WIDTH / 2;
-      const centerY = CONTROL_PADDING + DISPLAY_HEIGHT / 2;
+      const centerY = VERTICAL_PADDING + DISPLAY_HEIGHT / 2;
       
-      const verticalLine = new fabric.Line([centerX, CONTROL_PADDING, centerX, CONTROL_PADDING + DISPLAY_HEIGHT], {
+      const verticalLine = new fabric.Line([centerX, VERTICAL_PADDING, centerX, VERTICAL_PADDING + DISPLAY_HEIGHT], {
         stroke: '#00ff00',
         strokeWidth: 1,
         strokeDashArray: [5, 5],
@@ -160,56 +189,35 @@ export default function Home() {
         mouseCanvasPos.current = { x: pointer.x, y: pointer.y };
       });
       
+      // Track when user is actively dragging/manipulating
+      let isDragging = false;
+      
+      // Hide buttons only when actively dragging
+      fabricCanvas.on('mouse:down', function(e: any) {
+        // Only track dragging if clicking on an actual object
+        if (e.target && e.target.selectable !== false) {
+          isDragging = true;
+          setIsManipulating(true);
+        }
+      });
+      
+      // Don't hide on selection events alone - only on actual manipulation
+      // This prevents hiding when programmatically setting active object
+      
       // Set up smooth magnetic snap-to-center
       fabricCanvas.on('object:moving', function(e: any) {
         const obj = e.target;
         
-        // Skip position snapping if we're rotating
-        if (isRotating.current) {
+        // Skip position snapping if we're rotating or scaling
+        if (isRotating.current || isScaling.current) {
           return;
         }
         
-        // Enforce canvas boundaries with more lenient approach for rotated objects
+        // Get object bounds for snapping calculations
         const objBounds = obj.getBoundingRect(true, true);
         
-        // Only enforce boundaries if object is completely outside canvas
-        // This allows free movement while preventing objects from getting lost
-        let needsAdjustment = false;
-        let adjustX = 0;
-        let adjustY = 0;
-        
-        // Check if completely outside canvas boundaries (accounting for padding)
-        const canvasLeft = CONTROL_PADDING;
-        const canvasRight = CONTROL_PADDING + DISPLAY_WIDTH;
-        const canvasTop = CONTROL_PADDING;
-        const canvasBottom = CONTROL_PADDING + DISPLAY_HEIGHT;
-        
-        if (objBounds.left > canvasRight) {
-          // Completely off the right edge
-          adjustX = canvasRight - objBounds.left - objBounds.width;
-          needsAdjustment = true;
-        } else if (objBounds.left + objBounds.width < canvasLeft) {
-          // Completely off the left edge
-          adjustX = canvasLeft - objBounds.left;
-          needsAdjustment = true;
-        }
-        
-        if (objBounds.top > canvasBottom) {
-          // Completely off the bottom edge
-          adjustY = canvasBottom - objBounds.top - objBounds.height;
-          needsAdjustment = true;
-        } else if (objBounds.top + objBounds.height < canvasTop) {
-          // Completely off the top edge
-          adjustY = canvasTop - objBounds.top;
-          needsAdjustment = true;
-        }
-        
-        // Apply adjustment if needed
-        if (needsAdjustment) {
-          obj.left += adjustX;
-          obj.top += adjustY;
-          obj.setCoords();
-        }
+        // No boundary enforcement - allow free movement anywhere
+        // This prevents teleporting issues
         
         // Get current mouse position
         const mousePos = mouseCanvasPos.current;
@@ -219,8 +227,8 @@ export default function Home() {
         const isLockedY = hasSnappedRef.current.y;
         
         // Thresholds
-        const snapZone = 5; // Zone to trigger initial snap
-        const releaseDistance = 15; // Mouse must move this far from lock position to release
+        const snapZone = 3; // Zone to trigger initial snap (reduced from 5)
+        const releaseDistance = 10; // Mouse must move this far from lock position to release (reduced from 15)
         
         // If locked, check distance from lock position (not from center)
         if (isLockedX || isLockedY) {
@@ -272,7 +280,99 @@ export default function Home() {
           const objDistanceX = Math.abs(objCenterX - centerX);
           const objDistanceY = Math.abs(objCenterY - centerY);
           
-          // Check X-axis for initial snap
+          // Border snapping with lock/release mechanism
+          const borderSnapZone = 5; // Snap zone for borders (reduced from 8)
+          const borderReleaseDistance = 12; // Distance to release border lock (reduced from 20)
+          const canvasLeft = CONTROL_PADDING;
+          const canvasRight = CONTROL_PADDING + DISPLAY_WIDTH;
+          const canvasTop = VERTICAL_PADDING;
+          const canvasBottom = VERTICAL_PADDING + DISPLAY_HEIGHT;
+          
+          // Check border locks first
+          const isBorderLockedLeft = hasSnappedRef.current.borderLeft;
+          const isBorderLockedRight = hasSnappedRef.current.borderRight;
+          const isBorderLockedTop = hasSnappedRef.current.borderTop;
+          const isBorderLockedBottom = hasSnappedRef.current.borderBottom;
+          
+          // Handle X-axis border locking
+          if (isBorderLockedLeft || isBorderLockedRight) {
+            const mouseDistanceFromBorderLockX = Math.abs(mousePos.x - borderLockMousePos.current.x);
+            
+            if (mouseDistanceFromBorderLockX > borderReleaseDistance) {
+              // Release border lock
+              hasSnappedRef.current.borderLeft = false;
+              hasSnappedRef.current.borderRight = false;
+            } else {
+              // Maintain border lock
+              obj.left = borderLockedPos.current.x;
+              obj.setCoords();
+            }
+          }
+          // Check for new border snap if not locked to center or borders
+          else if (!isLockedX && objDistanceX >= snapZone) {
+            const leftDistance = Math.abs(objBoundingRect.left - canvasLeft);
+            const rightDistance = Math.abs(objBoundingRect.left + objBoundingRect.width - canvasRight);
+            
+            if (leftDistance < borderSnapZone) {
+              // Lock to left border - snap edge directly without offset
+              const edgeOffset = objBoundingRect.left - obj.left;
+              obj.left = canvasLeft - edgeOffset;
+              obj.setCoords();
+              hasSnappedRef.current.borderLeft = true;
+              borderLockMousePos.current.x = mousePos.x;
+              borderLockedPos.current.x = obj.left;
+            } else if (rightDistance < borderSnapZone) {
+              // Lock to right border - snap edge directly
+              const rightEdge = objBoundingRect.left + objBoundingRect.width;
+              const edgeOffset = rightEdge - (obj.left + (obj.width * obj.scaleX) / 2);
+              obj.left = canvasRight - objBoundingRect.width + (obj.left - objBoundingRect.left);
+              obj.setCoords();
+              hasSnappedRef.current.borderRight = true;
+              borderLockMousePos.current.x = mousePos.x;
+              borderLockedPos.current.x = obj.left;
+            }
+          }
+          
+          // Handle Y-axis border locking
+          if (isBorderLockedTop || isBorderLockedBottom) {
+            const mouseDistanceFromBorderLockY = Math.abs(mousePos.y - borderLockMousePos.current.y);
+            
+            if (mouseDistanceFromBorderLockY > borderReleaseDistance) {
+              // Release border lock
+              hasSnappedRef.current.borderTop = false;
+              hasSnappedRef.current.borderBottom = false;
+            } else {
+              // Maintain border lock
+              obj.top = borderLockedPos.current.y;
+              obj.setCoords();
+            }
+          }
+          // Check for new border snap if not locked to center or borders
+          else if (!isLockedY && objDistanceY >= snapZone) {
+            const topDistance = Math.abs(objBoundingRect.top - canvasTop);
+            const bottomDistance = Math.abs(objBoundingRect.top + objBoundingRect.height - canvasBottom);
+            
+            if (topDistance < borderSnapZone) {
+              // Lock to top border - snap edge directly without offset
+              const edgeOffset = objBoundingRect.top - obj.top;
+              obj.top = canvasTop - edgeOffset;
+              obj.setCoords();
+              hasSnappedRef.current.borderTop = true;
+              borderLockMousePos.current.y = mousePos.y;
+              borderLockedPos.current.y = obj.top;
+            } else if (bottomDistance < borderSnapZone) {
+              // Lock to bottom border - snap edge directly
+              const bottomEdge = objBoundingRect.top + objBoundingRect.height;
+              const edgeOffset = bottomEdge - (obj.top + (obj.height * obj.scaleY) / 2);
+              obj.top = canvasBottom - objBoundingRect.height + (obj.top - objBoundingRect.top);
+              obj.setCoords();
+              hasSnappedRef.current.borderBottom = true;
+              borderLockMousePos.current.y = mousePos.y;
+              borderLockedPos.current.y = obj.top;
+            }
+          }
+          
+          // Check X-axis for initial snap (center - stronger than borders)
           if (!isLockedX && objDistanceX < snapZone) {
             // Use setPositionByOrigin to center properly with transformations
             const currentCenter = obj.getCenterPoint();
@@ -315,6 +415,18 @@ export default function Home() {
         fabricCanvas.renderAll();
       });
       
+      // Track when scaling starts
+      fabricCanvas.on('scaling:start', function(e: any) {
+        isScaling.current = true;
+      });
+      
+      // Handle scaling - no constraints, let user scale freely
+      fabricCanvas.on('object:scaling', function(e: any) {
+        isScaling.current = true;
+        // Let Fabric.js handle scaling naturally
+        // No snapping or constraints during scaling to avoid issues
+      });
+      
       // Track when rotation starts
       fabricCanvas.on('rotating:start', function(e: any) {
         isRotating.current = true;
@@ -334,8 +446,8 @@ export default function Home() {
         const normalizedAngle = ((currentAngle % 360) + 360) % 360;
         
         // Thresholds for rotation
-        const rotationSnapZone = 5; // Degrees to trigger snap
-        const rotationReleaseThreshold = 10; // Degrees to release
+        const rotationSnapZone = 3; // Degrees to trigger snap (reduced from 5)
+        const rotationReleaseThreshold = 7; // Degrees to release (reduced from 10)
         
         const isLockedRotation = hasSnappedRef.current.rotation;
         
@@ -444,8 +556,13 @@ export default function Home() {
         horizontalLine.set({ stroke: '#00ff00', strokeWidth: 1, opacity: 0.5 });
         fabricCanvas.renderAll();
         setIsSnapping(false);
-        // Reset rotation flag
+        // Reset rotation and scaling flags
         isRotating.current = false;
+        isScaling.current = false;
+        // Reset scaling border locks
+        scalingBorderLock.current = {left: false, right: false, top: false, bottom: false};
+        // Show buttons again
+        setIsManipulating(false);
         // Don't reset snap state here - let the object:moving handler manage it based on position
       });
       
@@ -473,6 +590,9 @@ export default function Home() {
               canvas.remove(uploadedImage);
             }
 
+            // Clear edit history when uploading a new image (fresh start)
+            setEditHistory([]);
+
             // Scale image to fit within display canvas
             const maxDisplayWidth = DISPLAY_WIDTH * 0.8;  // 80% of canvas width
             const maxDisplayHeight = DISPLAY_HEIGHT * 0.8; // 80% of canvas height
@@ -482,7 +602,7 @@ export default function Home() {
             // Center the image on the canvas (accounting for padding)
             fabricImage.set({
               left: CONTROL_PADDING + DISPLAY_WIDTH / 2,  // Center position with padding
-              top: CONTROL_PADDING + DISPLAY_HEIGHT / 2,   // Center position with padding
+              top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,   // Center position with padding
               originX: 'center',
               originY: 'center'
             });
@@ -510,6 +630,697 @@ export default function Home() {
     multiple: false
   });
 
+  // AI Editing Functions
+  const toggleDrawingMode = () => {
+    if (!canvas || !fabric) return;
+    
+    const newDrawingMode = !drawingMode;
+    setDrawingMode(newDrawingMode);
+    
+    if (newDrawingMode) {
+      // Enable drawing mode for masking
+      canvas.isDrawingMode = true;
+      canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+      canvas.freeDrawingBrush.color = 'rgba(255, 0, 0, 0.5)';
+      canvas.freeDrawingBrush.width = 20;
+      canvas.renderAll();
+    } else {
+      // Disable drawing mode
+      canvas.isDrawingMode = false;
+      
+      // Get the drawn mask if any
+      const objects = canvas.getObjects('path');
+      if (objects.length > 0) {
+        // Create a temporary canvas for the mask
+        const maskCanvas = new fabric.StaticCanvas(null, {
+          width: DISPLAY_WIDTH,
+          height: DISPLAY_HEIGHT,
+        });
+        
+        // Add white background
+        maskCanvas.add(new fabric.Rect({
+          left: 0,
+          top: 0,
+          width: DISPLAY_WIDTH,
+          height: DISPLAY_HEIGHT,
+          fill: 'black',
+        }));
+        
+        // Add drawn paths as white
+        objects.forEach((path: any) => {
+          // Create a new path with white color
+          const pathData = path.path;
+          const newPath = new fabric.Path(pathData, {
+            stroke: 'white',
+            strokeWidth: path.strokeWidth || 20,
+            fill: 'white',
+            left: path.left || 0,
+            top: path.top || 0,
+          });
+          maskCanvas.add(newPath);
+        });
+        
+        // Export mask
+        const maskDataUrl = maskCanvas.toDataURL({
+          format: 'png',
+          multiplier: 1 / SCALE_FACTOR,
+        });
+        setDrawnMask(maskDataUrl);
+        
+        // Remove drawing paths from main canvas
+        objects.forEach((path: any) => canvas.remove(path));
+        canvas.renderAll();
+      }
+    }
+  };
+  
+  const clearMask = () => {
+    setDrawnMask(null);
+    const objects = canvas.getObjects('path');
+    objects.forEach((path: any) => canvas.remove(path));
+    canvas.renderAll();
+  };
+  
+  // New mask drawing functions for AI Masking feature
+  const startMaskDrawing = () => {
+    if (!canvas || !fabric || !uploadedImage) return;
+    
+    console.log('Starting mask drawing mode');
+    
+    // Enable drawing mode
+    setIsMaskDrawing(true);
+    canvas.isDrawingMode = true;
+    canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+    canvas.freeDrawingBrush.color = 'rgba(0, 255, 0, 0.5)';  // Green for distinction
+    canvas.freeDrawingBrush.width = 20;
+    
+    // Remove any existing handler first
+    if (canvas.__maskMouseUpHandler) {
+      canvas.off('mouse:up', canvas.__maskMouseUpHandler);
+    }
+    
+    // Use path:created event which fires when a path is completed
+    const handlePathCreated = (e: any) => {
+      console.log('Path created event fired');
+      
+      // Don't check isMaskDrawing state here - it might be stale due to closure
+      
+      // Small delay to allow for multiple strokes if needed
+      setTimeout(() => {
+        // Get all drawn paths
+        const objects = canvas.getObjects('path');
+        console.log('Found', objects.length, 'drawn paths');
+        
+        if (objects.length > 0) {
+          // Create mask from drawn paths - match the export size
+          const exportWidth = DISPLAY_WIDTH / SCALE_FACTOR;
+          const exportHeight = DISPLAY_HEIGHT / SCALE_FACTOR;
+          
+          const maskCanvas = new fabric.StaticCanvas(null, {
+            width: exportWidth,
+            height: exportHeight,
+          });
+          
+          // Black background
+          maskCanvas.add(new fabric.Rect({
+            left: 0,
+            top: 0,
+            width: exportWidth,
+            height: exportHeight,
+            fill: 'black',
+          }));
+          
+          // White mask areas - create new paths based on existing ones
+          objects.forEach((path: any) => {
+            // Create a new path with the same path data but white color
+            const pathData = path.path;
+            
+            // The path is already in the correct position relative to the canvas
+            // We need to adjust it to be relative to the exported area
+            const adjustedLeft = (path.left || 0) - CONTROL_PADDING;
+            const adjustedTop = (path.top || 0) - VERTICAL_PADDING;
+            
+            // Scale down the path to match the export size
+            const scaledPath = new fabric.Path(pathData, {
+              stroke: 'white',
+              strokeWidth: (path.strokeWidth || 20) / SCALE_FACTOR,
+              fill: null,  // Don't fill, just stroke
+              left: adjustedLeft / SCALE_FACTOR,
+              top: adjustedTop / SCALE_FACTOR,
+              scaleX: 1 / SCALE_FACTOR,
+              scaleY: 1 / SCALE_FACTOR,
+            });
+            maskCanvas.add(scaledPath);
+          });
+          
+          // Render the mask canvas to ensure all objects are drawn
+          maskCanvas.renderAll();
+          
+          // Export mask - already at the correct size, no scaling needed
+          const maskData = maskCanvas.toDataURL({
+            format: 'png',
+            multiplier: 1,
+          });
+          setCurrentMask(maskData);
+          
+          // Disable drawing mode
+          canvas.isDrawingMode = false;
+          setIsMaskDrawing(false);
+          
+          // Immediately show the prompt modal
+          console.log('Opening mask modal...');
+          setShowMaskModal(true);
+          setMaskPrompt('');
+          
+          // Don't remove paths yet - keep them visible so user knows what area they selected
+        }
+      }, 200);
+    };
+    
+    // Listen for when a path is created (drawing completed)
+    canvas.on('path:created', handlePathCreated);
+    
+    // Store the handler so we can remove it later
+    canvas.__maskPathHandler = handlePathCreated;
+  };
+  
+  const clearMaskDrawing = () => {
+    if (!canvas) return;
+    
+    console.log('Clearing mask drawings...');
+    
+    // Clear ALL paths (including green mask drawings)
+    const allObjects = canvas.getObjects();
+    const pathsToRemove = allObjects.filter((obj: any) => {
+      // Remove any path that looks like a mask (green color)
+      if (obj.type === 'path') {
+        const stroke = obj.stroke || '';
+        // Check if it's a green mask path
+        if (stroke.includes('rgba(0, 255, 0') || stroke.includes('rgb(0, 255, 0') || stroke === 'green') {
+          return true;
+        }
+      }
+      return false;
+    });
+    
+    console.log('Found', pathsToRemove.length, 'mask paths to remove');
+    pathsToRemove.forEach((path: any) => {
+      canvas.remove(path);
+    });
+    
+    canvas.renderAll();
+    setCurrentMask(null);
+    
+    // Remove the event handlers if they exist
+    if (canvas.__maskPathHandler) {
+      canvas.off('path:created', canvas.__maskPathHandler);
+      delete canvas.__maskPathHandler;
+    }
+    if (canvas.__maskMouseUpHandler) {
+      canvas.off('mouse:up', canvas.__maskMouseUpHandler);
+      delete canvas.__maskMouseUpHandler;
+    }
+  };
+  
+  const handleMaskEdit = async () => {
+    if (!canvas || !maskPrompt.trim() || !currentMask) return;
+    
+    setIsProcessing(true);
+    setAiError(null);
+    
+    try {
+      // Save current state to history
+      if (uploadedImage) {
+        const imageSrc = uploadedImage.toDataURL({
+          format: 'png',
+          multiplier: 1,
+        });
+        
+        const imageState = {
+          src: imageSrc,
+          left: uploadedImage.left,
+          top: uploadedImage.top,
+          scaleX: uploadedImage.scaleX,
+          scaleY: uploadedImage.scaleY,
+          angle: uploadedImage.angle,
+          flipX: uploadedImage.flipX,
+          flipY: uploadedImage.flipY,
+        };
+        setEditHistory(prev => [...prev, JSON.stringify(imageState)]);
+      }
+      
+      // Get the current canvas image at the same resolution we display
+      // This ensures mask alignment is correct
+      let imageData = '';
+      if (uploadedImage) {
+        // First, hide the mask paths temporarily
+        const maskPaths = canvas.getObjects().filter((obj: any) => {
+          if (obj.type === 'path') {
+            const stroke = obj.stroke || '';
+            return stroke.includes('rgba(0, 255, 0') || stroke.includes('rgb(0, 255, 0');
+          }
+          return false;
+        });
+        maskPaths.forEach((path: any) => path.set({ visible: false }));
+        
+        // Export the image without mask overlays
+        imageData = canvas.toDataURL({
+          format: 'png',
+          left: CONTROL_PADDING,
+          top: VERTICAL_PADDING,
+          width: DISPLAY_WIDTH,
+          height: DISPLAY_HEIGHT,
+          multiplier: 1,  // Keep at display size for correct mask alignment
+        });
+        
+        // Show the mask paths again
+        maskPaths.forEach((path: any) => path.set({ visible: true }));
+        canvas.renderAll();
+        
+        console.log('Exported image for mask edit at display size:', DISPLAY_WIDTH, 'x', DISPLAY_HEIGHT);
+      }
+      
+      console.log('Sending mask edit with prompt:', maskPrompt);
+      console.log('Mask data exists:', !!currentMask);
+      
+      // Call AI edit API with mask
+      const response = await fetch('/api/ai-edit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image: imageData,
+          prompt: maskPrompt,
+          mask: currentMask,  // Include the mask
+        }),
+      });
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'AI processing failed');
+      }
+      
+      // Load the edited image
+      const imgElement = new Image();
+      imgElement.crossOrigin = 'anonymous';
+      
+      imgElement.onload = function() {
+        console.log('Mask edited image loaded, dimensions:', imgElement.width, 'x', imgElement.height);
+        
+        // Clear the mask drawings IMMEDIATELY before doing anything else
+        clearMaskDrawing();
+        
+        // Close modal and clean up
+        setShowMaskModal(false);
+        setIsProcessing(false);
+        setMaskPrompt('');
+        
+        // Replace image
+        const fabricImage = new fabric.Image(imgElement);
+        
+        if (uploadedImage) {
+          canvas.remove(uploadedImage);
+        }
+        
+        // The returned image is already at display size (250x462.5)
+        // Just position it correctly on the canvas
+        fabricImage.set({
+          left: CONTROL_PADDING,
+          top: VERTICAL_PADDING,
+          scaleX: 1,  // No scaling needed - already at display size
+          scaleY: 1,  // No scaling needed - already at display size
+        });
+        
+        canvas.add(fabricImage);
+        canvas.setActiveObject(fabricImage);
+        canvas.renderAll();
+        setUploadedImage(fabricImage);
+        
+        console.log('Mask edited image replaced at scale:', SCALE_FACTOR);
+      };
+      
+      imgElement.onerror = function(error) {
+        console.error('Failed to load edited image:', error);
+        setAiError('Failed to load edited image');
+        setIsProcessing(false);
+      };
+      
+      imgElement.src = result.editedImage;
+      
+    } catch (error: any) {
+      console.error('Mask Edit Error:', error);
+      setAiError(error.message || 'Failed to process masked edit');
+      setIsProcessing(false);
+    }
+  };
+  
+  const handleAIEdit = async () => {
+    if (!canvas || !aiPrompt.trim()) return;
+    
+    setIsProcessing(true);
+    setAiError(null);
+    
+    try {
+      // Save current image state to history BEFORE making changes
+      if (uploadedImage) {
+        // Save just the image object's data as a data URL
+        const imageSrc = uploadedImage.toDataURL({
+          format: 'png',
+          multiplier: 1,
+        });
+        
+        const imageState = {
+          src: imageSrc,
+          left: uploadedImage.left,
+          top: uploadedImage.top,
+          scaleX: uploadedImage.scaleX,
+          scaleY: uploadedImage.scaleY,
+          angle: uploadedImage.angle,
+          flipX: uploadedImage.flipX,
+          flipY: uploadedImage.flipY,
+        };
+        setEditHistory(prev => [...prev, JSON.stringify(imageState)]);
+        console.log('Saved image state to history with position:', uploadedImage.left, uploadedImage.top);
+      }
+      
+      // Get ONLY the uploaded image, not the entire canvas
+      let imageData = '';
+      
+      if (uploadedImage) {
+        // Get the bounding box of the image
+        const bounds = uploadedImage.getBoundingRect();
+        
+        // Export only the image area
+        imageData = canvas.toDataURL({
+          format: 'png',
+          left: bounds.left,
+          top: bounds.top,
+          width: bounds.width,
+          height: bounds.height,
+          multiplier: 1,
+        });
+        
+        console.log('Exporting image only, dimensions:', bounds.width, 'x', bounds.height);
+      } else {
+        // Fallback to full canvas if no specific image
+        imageData = canvas.toDataURL({
+          format: 'png',
+          left: CONTROL_PADDING,
+          top: VERTICAL_PADDING,
+          width: DISPLAY_WIDTH,
+          height: DISPLAY_HEIGHT,
+          multiplier: 1 / SCALE_FACTOR,
+        });
+      }
+      
+      // Call AI edit API
+      const response = await fetch('/api/ai-edit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image: imageData,
+          prompt: aiPrompt,
+          // No mask for regular AI Edit
+        }),
+      });
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'AI processing failed');
+      }
+      
+      // Load the edited image back to canvas
+      console.log('Loading edited image to canvas...');
+      console.log('Image data type:', typeof result.editedImage);
+      console.log('Image data preview:', result.editedImage.substring(0, 100));
+      
+      // Create a new Image element first to ensure it loads
+      const imgElement = new Image();
+      imgElement.crossOrigin = 'anonymous';
+      
+      imgElement.onload = function() {
+        console.log('Image element loaded, dimensions:', imgElement.width, 'x', imgElement.height);
+        
+        // IMMEDIATELY close modal so user can see the result
+        setShowAIModal(false);
+        setIsProcessing(false);
+        setAiPrompt('');
+        
+        // Create fabric image from the loaded element
+        const fabricImage = new fabric.Image(imgElement);
+        
+        // Remove current image
+        if (uploadedImage) {
+          console.log('Removing old image from canvas');
+          canvas.remove(uploadedImage);
+        }
+        
+        // Scale and position the new image
+        const scale = Math.min(
+          (DISPLAY_WIDTH * 0.8) / fabricImage.width!,
+          (DISPLAY_HEIGHT * 0.8) / fabricImage.height!
+        );
+        fabricImage.scale(scale);
+        fabricImage.set({
+          left: CONTROL_PADDING + DISPLAY_WIDTH / 2,
+          top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
+          originX: 'center',
+          originY: 'center',
+        });
+        
+        console.log('Adding new image to canvas with scale:', scale);
+        canvas.add(fabricImage);
+        canvas.setActiveObject(fabricImage);
+        canvas.renderAll();
+        setUploadedImage(fabricImage);
+        
+        console.log('Image successfully added to canvas');
+      };
+      
+      imgElement.onerror = function(error) {
+        console.error('Failed to load image element:', error);
+        setAiError('Failed to load edited image');
+        setIsProcessing(false);
+      };
+      
+      // Set the source to trigger loading
+      imgElement.src = result.editedImage;
+      
+    } catch (error: any) {
+      console.error('AI Edit Error:', error);
+      setAiError(error.message || 'Failed to process image');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  
+  const ensureCanvasBackground = () => {
+    // Check if white background exists
+    const objects = canvas.getObjects();
+    const hasBackground = objects.some((obj: any) => 
+      obj.type === 'rect' && obj.fill === 'white' && obj.left === CONTROL_PADDING && obj.top === VERTICAL_PADDING
+    );
+    
+    if (!hasBackground) {
+      // Recreate white background
+      const canvasBackground = new fabric.Rect({
+        left: CONTROL_PADDING,
+        top: CONTROL_PADDING,
+        width: DISPLAY_WIDTH,
+        height: DISPLAY_HEIGHT,
+        fill: 'white',
+        selectable: false,
+        evented: false,
+        excludeFromExport: true
+      });
+      canvas.add(canvasBackground);
+      canvas.sendToBack(canvasBackground);
+    }
+  };
+  
+  const handleCreateAIImage = async () => {
+    if (!canvas || !createPrompt.trim()) return;
+    
+    setIsProcessing(true);
+    setAiError(null);
+    
+    try {
+      // Save current image state to history BEFORE creating new image
+      if (uploadedImage) {
+        // Save just the image object's data as a data URL
+        const imageSrc = uploadedImage.toDataURL({
+          format: 'png',
+          multiplier: 1,
+        });
+        
+        const imageState = {
+          src: imageSrc,
+          left: uploadedImage.left,
+          top: uploadedImage.top,
+          scaleX: uploadedImage.scaleX,
+          scaleY: uploadedImage.scaleY,
+          angle: uploadedImage.angle,
+          flipX: uploadedImage.flipX,
+          flipY: uploadedImage.flipY,
+        };
+        setEditHistory(prev => [...prev, JSON.stringify(imageState)]);
+        console.log('Saved image state to history before AI create with position:', uploadedImage.left, uploadedImage.top);
+      }
+      // Call AI create API
+      const response = await fetch('/api/ai-create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: createPrompt,
+        }),
+      });
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'AI generation failed');
+      }
+      
+      console.log('Loading generated image to canvas...');
+      
+      // Create a new Image element first to ensure it loads
+      const imgElement = new Image();
+      imgElement.crossOrigin = 'anonymous';
+      
+      imgElement.onload = function() {
+        console.log('Generated image loaded, dimensions:', imgElement.width, 'x', imgElement.height);
+        
+        // IMMEDIATELY close modal so user can see the result
+        setShowCreateModal(false);
+        setIsProcessing(false);
+        setCreatePrompt('');
+        
+        // Create fabric image from the loaded element
+        const fabricImage = new fabric.Image(imgElement);
+        
+        // Remove current image if exists
+        if (uploadedImage) {
+          canvas.remove(uploadedImage);
+        }
+        
+        // Scale and position the new image
+        const scale = Math.min(
+          (DISPLAY_WIDTH * 0.8) / fabricImage.width!,
+          (DISPLAY_HEIGHT * 0.8) / fabricImage.height!
+        );
+        fabricImage.scale(scale);
+        fabricImage.set({
+          left: CONTROL_PADDING + DISPLAY_WIDTH / 2,
+          top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
+          originX: 'center',
+          originY: 'center',
+        });
+        
+        canvas.add(fabricImage);
+        canvas.setActiveObject(fabricImage);
+        canvas.renderAll();
+        setUploadedImage(fabricImage);
+        
+        console.log('Generated image successfully added to canvas');
+      };
+      
+      imgElement.onerror = function(error) {
+        console.error('Failed to load generated image:', error);
+        setAiError('Failed to load generated image');
+        setIsProcessing(false);
+      };
+      
+      // Set the source to trigger loading
+      imgElement.src = result.generatedImage;
+      
+    } catch (error: any) {
+      console.error('AI Create Error:', error);
+      setAiError(error.message || 'Failed to generate image');
+      setIsProcessing(false);
+    }
+  };
+  
+  const undoLastEdit = () => {
+    if (editHistory.length === 0 || !canvas || !fabric) return;
+    
+    console.log('Undo: History length before:', editHistory.length);
+    
+    // Get the previous state (last item in history)
+    const previousStateStr = editHistory[editHistory.length - 1];
+    console.log('Undo: Previous state exists:', !!previousStateStr);
+    
+    // Remove the last state from history
+    setEditHistory(prev => prev.slice(0, -1));
+    
+    // Remove the current uploaded image
+    if (uploadedImage) {
+      console.log('Undo: Removing current image');
+      canvas.remove(uploadedImage);
+      setUploadedImage(null);
+    }
+    
+    // Ensure canvas background is still there
+    ensureCanvasBackground();
+    
+    // If we have a previous state, restore it
+    if (previousStateStr && previousStateStr !== '') {
+      try {
+        const previousState = JSON.parse(previousStateStr);
+        console.log('Undo: Restoring previous state:', previousState);
+        
+        // Create an image element first
+        const imgElement = new Image();
+        imgElement.crossOrigin = 'anonymous';
+        
+        imgElement.onload = function() {
+          console.log('Undo: Previous image loaded, dimensions:', imgElement.width, 'x', imgElement.height);
+          
+          // Create fabric image from the element
+          const fabricImage = new fabric.Image(imgElement);
+          
+          // Restore the exact position and transformation
+          fabricImage.set({
+            left: previousState.left,
+            top: previousState.top,
+            scaleX: previousState.scaleX,
+            scaleY: previousState.scaleY,
+            angle: previousState.angle || 0,
+            flipX: previousState.flipX || false,
+            flipY: previousState.flipY || false,
+          });
+          
+          canvas.add(fabricImage);
+          canvas.setActiveObject(fabricImage);
+          setUploadedImage(fabricImage);
+          canvas.renderAll();
+          
+          console.log('Undo: Image restored successfully at position:', previousState.left, previousState.top);
+        };
+        
+        imgElement.onerror = function() {
+          console.error('Undo: Failed to load previous state image from src:', previousState.src?.substring(0, 50));
+          canvas.renderAll();
+        };
+        
+        // Set the source to load the image
+        imgElement.src = previousState.src;
+      } catch (e) {
+        console.error('Undo: Failed to parse previous state:', e);
+        canvas.renderAll();
+      }
+    } else {
+      console.log('Undo: No previous state to restore');
+      canvas.renderAll();
+    }
+  };
+
   const handleSubmit = async () => {
     if (canvas) {
       try {
@@ -521,7 +1332,7 @@ export default function Home() {
         
         // Also hide the border rect
         const borderRect = canvas.getObjects().find((obj: any) => 
-          obj.type === 'rect' && obj.stroke === '#333' && obj.fill === 'transparent'
+          obj.type === 'rect' && obj.stroke === '#333' && obj.fill === 'white'
         );
         const originalBorderVisible = borderRect?.visible;
         if (borderRect) borderRect.visible = false;
@@ -534,7 +1345,7 @@ export default function Home() {
         const dataURL = canvas.toDataURL({
           format: 'png',
           left: CONTROL_PADDING,    // Start from canvas area, not padding
-          top: CONTROL_PADDING,     // Start from canvas area, not padding
+          top: VERTICAL_PADDING,     // Start from canvas area, not padding
           width: DISPLAY_WIDTH,     // Only the white canvas width
           height: DISPLAY_HEIGHT,   // Only the white canvas height
           multiplier: 1 / SCALE_FACTOR // Scale down to exact 100x185 for printer
@@ -548,7 +1359,7 @@ export default function Home() {
           format: 'jpeg',
           quality: 0.95,
           left: CONTROL_PADDING,    // Crop from canvas area only
-          top: CONTROL_PADDING,     // Crop from canvas area only
+          top: VERTICAL_PADDING,     // Crop from canvas area only
           width: DISPLAY_WIDTH,     // Only white canvas area
           height: DISPLAY_HEIGHT,   // Only white canvas area
           multiplier: 1 / SCALE_FACTOR, // ALWAYS outputs 100x185 for printer
@@ -583,9 +1394,9 @@ export default function Home() {
           if (!obj.visible) return false;
           const bounds = obj.getBoundingRect();
           return bounds.left < CONTROL_PADDING + DISPLAY_WIDTH && 
-                 bounds.top < CONTROL_PADDING + DISPLAY_HEIGHT && 
+                 bounds.top < VERTICAL_PADDING + DISPLAY_HEIGHT && 
                  bounds.left + bounds.width > CONTROL_PADDING && 
-                 bounds.top + bounds.height > CONTROL_PADDING;
+                 bounds.top + bounds.height > VERTICAL_PADDING;
         });
         console.log('Objects visible in canvas bounds:', visibleObjects.length);
         
@@ -593,7 +1404,7 @@ export default function Home() {
         const testExport = canvas.toDataURL({
           format: 'png',
           left: CONTROL_PADDING,
-          top: CONTROL_PADDING,
+          top: VERTICAL_PADDING,
           width: DISPLAY_WIDTH,
           height: DISPLAY_HEIGHT,
           multiplier: 1
@@ -684,34 +1495,483 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center p-4">
-      <h1 className="text-3xl font-bold mb-6">Phone Case Designer</h1>
-      
-      {/* Canvas and controls side by side */}
-      <div className="flex gap-6 items-start">
-        {/* Canvas with padding for controls */}
-        <div>
+    <div className="min-h-screen bg-white text-white flex flex-col items-center justify-center overflow-hidden">
+      {/* Mobile container */}
+      <div className="w-full max-w-md h-screen relative bg-gray-900">
+        {/* Canvas centered in mobile view - removed header */}
+        <div className="absolute inset-0 flex items-center justify-center">
           <canvas ref={canvasRef} />
         </div>
         
-        {/* Controls to the right of canvas */}
-        <div className="flex flex-col gap-4">
-          <div 
-            {...getRootProps()} 
-            className="border-2 border-dashed border-gray-500 px-8 py-4 rounded cursor-pointer hover:border-gray-400 transition"
-          >
+        {/* Right side controls - icon buttons - moved more inward to avoid cutoff */}
+        <div className={`absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2 transition-opacity duration-200 z-20 ${isManipulating ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+          {/* Upload Button */}
+          <div {...getRootProps()}>
             <input {...getInputProps()} />
-            <p className="text-center">Drop an image here<br/>or click to upload</p>
+            <button className="w-12 h-12 bg-gray-800 rounded-lg flex flex-col items-center justify-center hover:bg-gray-700 transition">
+              <span className="text-xl">📁</span>
+              <span className="text-[8px]">Upload</span>
+            </button>
           </div>
           
+          {/* AI Create Button */}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="w-12 h-12 bg-gray-800 rounded-lg flex flex-col items-center justify-center hover:bg-gray-700 transition"
+          >
+            <span className="text-xl">🎨</span>
+            <span className="text-[8px]">Create</span>
+          </button>
+          
+          {/* AI Edit Button */}
+          {uploadedImage && (
+            <button
+              onClick={() => setShowAIModal(true)}
+              className="w-12 h-12 bg-gray-800 rounded-lg flex flex-col items-center justify-center hover:bg-gray-700 transition"
+            >
+              <span className="text-xl">✏️</span>
+              <span className="text-[8px]">Edit</span>
+            </button>
+          )}
+          
+          {/* AI Masking Button */}
+          {uploadedImage && (
+            <button
+              onClick={() => startMaskDrawing()}
+              className="w-12 h-12 bg-gray-800 rounded-lg flex flex-col items-center justify-center hover:bg-gray-700 transition"
+            >
+              <span className="text-xl">🎭</span>
+              <span className="text-[8px]">Mask</span>
+            </button>
+          )}
+          
+          {/* Undo Button */}
+          {editHistory.length > 0 && (
+            <button
+              onClick={undoLastEdit}
+              className="w-12 h-12 bg-gray-800 rounded-lg flex flex-col items-center justify-center hover:bg-gray-700 transition"
+            >
+              <span className="text-xl">↩️</span>
+              <span className="text-[8px]">Undo</span>
+            </button>
+          )}
+        </div>
+        
+        {/* Bottom controls */}
+        <div className="absolute bottom-0 left-0 right-0 bg-gray-900 p-4 flex justify-between items-center">
+          {/* Rotate buttons */}
+          <div className="flex gap-2">
+            <button 
+              onClick={() => {
+                if (uploadedImage && canvas) {
+                  const angle = uploadedImage.angle - 90;
+                  uploadedImage.rotate(angle);
+                  canvas.renderAll();
+                }
+              }}
+              className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700"
+            >
+              ↺
+            </button>
+            <button 
+              onClick={() => {
+                if (uploadedImage && canvas) {
+                  const angle = uploadedImage.angle + 90;
+                  uploadedImage.rotate(angle);
+                  canvas.renderAll();
+                }
+              }}
+              className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700"
+            >
+              ↻
+            </button>
+          </div>
+          
+          {/* Submit/OK button */}
           <button
             onClick={handleSubmit}
-            className="bg-purple-600 hover:bg-purple-700 px-8 py-4 rounded font-semibold transition"
+            className="px-8 py-2 bg-purple-600 hover:bg-purple-700 rounded-full font-semibold transition"
           >
-            Submit Design
+            Submit
           </button>
         </div>
       </div>
+      
+      {/* AI Edit Modal */}
+      <Modal
+        isOpen={showAIModal}
+        onRequestClose={() => !isProcessing && setShowAIModal(false)}
+        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4"
+        overlayClassName="fixed inset-0 bg-black bg-opacity-75 z-50"
+      >
+        <div className="text-white">
+          <h2 className="text-2xl font-bold mb-4">🤖 AI Image Editor</h2>
+          
+          {/* Quick Action Templates */}
+          <div className="mb-4">
+            <p className="text-sm text-gray-400 mb-2">Quick Actions:</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setAiPrompt('Remove background')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Remove Background
+              </button>
+              <button
+                onClick={() => setAiPrompt('Enhance quality and make clearer')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Enhance Quality
+              </button>
+              <button
+                onClick={() => setAiPrompt('Make it look like oil painting')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Oil Painting
+              </button>
+              <button
+                onClick={() => setAiPrompt('Convert to cartoon style')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Cartoon Style
+              </button>
+              <button
+                onClick={() => setAiPrompt('Make it vintage')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Vintage
+              </button>
+              <button
+                onClick={() => setAiPrompt('Add sunset lighting')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Sunset
+              </button>
+            </div>
+          </div>
+          
+          {/* Main Prompt Input */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">
+              Describe what you want to change:
+            </label>
+            <textarea
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="e.g., Remove the person in the background, Make the sky purple, Add snow..."
+              className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none text-white"
+              rows={3}
+              disabled={isProcessing}
+            />
+            {aiPrompt.toLowerCase().includes('remove') && (
+              <p className="text-xs text-yellow-400 mt-1">
+                💡 Tip: For better removal results, use the AI Masking tool to highlight specific areas
+              </p>
+            )}
+          </div>
+          
+          {/* Error Display */}
+          {aiError && (
+            <div className="mb-4 p-3 bg-red-900 bg-opacity-50 border border-red-600 rounded">
+              <p className="text-red-300 text-sm">{aiError}</p>
+            </div>
+          )}
+          
+          {/* Action Buttons */}
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => {
+                setShowAIModal(false);
+                setAiPrompt('');
+                setAiError(null);
+              }}
+              className="px-6 py-2 bg-gray-600 hover:bg-gray-700 rounded font-medium transition"
+              disabled={isProcessing}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAIEdit}
+              className="px-6 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 rounded font-medium transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              disabled={isProcessing || !aiPrompt.trim()}
+            >
+              {isProcessing ? (
+                <>
+                  <span className="animate-spin">⚙️</span>
+                  Processing...
+                </>
+              ) : (
+                <>
+                  ✨ Apply AI Edit
+                </>
+              )}
+            </button>
+          </div>
+          
+          {/* Processing Status */}
+          {isProcessing && (
+            <div className="mt-4 text-center">
+              <p className="text-sm text-gray-400">AI is working on your image...</p>
+              <p className="text-xs text-gray-500 mt-1">This may take 10-30 seconds</p>
+            </div>
+          )}
+        </div>
+      </Modal>
+      
+      {/* Create AI Image Modal */}
+      <Modal
+        isOpen={showCreateModal}
+        onRequestClose={() => !isProcessing && setShowCreateModal(false)}
+        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4"
+        overlayClassName="fixed inset-0 bg-black bg-opacity-75 z-50"
+      >
+        <div className="text-white">
+          <h2 className="text-2xl font-bold mb-4">✨ Create AI Image</h2>
+          
+          {/* Inspiration Templates */}
+          <div className="mb-4">
+            <p className="text-sm text-gray-400 mb-2">Inspiration:</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setCreatePrompt('Beautiful sunset over mountains with dramatic clouds')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Sunset Landscape
+              </button>
+              <button
+                onClick={() => setCreatePrompt('Cute cartoon cat wearing sunglasses')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Cartoon Cat
+              </button>
+              <button
+                onClick={() => setCreatePrompt('Abstract colorful geometric pattern')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Abstract Art
+              </button>
+              <button
+                onClick={() => setCreatePrompt('Galaxy with nebula and stars, cosmic colors')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Space/Galaxy
+              </button>
+              <button
+                onClick={() => setCreatePrompt('Japanese cherry blossom tree in full bloom')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Cherry Blossom
+              </button>
+              <button
+                onClick={() => setCreatePrompt('Retro 80s synthwave style with neon colors')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Retro Synthwave
+              </button>
+            </div>
+          </div>
+          
+          {/* Main Prompt Input */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">
+              Describe what you want to create:
+            </label>
+            <textarea
+              value={createPrompt}
+              onChange={(e) => setCreatePrompt(e.target.value)}
+              placeholder="e.g., A magical forest with glowing mushrooms and fireflies, fantasy art style..."
+              className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none text-white"
+              rows={4}
+              disabled={isProcessing}
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              💡 Tip: Be specific! Include style (realistic, cartoon, oil painting), colors, mood, and details
+            </p>
+          </div>
+          
+          {/* Error Display */}
+          {aiError && (
+            <div className="mb-4 p-3 bg-red-900 bg-opacity-50 border border-red-600 rounded">
+              <p className="text-red-300 text-sm">{aiError}</p>
+            </div>
+          )}
+          
+          {/* Action Buttons */}
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => {
+                setShowCreateModal(false);
+                setCreatePrompt('');
+                setAiError(null);
+              }}
+              className="px-6 py-2 bg-gray-600 hover:bg-gray-700 rounded font-medium transition"
+              disabled={isProcessing}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleCreateAIImage}
+              className="px-6 py-2 bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 rounded font-medium transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              disabled={isProcessing || !createPrompt.trim()}
+            >
+              {isProcessing ? (
+                <>
+                  <span className="animate-spin">⚙️</span>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  🎨 Generate Image
+                </>
+              )}
+            </button>
+          </div>
+          
+          {/* Processing Status */}
+          {isProcessing && (
+            <div className="mt-4 text-center">
+              <p className="text-sm text-gray-400">AI is creating your image...</p>
+              <p className="text-xs text-gray-500 mt-1">This may take 15-30 seconds</p>
+            </div>
+          )}
+        </div>
+      </Modal>
+      
+      {/* AI Masking Modal */}
+      <Modal
+        isOpen={showMaskModal}
+        onRequestClose={() => {
+          if (!isProcessing) {
+            setShowMaskModal(false);
+            clearMaskDrawing();
+          }
+        }}
+        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-6 max-w-2xl w-full mx-4"
+        overlayClassName="fixed inset-0 bg-black bg-opacity-75 z-50"
+      >
+        <div className="text-white">
+          <h2 className="text-2xl font-bold mb-4">🖌️ AI Mask Edit</h2>
+          <p className="text-gray-400 mb-4">
+            You've selected an area. What would you like to do with it?
+          </p>
+          
+          {/* Template Prompts */}
+          <div className="mb-4">
+            <p className="text-sm text-gray-400 mb-2">Quick Actions:</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setMaskPrompt('Add a hat')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Add Hat
+              </button>
+              <button
+                onClick={() => setMaskPrompt('Add sunglasses')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Add Sunglasses
+              </button>
+              <button
+                onClick={() => setMaskPrompt('Remove this object')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Remove Object
+              </button>
+              <button
+                onClick={() => setMaskPrompt('Change color to blue')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Make Blue
+              </button>
+              <button
+                onClick={() => setMaskPrompt('Add sparkles and effects')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+                disabled={isProcessing}
+              >
+                Add Effects
+              </button>
+            </div>
+          </div>
+          
+          {/* Prompt Input */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2">
+              What do you want to change in this area?
+            </label>
+            <textarea
+              value={maskPrompt}
+              onChange={(e) => setMaskPrompt(e.target.value)}
+              placeholder="E.g., 'add a sombrero', 'change to red', 'remove', 'add flowers'..."
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:border-blue-500 focus:outline-none"
+              rows={3}
+              disabled={isProcessing}
+            />
+          </div>
+          
+          {/* Error Display */}
+          {aiError && (
+            <div className="mb-4 p-3 bg-red-900 bg-opacity-50 border border-red-600 rounded">
+              <p className="text-red-300 text-sm">{aiError}</p>
+            </div>
+          )}
+          
+          {/* Action Buttons */}
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => {
+                setShowMaskModal(false);
+                clearMaskDrawing();
+                setMaskPrompt('');
+                setAiError(null);
+              }}
+              className="px-6 py-2 bg-gray-600 hover:bg-gray-700 rounded font-medium transition"
+              disabled={isProcessing}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleMaskEdit}
+              className="px-6 py-2 bg-gradient-to-r from-green-500 to-teal-600 hover:from-green-600 hover:to-teal-700 rounded font-medium transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              disabled={isProcessing || !maskPrompt.trim()}
+            >
+              {isProcessing ? (
+                <>
+                  <span className="animate-spin">⚙️</span>
+                  Processing...
+                </>
+              ) : (
+                <>
+                  ✨ Apply to Area
+                </>
+              )}
+            </button>
+          </div>
+          
+          {/* Processing Status */}
+          {isProcessing && (
+            <div className="mt-4 text-center">
+              <p className="text-sm text-gray-400">AI is editing the selected area...</p>
+              <p className="text-xs text-gray-500 mt-1">Only the masked region will be modified</p>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

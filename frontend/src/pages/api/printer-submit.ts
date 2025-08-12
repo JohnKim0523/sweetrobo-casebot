@@ -481,14 +481,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const printerCenterX = printerCanvasWidth / 2;   // 50
     const printerCenterY = printerCanvasHeight / 2;  // 92.5
     
-    // Use exact canvas boundaries
-    const designLeft = 0;   
-    const designTop = 0;    
-    const designRight = printerCanvasWidth;  // 100
-    const designBottom = printerCanvasHeight; // 185
-    // Exact dimensions
-    const designWidth = printerCanvasWidth;  // 100
-    const designHeight = printerCanvasHeight; // 185
+    // For edge-to-edge printing, use oversized dimensions with negative positioning
+    // We need to ensure the image covers the entire 100×185mm canvas with bleed
+    const bleedAmount = 20; // 20mm bleed on each side for safety
+    
+    // Calculate oversized dimensions to ensure full coverage
+    const designWidth = printerCanvasWidth + (bleedAmount * 2);   // 140mm total width
+    const designHeight = printerCanvasHeight + (bleedAmount * 2);  // 225mm total height
+    
+    // Center the oversized image over the canvas using negative positioning
+    const designLeft = -bleedAmount;    // -20mm (extends 20mm beyond left edge)
+    const designTop = -bleedAmount;     // -20mm (extends 20mm beyond top edge)
+    const designRight = printerCanvasWidth + bleedAmount;   // 120mm
+    const designBottom = printerCanvasHeight + bleedAmount; // 205mm
     
     // Check what ColorPark expects vs what we're sending
     const COLORPARK_EXPECTED_WIDTH = 782;
@@ -514,7 +519,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // The exported image already has rotation baked in, so don't rotate again
     const angle = 0;
     
-    // Use design boundaries for corners
+    // Use oversized boundaries for corners to match edge-to-edge positioning
     const corners = {
       upper_left_x: designLeft,
       upper_left_y: designTop,
@@ -554,27 +559,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         "font_size": 0,
         "font_color": "",
         "under_color": "#00000000",
-        "width": designWidth,    // 100mm
-        "height": designHeight,  // 185mm
-        "top": 0,
-        "left": 0,
+        "width": designWidth,    // 162.8mm (oversized)
+        "height": designHeight,  // 150.5mm
+        "top": designTop,        // 17.2mm
+        "left": designLeft,      // -31.4mm (negative for bleed)
         "zoom": 1,
         "rotate": 0, // Rotation is already baked into the exported image
         "content": imageUrl,
-        "upper_left_x": 0,
-        "upper_left_y": 0,
-        "upper_right_x": designWidth,
-        "upper_right_y": 0,
-        "lower_left_x": 0,
-        "lower_left_y": designHeight,
-        "lower_right_x": designWidth,
-        "lower_right_y": designHeight,
-        "center_x": printerCenterX,  // 50
-        "center_y": printerCenterY,  // 92.5
-        "image_left": 0,
-        "image_top": 0,
-        "image_width": designWidth,  // 100mm
-        "image_height": designHeight // 185mm
+        "upper_left_x": designLeft,      // -31.4mm
+        "upper_left_y": designTop,       // 17.2mm
+        "upper_right_x": designRight,    // 131.4mm
+        "upper_right_y": designTop,      // 17.2mm
+        "lower_left_x": designLeft,      // -31.4mm
+        "lower_left_y": designBottom,    // 167.7mm
+        "lower_right_x": designRight,    // 131.4mm
+        "lower_right_y": designBottom,   // 167.7mm
+        "center_x": printerCenterX,      // 50
+        "center_y": printerCenterY,      // 92.5
+        "image_left": designLeft,        // -31.4mm
+        "image_top": designTop,          // 17.2mm
+        "image_width": designWidth,      // 162.8mm
+        "image_height": designHeight     // 150.5mm
       }],
       "works_id": null,
       "goods_id": GOODS_ID,
