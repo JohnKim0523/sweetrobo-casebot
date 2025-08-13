@@ -998,6 +998,11 @@ export default function Home() {
               canvas.renderAll();
             });
 
+            // Apply the custom controls (L-shaped corners and rotation icon)
+            if (normalControls.current) {
+              (fabricImage as any).controls = normalControls.current;
+            }
+
             // Add image normally - crosshairs will stay on top due to render order
             canvas.add(fabricImage);
             
@@ -1310,7 +1315,20 @@ export default function Home() {
       const result = await response.json();
       
       if (!result.success) {
-        throw new Error(result.error || 'AI processing failed');
+        console.error('AI Edit failed:', result.error);
+        
+        // Provide more specific error messages
+        if (result.error?.includes('authentication') || result.error?.includes('401')) {
+          throw new Error('API authentication failed. Please check your Replicate API token configuration.');
+        } else if (result.error?.includes('rate limit') || result.error?.includes('429')) {
+          throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+        } else if (result.error?.includes('422') || result.error?.includes('Invalid input')) {
+          throw new Error('Invalid image format. Please try with a different image or check that your image is not corrupted.');
+        } else if (result.error?.includes('NSFW')) {
+          throw new Error('The AI safety filter was triggered. Please try with a different prompt.');
+        } else {
+          throw new Error(result.error || 'AI processing failed. Please try again.');
+        }
       }
       
       // Load the edited image
@@ -1345,6 +1363,21 @@ export default function Home() {
           // Apply custom control settings
           hasBorders: false,
           borderColor: 'transparent'
+        });
+        
+        // Apply the custom controls (L-shaped corners and rotation icon)
+        if (normalControls.current) {
+          (fabricImage as any).controls = normalControls.current;
+        }
+        
+        // Add crop mode toggle functionality
+        fabricImage.on('selected', () => {
+          if (isCropMode && cropControls.current) {
+            (fabricImage as any).controls = cropControls.current;
+          } else if (normalControls.current) {
+            (fabricImage as any).controls = normalControls.current;
+          }
+          canvas.renderAll();
         });
         
         canvas.add(fabricImage);
@@ -1406,26 +1439,48 @@ export default function Home() {
         // Get the bounding box of the image
         const bounds = uploadedImage.getBoundingRect();
         
-        // Export only the image area
+        // Limit the export size to prevent issues with large images
+        const maxDimension = 1024; // Max width/height for API
+        let exportMultiplier = 1;
+        
+        if (bounds.width > maxDimension || bounds.height > maxDimension) {
+          const scale = maxDimension / Math.max(bounds.width, bounds.height);
+          exportMultiplier = scale;
+          console.log('Image too large, scaling down by:', scale);
+        }
+        
+        // Export only the image area with proper JPEG format for better compatibility
         imageData = canvas.toDataURL({
-          format: 'png',
+          format: 'jpeg', // Changed from 'png' to 'jpeg' for better compatibility
+          quality: 0.9, // High quality JPEG
           left: bounds.left,
           top: bounds.top,
           width: bounds.width,
           height: bounds.height,
-          multiplier: 1,
+          multiplier: exportMultiplier,
         });
         
-        console.log('Exporting image only, dimensions:', bounds.width, 'x', bounds.height);
+        console.log('Exporting image only, dimensions:', bounds.width * exportMultiplier, 'x', bounds.height * exportMultiplier);
+        console.log('Image data size:', imageData.length, 'bytes');
+        console.log('Image format:', imageData.substring(0, 30));
       } else {
         // Fallback to full canvas if no specific image
+        const maxDimension = 1024;
+        let exportMultiplier = 1 / SCALE_FACTOR;
+        
+        if (DISPLAY_WIDTH > maxDimension || DISPLAY_HEIGHT > maxDimension) {
+          const scale = maxDimension / Math.max(DISPLAY_WIDTH, DISPLAY_HEIGHT);
+          exportMultiplier = scale;
+        }
+        
         imageData = canvas.toDataURL({
-          format: 'png',
+          format: 'jpeg', // Changed from 'png' to 'jpeg'
+          quality: 0.9,
           left: CONTROL_PADDING,
           top: VERTICAL_PADDING,
           width: DISPLAY_WIDTH,
           height: DISPLAY_HEIGHT,
-          multiplier: 1 / SCALE_FACTOR,
+          multiplier: exportMultiplier,
         });
       }
       
@@ -1445,7 +1500,20 @@ export default function Home() {
       const result = await response.json();
       
       if (!result.success) {
-        throw new Error(result.error || 'AI processing failed');
+        console.error('AI Edit failed:', result.error);
+        
+        // Provide more specific error messages
+        if (result.error?.includes('authentication') || result.error?.includes('401')) {
+          throw new Error('API authentication failed. Please check your Replicate API token configuration.');
+        } else if (result.error?.includes('rate limit') || result.error?.includes('429')) {
+          throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+        } else if (result.error?.includes('422') || result.error?.includes('Invalid input')) {
+          throw new Error('Invalid image format. Please try with a different image or check that your image is not corrupted.');
+        } else if (result.error?.includes('NSFW')) {
+          throw new Error('The AI safety filter was triggered. Please try with a different prompt.');
+        } else {
+          throw new Error(result.error || 'AI processing failed. Please try again.');
+        }
       }
       
       // Load the edited image back to canvas
@@ -1489,6 +1557,11 @@ export default function Home() {
           hasBorders: false,
           borderColor: 'transparent'
         });
+        
+        // Apply the custom controls (L-shaped corners and rotation icon)
+        if (normalControls.current) {
+          (fabricImage as any).controls = normalControls.current;
+        }
         
         // Add crop mode toggle functionality for AI edited images
         fabricImage.on('selected', () => {
@@ -1634,7 +1707,9 @@ export default function Home() {
         });
         
         // Apply normal controls (L-shaped corners) to AI generated images
-        fabricImage.controls = normalControls.current;
+        if (normalControls.current) {
+          (fabricImage as any).controls = normalControls.current;
+        }
         
         canvas.add(fabricImage);
         canvas.setActiveObject(fabricImage);
@@ -1787,6 +1862,21 @@ export default function Home() {
             // Apply custom control settings
             hasBorders: false,
             borderColor: 'transparent'
+          });
+          
+          // Apply the custom controls (L-shaped corners and rotation icon)
+          if (normalControls.current) {
+            (fabricImage as any).controls = normalControls.current;
+          }
+          
+          // Add crop mode toggle functionality
+          fabricImage.on('selected', () => {
+            if (isCropMode && cropControls.current) {
+              (fabricImage as any).controls = cropControls.current;
+            } else if (normalControls.current) {
+              (fabricImage as any).controls = normalControls.current;
+            }
+            canvas.renderAll();
           });
           
           canvas.add(fabricImage);
@@ -2020,16 +2110,6 @@ export default function Home() {
             </button>
           )}
           
-          {/* AI Masking Button */}
-          {uploadedImage && (
-            <button
-              onClick={() => startMaskDrawing()}
-              className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
-            >
-              <span className="text-xl">🎭</span>
-            </button>
-          )}
-          
           {/* Crop Button */}
           {uploadedImage && (
             <button
@@ -2241,11 +2321,6 @@ export default function Home() {
               rows={3}
               disabled={isProcessing}
             />
-            {aiPrompt.toLowerCase().includes('remove') && (
-              <p className="text-xs text-yellow-400 mt-1">
-                💡 Tip: For better removal results, use the AI Masking tool to highlight specific areas
-              </p>
-            )}
           </div>
           
           {/* Error Display */}
@@ -2421,129 +2496,6 @@ export default function Home() {
         </div>
       </Modal>
       
-      {/* AI Masking Modal */}
-      <Modal
-        isOpen={showMaskModal}
-        onRequestClose={() => {
-          if (!isProcessing) {
-            setShowMaskModal(false);
-            clearMaskDrawing();
-          }
-        }}
-        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-4 w-full max-w-sm mx-4 max-h-[90vh] overflow-y-auto"
-        overlayClassName="fixed inset-0 bg-black bg-opacity-75 z-50"
-      >
-        <div className="text-white">
-          <h2 className="text-2xl font-bold mb-4">🖌️ AI Mask Edit</h2>
-          <p className="text-gray-400 mb-4">
-            You've selected an area. What would you like to do with it?
-          </p>
-          
-          {/* Template Prompts */}
-          <div className="mb-4">
-            <p className="text-sm text-gray-400 mb-2">Quick Actions:</p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setMaskPrompt('Add a hat')}
-                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
-                disabled={isProcessing}
-              >
-                Add Hat
-              </button>
-              <button
-                onClick={() => setMaskPrompt('Add sunglasses')}
-                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
-                disabled={isProcessing}
-              >
-                Add Sunglasses
-              </button>
-              <button
-                onClick={() => setMaskPrompt('Remove this object')}
-                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
-                disabled={isProcessing}
-              >
-                Remove Object
-              </button>
-              <button
-                onClick={() => setMaskPrompt('Change color to blue')}
-                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
-                disabled={isProcessing}
-              >
-                Make Blue
-              </button>
-              <button
-                onClick={() => setMaskPrompt('Add sparkles and effects')}
-                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
-                disabled={isProcessing}
-              >
-                Add Effects
-              </button>
-            </div>
-          </div>
-          
-          {/* Prompt Input */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">
-              What do you want to change in this area?
-            </label>
-            <textarea
-              value={maskPrompt}
-              onChange={(e) => setMaskPrompt(e.target.value)}
-              placeholder="E.g., 'add a sombrero', 'change to red', 'remove', 'add flowers'..."
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded focus:border-blue-500 focus:outline-none"
-              rows={3}
-              disabled={isProcessing}
-            />
-          </div>
-          
-          {/* Error Display */}
-          {aiError && (
-            <div className="mb-4 p-3 bg-red-900 bg-opacity-50 border border-red-600 rounded">
-              <p className="text-red-300 text-sm">{aiError}</p>
-            </div>
-          )}
-          
-          {/* Action Buttons */}
-          <div className="flex justify-end gap-3">
-            <button
-              onClick={() => {
-                setShowMaskModal(false);
-                clearMaskDrawing();
-                setMaskPrompt('');
-                setAiError(null);
-              }}
-              className="px-6 py-2 bg-gray-600 hover:bg-gray-700 rounded font-medium transition"
-              disabled={isProcessing}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleMaskEdit}
-              className="px-6 py-2 bg-gradient-to-r from-green-500 to-teal-600 hover:from-green-600 hover:to-teal-700 rounded font-medium transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              disabled={isProcessing || !maskPrompt.trim()}
-            >
-              {isProcessing ? (
-                <>
-                  <span className="animate-spin">⚙️</span>
-                  Processing...
-                </>
-              ) : (
-                <>
-                  ✨ Apply to Area
-                </>
-              )}
-            </button>
-          </div>
-          
-          {/* Processing Status */}
-          {isProcessing && (
-            <div className="mt-4 text-center">
-              <p className="text-sm text-gray-400">AI is editing the selected area...</p>
-              <p className="text-xs text-gray-500 mt-1">Only the masked region will be modified</p>
-            </div>
-          )}
-        </div>
-      </Modal>
 
       {/* Cropper Modal */}
       {showCropper && (

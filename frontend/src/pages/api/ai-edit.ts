@@ -6,23 +6,14 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
 });
 
-// Model configurations with working versions
-const MODELS = {
-  // Working SDXL models for image editing
-  SDXL_GENERATE: "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
-  SDXL_INPAINTING: "stability-ai/stable-diffusion-inpainting:95b7223104132402a9ae91cc677285bc5eb997834bd2349fa486f53910fd68b3",
-  SDXL_IMG2IMG: "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-  
-  // Working ControlNet for better image control
-  CONTROLNET_SDXL: "lucataco/sdxl-controlnet:db2ffdbdc7f6cb4d6dab512434679ee8d7101baded7e6a369d0e82165b0e02cf",
-  
-  // Other working models
-  REAL_ESRGAN: "nightmareai/real-esrgan:42fed1c4974146d4d2414e2be2c5277c7fcf05fcc3a73abf41610695738c1d7b",
-  REMBG: "cjwbw/rembg:fb8af171cfa1616ddcf1242c093f9c46bcada5ad4cf6f2fbe8b81b330ec5c003",
-  
-  // Legacy (not recommended but keeping for fallback)
-  INSTRUCT_PIX2PIX: "timothybrooks/instruct-pix2pix:30c1d0b916a6f8efce20493f5d61ee27491ab2a60437c13c588468b9810ec23f",
-};
+// Log if API token is missing (for debugging)
+if (!process.env.REPLICATE_API_TOKEN) {
+  console.error('WARNING: REPLICATE_API_TOKEN is not set in environment variables');
+}
+
+// Flux Kontext Pro - handles ALL image editing
+// Use just the model name, the SDK will use the latest version
+const FLUX_MODEL = "black-forest-labs/flux-kontext-pro";
 
 export const config = {
   api: {
@@ -32,183 +23,6 @@ export const config = {
   },
 };
 
-// Analyze prompt to determine which model to use
-function selectModel(prompt: string, hasMask: boolean): { model: string, params: any } {
-  const lowerPrompt = prompt.toLowerCase();
-  
-  // If user provided a mask, use appropriate inpainting model
-  if (hasMask) {
-    // Check if it's a removal task
-    if (lowerPrompt.match(/remove|delete|erase|get rid of|clear/i)) {
-      // For removal, describe what should be there INSTEAD
-      // This is more effective than trying to use specialized removal models
-      let replacementPrompt = "clean background, seamless continuation of surrounding area";
-      
-      // Try to infer what should replace the removed object
-      if (lowerPrompt.includes('tree') || lowerPrompt.includes('object')) {
-        replacementPrompt = "empty grass field, blue sky, natural landscape without objects";
-      } else if (lowerPrompt.includes('person') || lowerPrompt.includes('people')) {
-        replacementPrompt = "empty background, natural scenery";
-      } else if (lowerPrompt.includes('text') || lowerPrompt.includes('writing')) {
-        replacementPrompt = "clean surface, no text";
-      }
-      
-      console.log('Removal detected - converting prompt');
-      console.log('Original prompt:', prompt);
-      console.log('Replacement prompt:', replacementPrompt);
-      
-      return {
-        model: MODELS.SDXL_INPAINTING,
-        params: {
-          prompt: replacementPrompt,
-          negative_prompt: "objects, people, text, words, letters, artifacts, tree, trees",
-          guidance_scale: 7.5,
-          num_inference_steps: 40,
-          strength: 1.0,  // Full strength for complete replacement
-        }
-      };
-    } else {
-      // For adding/changing content, intelligently rephrase the prompt
-      let inpaintPrompt = prompt;
-      
-      // If user says "add X", change to "X in this area"
-      if (lowerPrompt.includes('add ')) {
-        inpaintPrompt = prompt.replace(/add /i, '') + ', high quality, detailed';
-      }
-      // If user says "change to X", use "X"
-      else if (lowerPrompt.includes('change to ')) {
-        inpaintPrompt = prompt.replace(/change to /i, '') + ', high quality';
-      }
-      
-      return {
-        model: MODELS.SDXL_INPAINTING,
-        params: {
-          prompt: inpaintPrompt,
-          negative_prompt: "ugly, blurry, poor quality, text, words, letters",
-          guidance_scale: 7.5,
-          num_inference_steps: 30,
-          strength: 0.99,
-        }
-      };
-    }
-  }
-  
-  // Background removal
-  if (lowerPrompt.includes('remove background') || lowerPrompt.includes('remove bg')) {
-    return {
-      model: MODELS.REMBG,
-      params: {
-        model: 'u2net',
-      }
-    };
-  }
-  
-  // Adding objects to image - use SDXL img2img for much better quality
-  if (lowerPrompt.match(/add|insert|place|put|include|give/i) && !hasMask) {
-    // SDXL img2img produces much better results than InstructPix2Pix
-    return {
-      model: MODELS.SDXL_IMG2IMG,
-      params: {
-        prompt: `${prompt}, high quality, photorealistic, detailed, 8k uhd`,
-        negative_prompt: "ugly, distorted, blurry, low quality, artifacts, extra limbs, bad anatomy",
-        image: true,  // Flag to indicate we're using the image
-        num_inference_steps: 30,
-        guidance_scale: 7.5,
-        prompt_strength: 0.65,  // Balance between prompt and preserving original (0.5-0.8)
-        scheduler: "K_EULER",
-        num_outputs: 1,
-        refine: "expert_ensemble_refiner",
-        high_noise_frac: 0.8,
-        apply_watermark: false,
-      }
-    };
-  }
-  
-  // Object removal - use InstructPix2Pix
-  if (lowerPrompt.match(/remove|delete|erase|get rid of/i) && !hasMask) {
-    return {
-      model: MODELS.INSTRUCT_PIX2PIX,
-      params: {
-        prompt: prompt,
-        negative_prompt: "distorted, blurry, low quality, artifacts",
-        num_inference_steps: 25,
-        guidance_scale: 10,
-        image_guidance_scale: 1.5,
-      }
-    };
-  }
-  
-  // Quality enhancement
-  if (lowerPrompt.match(/enhance|upscale|sharpen|quality|clearer|hd|4k/i)) {
-    return {
-      model: MODELS.REAL_ESRGAN,
-      params: {
-        scale: 2,
-        face_enhance: lowerPrompt.includes('face'),
-      }
-    };
-  }
-  
-  // General text-based editing (default) - use SDXL img2img for best quality
-  return {
-    model: MODELS.SDXL_IMG2IMG,
-    params: {
-      prompt: `${prompt}, high quality, photorealistic, detailed`,
-      negative_prompt: "ugly, distorted, blurry, low quality, artifacts",
-      image: true,
-      num_inference_steps: 25,
-      guidance_scale: 7.5,
-      prompt_strength: 0.7,
-      scheduler: "K_EULER",
-      num_outputs: 1,
-      refine: "expert_ensemble_refiner",
-      high_noise_frac: 0.8,
-      apply_watermark: false,
-    }
-  };
-}
-
-// Get nearest supported dimensions for SDXL (must be divisible by 8)
-function getNearestSupportedDimensions(idealWidth: number = 1024, idealHeight: number = 1024): { width: number, height: number } {
-  // SDXL supports these dimensions well
-  const supportedSizes = [
-    { width: 1024, height: 1024 },
-    { width: 1152, height: 896 },
-    { width: 896, height: 1152 },
-    { width: 1216, height: 832 },
-    { width: 832, height: 1216 },
-    { width: 1344, height: 768 },
-    { width: 768, height: 1344 },
-    { width: 1536, height: 640 },
-    { width: 640, height: 1536 },
-  ];
-  
-  const aspectRatio = idealWidth / idealHeight;
-  
-  // Find the closest aspect ratio
-  let bestMatch = supportedSizes[0];
-  let minDiff = Math.abs((bestMatch.width / bestMatch.height) - aspectRatio);
-  
-  for (const size of supportedSizes) {
-    const diff = Math.abs((size.width / size.height) - aspectRatio);
-    if (diff < minDiff) {
-      minDiff = diff;
-      bestMatch = size;
-    }
-  }
-  
-  return bestMatch;
-}
-
-// Convert base64 to URL for Replicate
-async function base64ToUrl(base64String: string): Promise<string> {
-  // Remove data:image/xxx;base64, prefix
-  const base64Data = base64String.replace(/^data:image\/\w+;base64,/, '');
-  
-  // For development, we'll use a data URI directly
-  // In production, you might want to upload to a temporary storage
-  return base64String;
-}
 
 export default async function handler(
   req: NextApiRequest,
@@ -225,12 +39,49 @@ export default async function handler(
       return res.status(400).json({ error: 'Image and prompt are required' });
     }
 
-    console.log('AI Edit Request:', { 
-      prompt, 
-      hasMask: !!mask,
-      imageSize: image.length,
-      maskSize: mask ? mask.length : 0 
-    });
+    // Enhanced debugging for image format
+    console.log('=== AI Edit Request Debug ===');
+    console.log('Prompt:', prompt);
+    console.log('Has Mask:', !!mask);
+    console.log('Image size (bytes):', image.length);
+    console.log('Image preview (first 200 chars):', image.substring(0, 200));
+    
+    // Check if image is base64
+    const imageFormatMatch = image.match(/^data:image\/(\w+);base64,/);
+    if (imageFormatMatch) {
+      console.log('Image format detected:', imageFormatMatch[1]);
+      const base64Data = image.split(',')[1];
+      const bufferSize = Buffer.from(base64Data, 'base64').length;
+      console.log('Actual image size after base64 decode (bytes):', bufferSize);
+      console.log('Image size in MB:', (bufferSize / 1024 / 1024).toFixed(2));
+      
+      // Check if format is supported by Flux Kontext Pro
+      const supportedFormats = ['jpeg', 'jpg', 'png', 'gif', 'webp'];
+      const detectedFormat = imageFormatMatch[1].toLowerCase();
+      if (!supportedFormats.includes(detectedFormat)) {
+        console.error('Unsupported image format:', detectedFormat);
+        console.error('Supported formats:', supportedFormats);
+        return res.status(400).json({
+          success: false,
+          error: `Unsupported image format: ${detectedFormat}. Flux Kontext Pro only supports: ${supportedFormats.join(', ')}`
+        });
+      }
+    } else {
+      console.log('Image does not appear to be base64 data URI');
+      console.log('Expected format: data:image/[type];base64,[data]');
+    }
+    
+    // Check API token
+    if (!process.env.REPLICATE_API_TOKEN) {
+      console.error('CRITICAL: REPLICATE_API_TOKEN is not set!');
+      return res.status(500).json({
+        success: false,
+        error: 'Replicate API token is not configured. Please set REPLICATE_API_TOKEN in your environment variables.'
+      });
+    } else {
+      console.log('API Token is set (length):', process.env.REPLICATE_API_TOKEN.length);
+      console.log('API Token preview:', process.env.REPLICATE_API_TOKEN.substring(0, 10) + '...');
+    }
     
     // Debug: Check mask format
     if (mask) {
@@ -238,89 +89,55 @@ export default async function handler(
       console.log('Mask appears to be:', mask.startsWith('data:image') ? 'valid image' : 'invalid format');
     }
 
-    // Select the appropriate model based on the prompt
-    const { model, params } = selectModel(prompt, !!mask);
-    console.log('Selected model:', model.split(':')[0].split('/')[1]);
+    // Always use Flux Kontext Pro for all prompts
+    console.log('Using Flux Kontext Pro for all edits');
 
-    // Prepare input based on model
-    let input: any = { ...params };
+    // Prepare input for Flux Kontext Pro
+    const input = {
+      input_image: image,
+      prompt: prompt,
+      aspect_ratio: "match_input_image",
+      output_format: "png", 
+      safety_tolerance: 2,
+      prompt_upsampling: false,
+      seed: Math.floor(Math.random() * 1000000)
+    };
     
-    if (model === MODELS.SDXL_IMG2IMG) {
-      // SDXL img2img model
-      input.image = image;
-      delete params.image;  // Remove the flag
-      
-      // Map prompt_strength to the correct parameter name
-      if (params.prompt_strength) {
-        input.prompt_strength = params.prompt_strength;
-      }
-    } else if (model === MODELS.SDXL_GENERATE) {
-      // SDXL text-to-image (shouldn't be used for editing but keeping for completeness)
-      delete input.image;
-    } else if (model === MODELS.CONTROLNET_SDXL) {
-      // ControlNet needs special handling
-      input.image = image;
-      input.condition_scale = params.condition_scale || 0.5;
-    } else if (model === MODELS.INSTRUCT_PIX2PIX) {
-      input.image = image;
-    } else if ((model as any) === 'LAMA' || (model as any) === 'ERASER') {
-      // These inpainting models need image and mask (legacy code, models not currently defined)
-      input.image = image;
-      input.mask = mask;
-      if (params.prompt) {
-        input.prompt = params.prompt;
-      }
-    } else if ((model as any) === 'CONTROLNET_CANNY') {
-      // ControlNet needs the image as control input
-      input.image = image;
-      input.prompt = params.prompt || prompt;
-      input.a_prompt = "best quality, extremely detailed";
-      input.n_prompt = params.negative_prompt || "longbody, lowres, bad anatomy, bad hands, missing fingers";
-    } else if (model === MODELS.SDXL_INPAINTING) {
-      input.image = image;
-      if (mask) {
-        input.mask = mask;
-        console.log('Adding mask to SDXL_INPAINTING input');
-      } else {
-        console.log('WARNING: No mask provided for SDXL_INPAINTING');
-      }
-      input.prompt = params.prompt || prompt;
-      input.negative_prompt = params.negative_prompt || "ugly, distorted, blurry";
-      
-      // Use supported dimensions - don't specify width/height, let model handle it
-      // The model will preserve the original image dimensions
-      
-      input.num_inference_steps = params.num_inference_steps || 30;
-      input.guidance_scale = params.guidance_scale || 7.5;
-      input.strength = params.strength || 1.0;
-      input.refine = "expert_ensemble_refiner";
-      input.scheduler = "K_EULER";
-      input.seed = Math.floor(Math.random() * 1000000);
-      console.log('SDXL_INPAINTING full input params:', {
-        hasImage: !!input.image,
-        hasMask: !!input.mask,
-        prompt: input.prompt,
-        strength: input.strength
-      });
-    } else if (model === MODELS.REAL_ESRGAN) {
-      input.img = image;
-    } else if (model === MODELS.REMBG) {
-      input.image = image;
-    } else {
-      input.image = image;
-    }
+    console.log('=== Flux Kontext Pro Input Parameters ===');
+    console.log('Model:', FLUX_MODEL);
+    console.log('Input parameters:', {
+      prompt: input.prompt,
+      aspect_ratio: input.aspect_ratio,
+      output_format: input.output_format,
+      safety_tolerance: input.safety_tolerance,
+      prompt_upsampling: input.prompt_upsampling,
+      seed: input.seed,
+      input_image_length: input.input_image?.length || 0,
+      input_image_preview: input.input_image?.substring(0, 100) || 'none'
+    });
 
-    // Run the model with retry logic for false NSFW detections
+    // Run the model
     console.log('Running Replicate model...');
+    console.log('Full model identifier:', FLUX_MODEL);
     let output;
     let retryCount = 0;
     const maxRetries = 2;
     
     while (retryCount <= maxRetries) {
       try {
-        output = await replicate.run(model as `${string}/${string}:${string}`, { input });
+        console.log(`Calling Replicate API (attempt ${retryCount + 1})...`);
+        // Remove the type assertion - let the SDK handle it
+        output = await replicate.run(FLUX_MODEL, { input });
+        console.log('Replicate API call successful');
         break; // Success, exit the retry loop
       } catch (error: any) {
+        console.error('Replicate API Error Details:');
+        console.error('Error name:', error.name);
+        console.error('Error message:', error.message);
+        console.error('Error status:', error.status);
+        console.error('Error response:', error.response);
+        console.error('Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+        
         // Check if it's a false NSFW detection
         if (error.message?.includes('NSFW content detected') && retryCount < maxRetries) {
           console.log(`False NSFW detection (attempt ${retryCount + 1}/${maxRetries + 1}), retrying with modified seed...`);
@@ -353,115 +170,78 @@ export default async function handler(
 
     console.log('Raw output from Replicate:', typeof output, output);
 
-    // Handle different output formats from different models
+    // Handle the output from Flux Kontext Pro
     let resultImage = '';
     
-    // Helper function to check if object is a ReadableStream
-    const isReadableStream = (obj: any): boolean => {
-      return obj && typeof obj === 'object' && typeof obj.getReader === 'function';
-    };
-    
-    // Helper function to handle ReadableStream
-    const handleStream = async (stream: any): Promise<string> => {
-      if (isReadableStream(stream)) {
-        // This is a ReadableStream, we need to read it
-        const reader = stream.getReader();
-        const chunks: Uint8Array[] = [];
+    // According to the Flux Kontext Pro API documentation, 
+    // the output has a url() method that returns the URL
+    if (output && typeof output === 'object' && 'url' in output && typeof (output as any).url === 'function') {
+      try {
+        const urlResult = await (output as any).url();
+        console.log('Got URL from output.url():', urlResult);
         
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            chunks.push(value);
-          }
-          
-          // Combine chunks and convert to string
-          const fullArray = new Uint8Array(chunks.reduce((acc, chunk) => acc + chunk.length, 0));
-          let offset = 0;
-          for (const chunk of chunks) {
-            fullArray.set(chunk, offset);
-            offset += chunk.length;
-          }
-          
-          // Convert to base64 data URL
-          const base64 = Buffer.from(fullArray).toString('base64');
-          console.log('Converted stream to base64, length:', base64.length);
-          
-          // Try to detect image type from first bytes
-          let mimeType = 'image/png';
-          if (fullArray[0] === 0xFF && fullArray[1] === 0xD8) {
-            mimeType = 'image/jpeg';
-          } else if (fullArray[0] === 0x89 && fullArray[1] === 0x50) {
-            mimeType = 'image/png';
-          }
-          
-          console.log('Detected MIME type:', mimeType);
-          return `data:${mimeType};base64,${base64}`;
-        } catch (error) {
-          console.error('Error reading stream:', error);
-          throw error;
+        // Convert URL object to string
+        if (urlResult instanceof URL) {
+          resultImage = urlResult.href;
+        } else if (typeof urlResult === 'string') {
+          resultImage = urlResult;
+        } else {
+          resultImage = String(urlResult);
         }
+      } catch (error) {
+        console.error('Error getting URL from output:', error);
       }
-      return '';
-    };
+    }
     
-    // Check various possible output formats
-    if (typeof output === 'string') {
-      // Direct string URL
-      resultImage = output;
-    } else if (Array.isArray(output) && output.length > 0) {
-      // Array - check if first element is a stream or string
-      const firstElement = output[0];
-      if (typeof firstElement === 'string') {
-        resultImage = firstElement;
-      } else if (isReadableStream(firstElement)) {
-        console.log('Processing ReadableStream from array...');
-        resultImage = await handleStream(firstElement);
-      } else {
-        console.log('Unknown array element type:', typeof firstElement, firstElement);
-      }
-    } else if (output && typeof output === 'object') {
-      // Check if it's a ReadableStream directly
-      if (isReadableStream(output)) {
-        console.log('Processing ReadableStream directly...');
-        resultImage = await handleStream(output);
-      } else if ('output' in output) {
-        resultImage = (output as any).output;
-      } else if ('image' in output) {
-        resultImage = (output as any).image;
-      } else if ('uri' in output) {
-        resultImage = (output as any).uri;
-      } else if ('url' in output) {
-        resultImage = (output as any).url;
-      } else {
-        // Try to find any string value in the object
-        const values = Object.values(output);
-        const stringValue = values.find(v => typeof v === 'string' && (v.startsWith('http') || v.startsWith('data:')));
-        if (stringValue) {
-          resultImage = stringValue as string;
+    // Fallback: try other common formats
+    if (!resultImage) {
+      if (typeof output === 'string') {
+        // Direct string URL
+        resultImage = output;
+      } else if (Array.isArray(output) && output.length > 0) {
+        // Array of URLs
+        resultImage = output[0];
+      } else if (output && typeof output === 'object') {
+        // Try to find URL in object properties
+        if ('output' in output) {
+          resultImage = (output as any).output;
+        } else if ('image' in output) {
+          resultImage = (output as any).image;
+        } else if ('uri' in output) {
+          resultImage = (output as any).uri;
+        } else if ('url' in output && typeof output.url === 'string') {
+          resultImage = (output as any).url;
         }
       }
     }
 
     if (!resultImage) {
       console.error('Failed to extract image from output:', output);
-      throw new Error('No output received from model. Output format: ' + JSON.stringify(output).substring(0, 200));
+      console.error('Output type:', typeof output);
+      console.error('Output keys:', output ? Object.keys(output) : 'null');
+      console.error('Output methods:', output ? Object.getOwnPropertyNames(Object.getPrototypeOf(output)) : 'null');
+      throw new Error('No output received from model. Unable to extract image URL.');
     }
 
     console.log('AI edit completed successfully');
     console.log('Result image type:', typeof resultImage);
-    console.log('Result image length:', resultImage.length);
-    console.log('Result image preview:', resultImage.substring(0, 100));
+    if (typeof resultImage === 'string') {
+      console.log('Result image length:', resultImage.length);
+      console.log('Result image preview:', resultImage.substring(0, 100));
+    } else {
+      console.log('Result image value:', resultImage);
+    }
 
     return res.status(200).json({
       success: true,
       editedImage: resultImage,
-      modelUsed: model.split(':')[0],
       prompt: prompt,
     });
 
   } catch (error: any) {
     console.error('AI Edit Error:', error);
+    console.error('Error type:', typeof error);
+    console.error('Error details:', JSON.stringify(error, null, 2));
     
     // Handle specific Replicate errors
     if (error.message?.includes('NSFW content detected')) {
@@ -471,10 +251,48 @@ export default async function handler(
       });
     }
     
+    // Handle Replicate API errors - check various error structures
     if (error.response) {
+      // Axios-style error response
+      const status = error.response.status || 500;
+      const detail = error.response.data?.detail || error.response.data?.error || error.response.data?.message || 'Unknown error';
       return res.status(500).json({
         success: false,
-        error: `Replicate API error: ${error.response.status} - ${error.response.data?.detail || 'Unknown error'}`,
+        error: `Replicate API error: ${status} - ${detail}`,
+      });
+    }
+    
+    // Handle direct Replicate SDK errors
+    if (error.status) {
+      // Some Replicate errors have status directly on the error object
+      const detail = error.detail || error.body?.detail || error.message || 'Unknown error';
+      return res.status(500).json({
+        success: false,
+        error: `Replicate API error: ${error.status} - ${detail}`,
+      });
+    }
+    
+    // Check for rate limiting
+    if (error.message?.includes('rate limit') || error.message?.includes('429')) {
+      return res.status(429).json({
+        success: false,
+        error: 'Rate limit exceeded. Please wait a moment and try again.',
+      });
+    }
+    
+    // Check for authentication issues
+    if (error.message?.includes('401') || error.message?.includes('authentication') || error.message?.includes('Unauthorized')) {
+      return res.status(500).json({
+        success: false,
+        error: 'API authentication failed. Please check your Replicate API token.',
+      });
+    }
+    
+    // Check for invalid input errors
+    if (error.message?.includes('422') || error.message?.includes('Unprocessable Entity')) {
+      return res.status(500).json({
+        success: false,
+        error: 'Invalid input format. Please ensure your image is properly formatted and try again.',
       });
     }
     
