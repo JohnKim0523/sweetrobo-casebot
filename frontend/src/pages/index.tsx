@@ -1948,6 +1948,7 @@ export default function Home() {
           return;
         }
         
+        /* PRINTER FUNCTIONALITY DISABLED - Uncomment to re-enable
         // Also send to printer
         console.log('Sending to printer...');
         console.log('JPEG data URL length:', jpegDataURL.length);
@@ -1973,6 +1974,9 @@ export default function Home() {
           console.error('Printer submission failed:', error);
           alert('Design saved locally but failed to send to printer: ' + error.error);
         }
+        */
+        
+        alert('Design submitted successfully!');
       } catch (error) {
         console.error('Error submitting design:', error);
         alert('Failed to submit design');

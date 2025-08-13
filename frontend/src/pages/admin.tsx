@@ -61,12 +61,20 @@ export default function AdminDashboard({ designs: initialDesigns }: AdminPagePro
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {designs.map((design) => (
           <div key={design.filename} className="bg-white rounded-lg shadow-md p-4">
-            <img 
-              src={design.url} 
-              alt={`Design ${design.filename}`}
-              className="w-40 h-auto mx-auto rounded mb-4"
-              style={{ maxHeight: '360px' }}
-            />
+            <div className="flex justify-center mb-4">
+              <img 
+                src={design.url} 
+                alt={`Design ${design.filename}`}
+                style={{ 
+                  width: '160px',
+                  height: 'auto',
+                  maxHeight: '360px',
+                  borderRadius: '0.25rem',
+                  display: 'block',
+                  imageRendering: 'crisp-edges'
+                }}
+              />
+            </div>
             <p className="text-sm text-gray-600">
               Submitted: {new Date(design.timestamp).toLocaleString()}
             </p>
@@ -74,6 +82,13 @@ export default function AdminDashboard({ designs: initialDesigns }: AdminPagePro
               {design.filename}
             </p>
             <div className="flex gap-2 mt-3">
+              <a
+                href={design.url}
+                download={design.filename}
+                className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition inline-block"
+              >
+                Download
+              </a>
               {design.debugData && (
                 <button
                   onClick={() => toggleDebugData(design.filename)}
