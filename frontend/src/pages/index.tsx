@@ -1432,35 +1432,35 @@ export default function Home() {
         console.log('Saved image state to history with position:', uploadedImage.left, uploadedImage.top);
       }
       
-      // Get ONLY the uploaded image, not the entire canvas
+      // Get ONLY the uploaded image itself, not based on canvas bounds
       let imageData = '';
       
       if (uploadedImage) {
-        // Get the bounding box of the image
-        const bounds = uploadedImage.getBoundingRect();
-        
-        // Limit the export size to prevent issues with large images
+        // Export the image object directly to avoid black margins
+        // This gets the actual image content regardless of position/scale
         const maxDimension = 1024; // Max width/height for API
-        let exportMultiplier = 1;
         
-        if (bounds.width > maxDimension || bounds.height > maxDimension) {
-          const scale = maxDimension / Math.max(bounds.width, bounds.height);
-          exportMultiplier = scale;
-          console.log('Image too large, scaling down by:', scale);
+        // Get the original image dimensions (before scaling)
+        const originalWidth = uploadedImage.width!;
+        const originalHeight = uploadedImage.height!;
+        
+        // Calculate export multiplier based on original dimensions
+        let exportMultiplier = 1;
+        if (originalWidth > maxDimension || originalHeight > maxDimension) {
+          exportMultiplier = maxDimension / Math.max(originalWidth, originalHeight);
+          console.log('Original image too large, scaling down by:', exportMultiplier);
         }
         
-        // Export only the image area with proper JPEG format for better compatibility
-        imageData = canvas.toDataURL({
-          format: 'jpeg', // Changed from 'png' to 'jpeg' for better compatibility
-          quality: 0.9, // High quality JPEG
-          left: bounds.left,
-          top: bounds.top,
-          width: bounds.width,
-          height: bounds.height,
+        // Export the image object directly, which gives us just the image content
+        // without any canvas background or areas outside the image
+        imageData = uploadedImage.toDataURL({
+          format: 'jpeg',
+          quality: 0.9,
           multiplier: exportMultiplier,
         });
         
-        console.log('Exporting image only, dimensions:', bounds.width * exportMultiplier, 'x', bounds.height * exportMultiplier);
+        console.log('Exporting actual image, original dimensions:', originalWidth, 'x', originalHeight);
+        console.log('Export dimensions:', originalWidth * exportMultiplier, 'x', originalHeight * exportMultiplier);
         console.log('Image data size:', imageData.length, 'bytes');
         console.log('Image format:', imageData.substring(0, 30));
       } else {
