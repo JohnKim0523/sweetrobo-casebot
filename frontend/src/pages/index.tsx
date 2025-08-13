@@ -1315,20 +1315,29 @@ export default function Home() {
       const result = await response.json();
       
       if (!result.success) {
-        console.error('AI Edit failed:', result.error);
+        console.log('AI Edit failed:', result.error);
         
-        // Provide more specific error messages
-        if (result.error?.includes('authentication') || result.error?.includes('401')) {
-          throw new Error('API authentication failed. Please check your Replicate API token configuration.');
+        // Close the modal and show user-friendly alert
+        setShowAIModal(false);
+        setShowMaskModal(false);
+        setIsProcessing(false);
+        setAiPrompt('');
+        setMaskPrompt('');
+        
+        // Show appropriate alert based on error type
+        if (result.errorType === 'safety_filter' || result.error?.includes('safety filter')) {
+          alert('⚠️ The AI safety filter was triggered. Please try with a different prompt.');
+        } else if (result.error?.includes('authentication') || result.error?.includes('401')) {
+          alert('❌ API authentication failed. Please check your settings.');
         } else if (result.error?.includes('rate limit') || result.error?.includes('429')) {
-          throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+          alert('⏱️ Rate limit exceeded. Please wait a moment and try again.');
         } else if (result.error?.includes('422') || result.error?.includes('Invalid input')) {
-          throw new Error('Invalid image format. Please try with a different image or check that your image is not corrupted.');
-        } else if (result.error?.includes('NSFW')) {
-          throw new Error('The AI safety filter was triggered. Please try with a different prompt.');
+          alert('🖼️ Invalid image format. Please try with a different image.');
         } else {
-          throw new Error(result.error || 'AI processing failed. Please try again.');
+          alert('❌ ' + (result.error || 'AI processing failed. Please try again.'));
         }
+        
+        return; // Exit early without throwing error
       }
       
       // Load the edited image
@@ -1398,8 +1407,11 @@ export default function Home() {
       
     } catch (error: any) {
       console.error('Mask Edit Error:', error);
-      setAiError(error.message || 'Failed to process masked edit');
+      // Close modal and show alert
+      setShowMaskModal(false);
       setIsProcessing(false);
+      setMaskPrompt('');
+      alert('❌ Failed to process masked edit. Please try again.');
     }
   };
   
@@ -1438,7 +1450,7 @@ export default function Home() {
       if (uploadedImage) {
         // Export the image object directly to avoid black margins
         // This gets the actual image content regardless of position/scale
-        const maxDimension = 1024; // Max width/height for API
+        const maxDimension = 2048; // Increased from 1024 to 2048 for higher quality
         
         // Get the original image dimensions (before scaling)
         const originalWidth = uploadedImage.width!;
@@ -1446,16 +1458,22 @@ export default function Home() {
         
         // Calculate export multiplier based on original dimensions
         let exportMultiplier = 1;
+        
+        // Only scale down if image is larger than max, otherwise keep original or scale up
         if (originalWidth > maxDimension || originalHeight > maxDimension) {
           exportMultiplier = maxDimension / Math.max(originalWidth, originalHeight);
-          console.log('Original image too large, scaling down by:', exportMultiplier);
+          console.log('Image larger than 2048px, scaling to fit:', exportMultiplier);
+        } else if (originalWidth < 1024 && originalHeight < 1024) {
+          // Scale up small images to at least 1024px for better AI processing
+          exportMultiplier = 1024 / Math.max(originalWidth, originalHeight);
+          console.log('Small image detected, scaling up by:', exportMultiplier);
         }
         
-        // Export the image object directly, which gives us just the image content
-        // without any canvas background or areas outside the image
+        // Export as PNG for lossless quality (better than JPEG compression)
+        // PNG preserves all details without compression artifacts
         imageData = uploadedImage.toDataURL({
-          format: 'jpeg',
-          quality: 0.9,
+          format: 'png',  // Changed from 'jpeg' to 'png' for lossless quality
+          quality: 1.0,    // Maximum quality
           multiplier: exportMultiplier,
         });
         
@@ -1465,17 +1483,17 @@ export default function Home() {
         console.log('Image format:', imageData.substring(0, 30));
       } else {
         // Fallback to full canvas if no specific image
-        const maxDimension = 1024;
-        let exportMultiplier = 1 / SCALE_FACTOR;
+        const maxDimension = 2048;
+        let exportMultiplier = 2; // Start with 2x for better quality
         
-        if (DISPLAY_WIDTH > maxDimension || DISPLAY_HEIGHT > maxDimension) {
+        if (DISPLAY_WIDTH * exportMultiplier > maxDimension || DISPLAY_HEIGHT * exportMultiplier > maxDimension) {
           const scale = maxDimension / Math.max(DISPLAY_WIDTH, DISPLAY_HEIGHT);
           exportMultiplier = scale;
         }
         
         imageData = canvas.toDataURL({
-          format: 'jpeg', // Changed from 'png' to 'jpeg'
-          quality: 0.9,
+          format: 'png',  // PNG for lossless quality
+          quality: 1.0,   // Maximum quality
           left: CONTROL_PADDING,
           top: VERTICAL_PADDING,
           width: DISPLAY_WIDTH,
@@ -1500,20 +1518,29 @@ export default function Home() {
       const result = await response.json();
       
       if (!result.success) {
-        console.error('AI Edit failed:', result.error);
+        console.log('AI Edit failed:', result.error);
         
-        // Provide more specific error messages
-        if (result.error?.includes('authentication') || result.error?.includes('401')) {
-          throw new Error('API authentication failed. Please check your Replicate API token configuration.');
+        // Close the modal and show user-friendly alert
+        setShowAIModal(false);
+        setShowMaskModal(false);
+        setIsProcessing(false);
+        setAiPrompt('');
+        setMaskPrompt('');
+        
+        // Show appropriate alert based on error type
+        if (result.errorType === 'safety_filter' || result.error?.includes('safety filter')) {
+          alert('⚠️ The AI safety filter was triggered. Please try with a different prompt.');
+        } else if (result.error?.includes('authentication') || result.error?.includes('401')) {
+          alert('❌ API authentication failed. Please check your settings.');
         } else if (result.error?.includes('rate limit') || result.error?.includes('429')) {
-          throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+          alert('⏱️ Rate limit exceeded. Please wait a moment and try again.');
         } else if (result.error?.includes('422') || result.error?.includes('Invalid input')) {
-          throw new Error('Invalid image format. Please try with a different image or check that your image is not corrupted.');
-        } else if (result.error?.includes('NSFW')) {
-          throw new Error('The AI safety filter was triggered. Please try with a different prompt.');
+          alert('🖼️ Invalid image format. Please try with a different image.');
         } else {
-          throw new Error(result.error || 'AI processing failed. Please try again.');
+          alert('❌ ' + (result.error || 'AI processing failed. Please try again.'));
         }
+        
+        return; // Exit early without throwing error
       }
       
       // Load the edited image back to canvas
@@ -1593,9 +1620,11 @@ export default function Home() {
       
     } catch (error: any) {
       console.error('AI Edit Error:', error);
-      setAiError(error.message || 'Failed to process image');
-    } finally {
+      // Close modal and show alert
+      setShowAIModal(false);
       setIsProcessing(false);
+      setAiPrompt('');
+      alert('❌ Failed to process image. Please try again.');
     }
   };
   
@@ -1740,8 +1769,11 @@ export default function Home() {
       
     } catch (error: any) {
       console.error('AI Create Error:', error);
-      setAiError(error.message || 'Failed to generate image');
+      // Close modal and show alert
+      setShowCreateModal(false);
       setIsProcessing(false);
+      setCreatePrompt('');
+      alert('❌ Failed to generate image. Please try again.');
     }
   };
   
@@ -1850,13 +1882,23 @@ export default function Home() {
           // Create fabric image from the element
           const fabricImage = new fabric.Image(imgElement);
           
-          // Restore the exact position and transformation
+          // Calculate standard scale to fit within 80% of canvas
+          const maxDisplayWidth = DISPLAY_WIDTH * 0.8;
+          const maxDisplayHeight = DISPLAY_HEIGHT * 0.8;
+          const standardScale = Math.min(
+            maxDisplayWidth / fabricImage.width!,
+            maxDisplayHeight / fabricImage.height!
+          );
+          
+          // Restore with consistent sizing and centered position
           fabricImage.set({
-            left: previousState.left,
-            top: previousState.top,
-            scaleX: previousState.scaleX,
-            scaleY: previousState.scaleY,
-            angle: previousState.angle || 0,
+            left: CONTROL_PADDING + DISPLAY_WIDTH / 2,  // Always center horizontally
+            top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,  // Always center vertically
+            originX: 'center',
+            originY: 'center',
+            scaleX: standardScale,  // Use standard scale instead of saved scale
+            scaleY: standardScale,  // Use standard scale instead of saved scale
+            angle: previousState.angle || 0,  // Keep rotation if any
             flipX: previousState.flipX || false,
             flipY: previousState.flipY || false,
             // Apply custom control settings
@@ -1884,7 +1926,7 @@ export default function Home() {
           setUploadedImage(fabricImage);
           canvas.renderAll();
           
-          console.log('Undo: Image restored successfully at position:', previousState.left, previousState.top);
+          console.log('Undo: Image restored successfully at standard size and centered position');
         };
         
         imgElement.onerror = function() {
@@ -2038,8 +2080,8 @@ export default function Home() {
           return;
         }
         
-        /* PRINTER FUNCTIONALITY DISABLED - Uncomment to re-enable
-        // Also send to printer
+        // Also send to printer - TEMPORARILY DISABLED
+        /*
         console.log('Sending to printer...');
         console.log('JPEG data URL length:', jpegDataURL.length);
         console.log('JPEG data URL preview:', jpegDataURL.substring(0, 100));
@@ -2085,21 +2127,26 @@ export default function Home() {
         
         {/* Right side controls - floating buttons */}
         <div className={`absolute right-3 top-1/2 -translate-y-1/2 flex flex-col gap-3 transition-opacity duration-200 z-20 ${isManipulating ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-          {/* Upload Button */}
-          <div {...getRootProps()}>
-            <input {...getInputProps()} />
-            <button className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600">
-              <span className="text-xl">📁</span>
-            </button>
-          </div>
+          {/* Upload Button - only show when no image */}
+          {!uploadedImage && (
+            <div {...getRootProps()}>
+              <input {...getInputProps()} />
+              <button className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600">
+                <span className="text-xl">📁</span>
+              </button>
+            </div>
+          )}
           
-          {/* AI Create Button */}
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
-          >
-            <span className="text-xl">🎨</span>
-          </button>
+          {/* AI Create Button - only show when no image */}
+          {!uploadedImage && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
+            >
+              <span className="text-xl">🎨</span>
+            </button>
+          )}
+          
           {/* AI Edit Button */}
           {uploadedImage && (
             <button

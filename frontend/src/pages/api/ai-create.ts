@@ -6,8 +6,8 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
 });
 
-// Model for text-to-image generation
-const TEXT_TO_IMAGE_MODEL = "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b";
+// Model for text-to-image generation - Using Flux 1.1 Pro for better quality
+const TEXT_TO_IMAGE_MODEL = "black-forest-labs/flux-1.1-pro";
 
 export const config = {
   api: {
@@ -34,24 +34,22 @@ export default async function handler(
 
     console.log('AI Create Request:', { prompt });
 
-    // Enhance the prompt for better quality
-    const enhancedPrompt = `${prompt}, high quality, detailed, sharp focus, 8k resolution`;
+    // Flux 1.1 Pro has better understanding, so we don't need to enhance as much
+    const enhancedPrompt = `${prompt}, high quality, professional`;
 
-    // Generate image using SDXL
+    // Generate image using Flux 1.1 Pro
+    // Based on the API example, Flux 1.1 Pro has simpler parameters
     const input = {
       prompt: enhancedPrompt,
-      negative_prompt: "ugly, blurry, poor quality, distorted, deformed, low resolution, bad anatomy",
-      width: 1024,
-      height: 1024,
-      num_inference_steps: 30,
-      guidance_scale: 7.5,
-      scheduler: "K_EULER",
+      prompt_upsampling: true,  // This enhances the prompt automatically
+      aspect_ratio: "1:1",       // Square format for case design
+      output_format: "png",      // PNG for better quality
+      output_quality: 100,       // Maximum quality
+      safety_tolerance: 2,       // Safety filter level
       seed: Math.floor(Math.random() * 1000000),
-      refine: "expert_ensemble_refiner",
-      high_noise_frac: 0.8,
     };
 
-    console.log('Generating image with SDXL...');
+    console.log('Generating image with Flux 1.1 Pro...');
     const output = await replicate.run(TEXT_TO_IMAGE_MODEL, { input });
 
     console.log('Raw output from Replicate:', typeof output, output);
@@ -98,24 +96,29 @@ export default async function handler(
       return '';
     };
 
-    // Handle different output formats
+    // Handle Flux 1.1 Pro output format
     let resultImage = '';
     
-    if (typeof output === 'string') {
+    // According to the Flux 1.1 Pro API example, output has a url() method
+    if (output && typeof output === 'object' && typeof output.url === 'function') {
+      try {
+        const urlResult = await output.url();
+        console.log('Got URL from output.url():', urlResult);
+        
+        // Convert URL object to string if needed
+        if (urlResult instanceof URL) {
+          resultImage = urlResult.href;
+        } else {
+          resultImage = String(urlResult);
+        }
+      } catch (error) {
+        console.error('Error getting URL from output:', error);
+      }
+    } else if (typeof output === 'string') {
+      // Fallback: direct string URL
       resultImage = output;
     } else if (Array.isArray(output) && output.length > 0) {
-      const firstElement = output[0];
-      if (typeof firstElement === 'string') {
-        resultImage = firstElement;
-      } else if (isReadableStream(firstElement)) {
-        console.log('Processing ReadableStream from array...');
-        resultImage = await handleStream(firstElement);
-      }
-    } else if (output && typeof output === 'object') {
-      if (isReadableStream(output)) {
-        console.log('Processing ReadableStream directly...');
-        resultImage = await handleStream(output);
-      }
+      resultImage = output[0];
     }
 
     if (!resultImage) {
