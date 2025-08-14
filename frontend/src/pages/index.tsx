@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
+import Head from 'next/head';
 import { useDropzone } from 'react-dropzone';
 import Modal from 'react-modal';
 import 'cropperjs/dist/cropper.css';
@@ -2129,12 +2130,29 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-white flex flex-col items-center justify-center overflow-hidden">
-      {/* Mobile container - optimized for mobile screens */}
-      <div className="w-full max-w-md h-screen relative bg-gray-900">
-        {/* Canvas centered in mobile view */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <canvas ref={canvasRef} />
+    <>
+      <Head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
+      </Head>
+      <div 
+        className="h-screen bg-gray-900 text-white flex flex-col items-center justify-center overflow-hidden"
+      >
+        {/* Container - responsive for all screens */}
+        <div 
+          className="w-full max-w-md h-full relative bg-gray-900 flex flex-col"
+        >
+        {/* Canvas container - centered and responsive */}
+        <div 
+          className="flex-1 relative flex items-center justify-center overflow-hidden" 
+          style={{ maxHeight: 'calc(100vh - 80px)' }}
+        >
+          <div className="transform scale-90 md:scale-100">
+            <canvas 
+              ref={canvasRef}
+            />
+          </div>
         </div>
         
         {/* Right side controls - floating buttons */}
@@ -2297,10 +2315,13 @@ export default function Home() {
             </div>
           )}
           
-          {/* Submit button */}
+        </div>
+        
+        {/* Submit button - fixed at bottom */}
+        <div className="absolute bottom-0 left-0 right-0 p-3 bg-gray-900 md:relative md:p-4 z-30">
           <button
             onClick={handleSubmit}
-            className="bg-gradient-to-r from-blue-600 to-blue-800 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:from-blue-700 hover:to-blue-900 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-400"
+            className="w-full bg-gradient-to-r from-blue-600 to-blue-800 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:from-blue-700 hover:to-blue-900 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-400"
             disabled={!uploadedImage}
           >
             Submit Design
@@ -2312,10 +2333,19 @@ export default function Home() {
       <Modal
         isOpen={showAIModal}
         onRequestClose={() => !isProcessing && setShowAIModal(false)}
-        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-4 w-full max-w-sm mx-4 max-h-[90vh] overflow-y-auto"
+        className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-4 w-[90%] max-w-sm max-h-[85vh] overflow-y-auto"
         overlayClassName="fixed inset-0 bg-black bg-opacity-75 z-50"
+        shouldCloseOnOverlayClick={true}
       >
-        <div className="text-white">
+        <div className="text-white relative">
+          {/* Close button */}
+          <button
+            onClick={() => setShowAIModal(false)}
+            className="absolute -top-2 -right-2 w-8 h-8 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-white font-bold"
+            disabled={isProcessing}
+          >
+            ×
+          </button>
           <h2 className="text-2xl font-bold mb-4">🤖 AI Image Editor</h2>
           
           {/* Quick Action Templates */}
@@ -2434,10 +2464,19 @@ export default function Home() {
       <Modal
         isOpen={showCreateModal}
         onRequestClose={() => !isProcessing && setShowCreateModal(false)}
-        className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-4 w-full max-w-sm mx-4 max-h-[90vh] overflow-y-auto"
+        className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg p-4 w-[90%] max-w-sm max-h-[85vh] overflow-y-auto"
         overlayClassName="fixed inset-0 bg-black bg-opacity-75 z-50"
+        shouldCloseOnOverlayClick={true}
       >
-        <div className="text-white">
+        <div className="text-white relative">
+          {/* Close button */}
+          <button
+            onClick={() => setShowCreateModal(false)}
+            className="absolute -top-2 -right-2 w-8 h-8 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-white font-bold"
+            disabled={isProcessing}
+          >
+            ×
+          </button>
           <h2 className="text-2xl font-bold mb-4">✨ Create AI Image</h2>
           
           {/* Inspiration Templates */}
@@ -2558,10 +2597,33 @@ export default function Home() {
 
       {/* Cropper Modal */}
       {showCropper && (
-        <div className="fixed inset-0 bg-black bg-opacity-90 z-50">
-          <div className="w-full h-full max-w-sm mx-auto bg-gray-800 flex flex-col">
-            <div className="p-3 border-b border-gray-600">
+        <div className="fixed inset-0 bg-black bg-opacity-90 z-50" onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            setShowCropper(false);
+            if (cropperRef.current) {
+              cropperRef.current.destroy();
+              cropperRef.current = null;
+            }
+            cropperImageRef.current = null;
+          }
+        }}>
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-gray-800 flex flex-col rounded-lg max-h-[85vh]">
+            <div className="p-3 border-b border-gray-600 relative">
               <h2 className="text-white text-lg font-semibold">Crop Image</h2>
+              {/* Close button */}
+              <button
+                onClick={() => {
+                  setShowCropper(false);
+                  if (cropperRef.current) {
+                    cropperRef.current.destroy();
+                    cropperRef.current = null;
+                  }
+                  cropperImageRef.current = null;
+                }}
+                className="absolute top-2 right-2 w-8 h-8 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-white font-bold"
+              >
+                ×
+              </button>
             </div>
             <div className="flex-1 p-3 flex items-center justify-center overflow-hidden">
               <div className="w-full max-w-[280px] max-h-[400px] flex items-center justify-center">
@@ -2695,5 +2757,6 @@ export default function Home() {
         </div>
       )}
     </div>
+    </>
   );
 }
