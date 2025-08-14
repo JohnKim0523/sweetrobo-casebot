@@ -2148,7 +2148,7 @@ export default function Home() {
           className="flex-1 relative flex items-center justify-center overflow-hidden" 
           style={{ maxHeight: 'calc(100vh - 80px)' }}
         >
-          <div className="transform scale-90 md:scale-100">
+          <div className="transform scale-90 md:scale-100 -mt-32 md:mt-0">
             <canvas 
               ref={canvasRef}
             />
