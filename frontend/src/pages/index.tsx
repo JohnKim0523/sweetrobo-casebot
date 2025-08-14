@@ -26,6 +26,7 @@ export default function Home() {
   const [canvas, setCanvas] = useState<any>(null);
   const [uploadedImage, setUploadedImage] = useState<any>(null);
   const [fabric, setFabric] = useState<any>(null);
+  const [machineId, setMachineId] = useState<string | null>(null);
   const [crosshairLines, setCrosshairLines] = useState<{vertical: any, horizontal: any}>({vertical: null, horizontal: null});
   const [isSnapping, setIsSnapping] = useState(false);
   
@@ -71,6 +72,16 @@ export default function Home() {
     import('fabric').then((fabricModule) => {
       setFabric(fabricModule);
     });
+    
+    // Extract machine ID from URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const machine = urlParams.get('machineId');
+    if (machine) {
+      setMachineId(machine);
+      console.log('🏭 Machine ID detected:', machine);
+    } else {
+      console.log('🏭 No machine ID in URL');
+    }
   }, []);
 
   // Define control sets at component level to avoid scope issues
@@ -2071,7 +2082,8 @@ export default function Home() {
           body: JSON.stringify({ 
             design: dataURL,
             debugData: canvasData,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            machineId: machineId
           }),
         });
 
