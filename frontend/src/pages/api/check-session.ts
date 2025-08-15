@@ -32,39 +32,66 @@ export default async function handler(
     // Check if session exists in DynamoDB
     const scanCommand = new ScanCommand({
       TableName: TABLE_NAME,
-      FilterExpression: 'sessionId = :sessionId',
+      FilterExpression: 'sessionId = :sessionId AND #type = :type',
       ExpressionAttributeValues: {
-        ':sessionId': sessionId
+        ':sessionId': sessionId,
+        ':type': 'session'
+      },
+      ExpressionAttributeNames: {
+        '#type': 'type'  // 'type' is a reserved word in DynamoDB
       }
     });
 
     const result = await docClient.send(scanCommand);
     
+    console.log('🔍 Check session result:', {
+      sessionId: sessionId,
+      itemsFound: result.Items?.length || 0,
+      items: result.Items
+    });
+    
     if (result.Items && result.Items.length > 0) {
-      // Session exists and has been used
-      const session = result.Items[0];
+      // If multiple sessions exist, prioritize 'completed' status
+      const session = result.Items.length > 1 
+        ? result.Items.find(item => item.status === 'completed') || result.Items[0]
+        : result.Items[0];
       
-      // Check if session is expired (30 minutes)
-      const sessionAge = Date.now() - session.timestamp;
-      const thirtyMinutes = 30 * 60 * 1000;
+      console.log('📋 Session details:', {
+        status: session.status,
+        expiresAt: session.expiresAt,
+        id: session.id,
+        totalFound: result.Items.length
+      });
       
-      if (sessionAge > thirtyMinutes && session.status !== 'completed') {
+      // Check if session is expired (convert seconds back to milliseconds for comparison)
+      if (session.expiresAt && Date.now() > (session.expiresAt * 1000)) {
         return res.status(200).json({ 
           status: 'expired',
           message: 'Session has expired'
         });
       }
       
+      // Check if session is completed
+      if (session.status === 'completed') {
+        return res.status(200).json({ 
+          status: 'completed',
+          message: 'Session already used'
+        });
+      }
+      
+      // Session is still active
       return res.status(200).json({ 
-        status: 'completed',
-        message: 'Session already used'
+        status: 'active',
+        message: 'Session is active',
+        expiresAt: session.expiresAt
       });
     }
     
-    // Session doesn't exist yet - it's active/new
+    // Session doesn't exist - should not happen with new flow
+    // but return expired to force new session creation
     return res.status(200).json({ 
-      status: 'active',
-      message: 'Session is active'
+      status: 'expired',
+      message: 'Session not found'
     });
     
   } catch (error) {

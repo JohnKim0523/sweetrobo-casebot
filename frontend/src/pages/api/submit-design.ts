@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuidv4 } from 'uuid';
 
 // Initialize AWS S3 Client
@@ -106,15 +106,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Generate the public URL
       const imageUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${filename}`;
       
-      // Save metadata to DynamoDB
-      console.log('💾 Saving to DynamoDB table:', process.env.AWS_DYNAMODB_TABLE);
-      const dynamoItem = {
-        id: designId,
+      // Save design metadata to DynamoDB
+      console.log('💾 Saving design to DynamoDB table:', process.env.AWS_DYNAMODB_TABLE);
+      const designItem = {
+        id: `design_${designId}`,
+        type: 'design',
+        designId: designId,
         timestamp: timestamp,
         imageUrl: imageUrl,
         machineId: machineId || 'no-machine',
         sessionId: sessionId || 'no-session',
-        status: 'completed',  // Mark session as completed
+        status: 'completed',
         submittedAt: new Date().toISOString(),
         imageSize: base64Data.length,
         debugData: debugData || {},
@@ -122,12 +124,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       
       const putCommand = new PutCommand({
         TableName: process.env.AWS_DYNAMODB_TABLE,
-        Item: dynamoItem,
+        Item: designItem,
       });
       
       try {
         await docClient.send(putCommand);
-        console.log('✅ DynamoDB save successful');
+        console.log('✅ Design saved to DynamoDB');
+        
+        // Update the session record to mark it as completed
+        if (sessionId && sessionId !== 'no-session') {
+          console.log('📝 Marking session as completed:', sessionId);
+          
+          // Just overwrite/create the session record with completed status
+          // This works whether the session exists or not
+          const sessionItem = {
+            id: `session_${sessionId}`,
+            sessionId: sessionId,
+            machineId: machineId || 'no-machine',
+            type: 'session',
+            status: 'completed',
+            createdAt: Date.now(),
+            expiresAt: Math.floor((Date.now() + 30 * 60 * 1000) / 1000), // Keep expiry for TTL
+            submittedAt: new Date().toISOString(),
+            designId: designId,
+            timestamp: Date.now()
+          };
+          
+          try {
+            const putSessionCommand = new PutCommand({
+              TableName: process.env.AWS_DYNAMODB_TABLE,
+              Item: sessionItem,
+            });
+            
+            await docClient.send(putSessionCommand);
+            console.log('✅ Session marked as completed');
+          } catch (updateError: any) {
+            console.error('⚠️ Failed to mark session as completed:', {
+              message: updateError.message,
+              code: updateError.Code || updateError.name,
+              sessionId: sessionId
+            });
+            // Continue even if session update fails
+          }
+        }
       } catch (dynamoError: any) {
         console.error('❌ DynamoDB save failed:', {
           message: dynamoError.message,

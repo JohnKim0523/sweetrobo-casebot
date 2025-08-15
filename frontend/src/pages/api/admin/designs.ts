@@ -28,9 +28,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // For now, we'll scan and filter
         const scanCommand = new ScanCommand({
           TableName: process.env.AWS_DYNAMODB_TABLE,
-          FilterExpression: 'machineId = :machineId',
+          FilterExpression: 'machineId = :machineId AND #type = :type',
           ExpressionAttributeValues: {
             ':machineId': machineId,
+            ':type': 'design',
+          },
+          ExpressionAttributeNames: {
+            '#type': 'type'  // 'type' is a reserved word in DynamoDB
           },
           Limit: Number(limit),
         });
@@ -38,9 +42,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const result = await docClient.send(scanCommand);
         designs = result.Items || [];
       } else {
-        // Get all designs
+        // Get all designs (not sessions)
         const scanCommand = new ScanCommand({
           TableName: process.env.AWS_DYNAMODB_TABLE,
+          FilterExpression: '#type = :type',
+          ExpressionAttributeValues: {
+            ':type': 'design',
+          },
+          ExpressionAttributeNames: {
+            '#type': 'type'  // 'type' is a reserved word in DynamoDB
+          },
           Limit: Number(limit),
         });
         

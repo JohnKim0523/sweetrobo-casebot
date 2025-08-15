@@ -33,6 +33,8 @@ export default function Home() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isSessionLocked, setIsSessionLocked] = useState(false);
   const [showThankYou, setShowThankYou] = useState(false);
+  const [thankYouMessage, setThankYouMessage] = useState('Thank you for your design!');
+  const [isCheckingSession, setIsCheckingSession] = useState(true); // Loading state
   const [crosshairLines, setCrosshairLines] = useState<{vertical: any, horizontal: any}>({vertical: null, horizontal: null});
   const [isSnapping, setIsSnapping] = useState(false);
   
@@ -78,31 +80,79 @@ export default function Home() {
     import('fabric').then((fabricModule) => {
       setFabric(fabricModule);
     });
-    
+  }, []);
+
+  useEffect(() => {
     // Extract URL parameters
     const urlParams = new URLSearchParams(window.location.search);
     const machine = urlParams.get('machineId');
     const session = urlParams.get('session');
     
-    if (machine) {
-      setMachineId(machine);
-      console.log('🏭 Machine ID detected:', machine);
-      
-      // Handle session logic
-      if (!session) {
-        // No session - generate new one and redirect
-        const newSessionId = crypto.randomUUID();
-        console.log('🎫 Generating new session:', newSessionId);
-        router.push(`/?machineId=${machine}&session=${newSessionId}`);
-      } else {
-        // Session exists - validate it
-        setSessionId(session);
-        checkSessionStatus(session);
+    console.log('🔍 URL params:', { machine, session });
+    
+    // Validate machineId - must be valid and not 'null' string
+    if (!machine || machine === 'null' || machine === 'undefined' || machine === '') {
+      // Check if we have a session but invalid machineId (URL corruption)
+      if (session && session !== 'null' && session !== 'undefined') {
+        console.error('❌ Invalid machine ID with existing session - URL may be corrupted');
+        setShowThankYou(true);
+        setThankYouMessage('Invalid URL. Please scan the QR code again to access the designer.');
+        setIsSessionLocked(true);
+        setIsCheckingSession(false);
+        return;
       }
-    } else {
-      console.log('🏭 No machine ID in URL');
+      
+      // No valid machine ID and no session
+      console.error('❌ No valid machine ID provided');
+      setShowThankYou(true);
+      setThankYouMessage('Please scan a QR code to access the designer.');
+      setIsSessionLocked(true);
+      setIsCheckingSession(false);
+      return;
     }
-  }, [router]);
+    
+    // Valid machine ID found
+    setMachineId(machine);
+    console.log('🏭 Machine ID detected:', machine);
+    
+    // Handle session logic
+    if (!session || session === 'null' || session === 'undefined') {
+      // No valid session - generate new one, register it, and redirect
+      const newSessionId = crypto.randomUUID();
+      console.log('🎫 Generating new session:', newSessionId);
+      
+      // Set the session ID in state immediately
+      setSessionId(newSessionId);
+      
+      // Register the session in database
+      fetch('/api/create-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId: newSessionId,
+          machineId: machine
+        })
+      }).then(response => {
+        if (response.ok) {
+          console.log('✅ Session registered successfully');
+        } else {
+          console.error('Failed to register session');
+        }
+      }).catch(error => {
+        console.error('Error registering session:', error);
+      });
+      
+      router.push(`/?machineId=${machine}&session=${newSessionId}`);
+      setIsCheckingSession(false);
+    } else {
+      // Valid session exists - just validate it, don't generate new one
+      console.log('📋 Using existing session:', session);
+      setSessionId(session);
+      checkSessionStatus(session);
+    }
+  }, []); // Empty dependency array - only run once
   
   // Check if session is already used/locked
   const checkSessionStatus = async (session: string) => {
@@ -114,14 +164,20 @@ export default function Home() {
         // Session already used - show thank you page
         setIsSessionLocked(true);
         setShowThankYou(true);
+        setThankYouMessage('This session has already been used. Thank you for your design!');
       } else if (data.status === 'expired') {
-        // Session expired - generate new one
-        const newSessionId = crypto.randomUUID();
-        router.push(`/?machineId=${machineId}&session=${newSessionId}`);
+        // Session expired - lock the session and show error
+        setIsSessionLocked(true);
+        setShowThankYou(true);
+        setThankYouMessage('Session expired. Please scan the QR code again to start a new session.');
+        console.log('⏰ Session expired:', session);
       }
       // If 'active' or doesn't exist, continue normally
     } catch (error) {
       console.error('Error checking session:', error);
+    } finally {
+      // Always set checking to false when done
+      setIsCheckingSession(false);
     }
   };
 
@@ -2136,6 +2192,7 @@ export default function Home() {
         
         // Success! Show thank you page and lock session
         setIsSessionLocked(true);
+        setThankYouMessage('Your design has been submitted successfully. Your custom print will be ready shortly!');
         setShowThankYou(true);
         
         // Prevent back navigation
@@ -2150,6 +2207,21 @@ export default function Home() {
     }
   };
 
+  // Show loading screen while checking session
+  if (isCheckingSession) {
+    return (
+      <>
+        <Head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+        </Head>
+        <div className="h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-6">
+          <div className="text-2xl mb-4">Loading...</div>
+          <div className="text-gray-400">Checking session status</div>
+        </div>
+      </>
+    );
+  }
+
   // Show Thank You page if session is completed
   if (showThankYou) {
     return (
@@ -2161,18 +2233,23 @@ export default function Home() {
         </Head>
         <div className="h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-6">
           <div className="max-w-md text-center">
-            <div className="text-6xl mb-6">✅</div>
-            <h1 className="text-3xl font-bold mb-4">Thank You!</h1>
-            <p className="text-xl mb-2">Your design has been submitted successfully.</p>
-            <p className="text-lg text-gray-400 mb-8">Your custom print will be ready shortly!</p>
-            
-            <div className="bg-gray-800 rounded-lg p-6 mb-6">
-              <p className="text-sm text-gray-400 mb-2">Session ID:</p>
-              <p className="text-xs font-mono text-gray-500">{sessionId}</p>
+            <div className="text-6xl mb-6">
+              {thankYouMessage.includes('expired') || thankYouMessage.includes('Invalid') ? '⏰' : '✅'}
             </div>
+            <h1 className="text-3xl font-bold mb-4">
+              {thankYouMessage.includes('expired') || thankYouMessage.includes('Invalid') ? 'Session Status' : 'Thank You!'}
+            </h1>
+            <p className="text-xl mb-6">{thankYouMessage}</p>
+            
+            {sessionId && (
+              <div className="bg-gray-800 rounded-lg p-6 mb-6">
+                <p className="text-sm text-gray-400 mb-2">Session ID:</p>
+                <p className="text-xs font-mono text-gray-500">{sessionId}</p>
+              </div>
+            )}
             
             <p className="text-sm text-gray-500">
-              This session has been completed. Please scan the QR code again for a new design.
+              Please scan the QR code to start a new session.
             </p>
           </div>
         </div>
