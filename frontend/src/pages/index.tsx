@@ -31,6 +31,7 @@ export default function Home() {
   const [fabric, setFabric] = useState<any>(null);
   const [machineId, setMachineId] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionTimestamp, setSessionTimestamp] = useState<number | null>(null);
   const [isSessionLocked, setIsSessionLocked] = useState(false);
   const [showThankYou, setShowThankYou] = useState(false);
   const [thankYouMessage, setThankYouMessage] = useState('Thank you for your design!');
@@ -134,9 +135,11 @@ export default function Home() {
           sessionId: newSessionId,
           machineId: machine
         })
-      }).then(response => {
+      }).then(async response => {
         if (response.ok) {
-          console.log('✅ Session registered successfully');
+          const data = await response.json();
+          setSessionTimestamp(data.timestamp); // Store the timestamp for later
+          console.log('✅ Session registered successfully with timestamp:', data.timestamp);
         } else {
           console.error('Failed to register session');
         }
@@ -2181,7 +2184,8 @@ export default function Home() {
             debugData: canvasData,
             timestamp: Date.now(),
             machineId: machineId,
-            sessionId: sessionId  // Include session ID
+            sessionId: sessionId,  // Include session ID
+            sessionTimestamp: sessionTimestamp  // Include original timestamp for updating
           }),
         });
 
@@ -2207,24 +2211,26 @@ export default function Home() {
     }
   };
 
-  // Show loading screen while checking session
-  if (isCheckingSession) {
-    return (
-      <>
-        <Head>
-          <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, user-scalable=no" />
-        </Head>
-        <div className="h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-6">
-          <div className="text-2xl mb-4">Loading...</div>
-          <div className="text-gray-400">Checking session status</div>
-        </div>
-      </>
-    );
-  }
-
-  // Show Thank You page if session is completed
-  if (showThankYou) {
-    return (
+  // Show loading screen while checking session OR show Thank You page
+  if (isCheckingSession || showThankYou) {
+    // If still checking, show loading
+    if (isCheckingSession) {
+      return (
+        <>
+          <Head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+          </Head>
+          <div className="h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-6">
+            <div className="text-2xl mb-4">Loading...</div>
+            <div className="text-gray-400">Checking session status</div>
+          </div>
+        </>
+      );
+    }
+    
+    // Show Thank You page if session is completed
+    if (showThankYou) {
+      return (
       <>
         <Head>
           <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, user-scalable=no" />
@@ -2254,7 +2260,8 @@ export default function Home() {
           </div>
         </div>
       </>
-    );
+      );
+    }
   }
 
   return (

@@ -32,16 +32,16 @@ export default async function handler(
     const now = Date.now();
     const thirtyMinutes = 1 * 60 * 1000; // TEMPORARILY 1 minute for testing
     
-    // Create session record
+    // Create session record - timestamp is SORT KEY so it's critical
     const sessionItem = {
-      id: `session_${sessionId}`, // Prefix to differentiate from designs
+      id: `session_${sessionId}`, // Partition key
+      timestamp: now,  // Sort key - MUST be the same when updating!
       sessionId: sessionId,
       machineId: machineId,
       type: 'session',  // To identify this as a session record
       status: 'active',
       createdAt: now,
       expiresAt: Math.floor((now + thirtyMinutes) / 1000), // TTL in seconds for DynamoDB
-      timestamp: now,  // For compatibility with existing queries
       submittedAt: null,
       designId: null
     };
@@ -59,6 +59,7 @@ export default async function handler(
     return res.status(200).json({ 
       success: true,
       sessionId: sessionId,
+      timestamp: now,  // Return timestamp for updating later
       expiresAt: sessionItem.expiresAt,
       message: 'Session created successfully'
     });

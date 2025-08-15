@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuidv4 } from 'uuid';
 
 // Initialize AWS S3 Client
@@ -43,7 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   
   if (req.method === 'POST') {
     try {
-      const { design, debugData, timestamp: clientTimestamp, machineId, sessionId } = req.body;
+      const { design, debugData, timestamp: clientTimestamp, machineId, sessionId, sessionTimestamp } = req.body;
       console.log('🔍 Received submission:', {
         hasDesign: !!design,
         designLength: design?.length,
@@ -132,40 +132,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.log('✅ Design saved to DynamoDB');
         
         // Update the session record to mark it as completed
-        if (sessionId && sessionId !== 'no-session') {
-          console.log('📝 Marking session as completed:', sessionId);
-          
-          // Just overwrite/create the session record with completed status
-          // This works whether the session exists or not
-          const sessionItem = {
-            id: `session_${sessionId}`,
-            sessionId: sessionId,
-            machineId: machineId || 'no-machine',
-            type: 'session',
-            status: 'completed',
-            createdAt: Date.now(),
-            expiresAt: Math.floor((Date.now() + 30 * 60 * 1000) / 1000), // Keep expiry for TTL
-            submittedAt: new Date().toISOString(),
-            designId: designId,
-            timestamp: Date.now()
-          };
+        if (sessionId && sessionId !== 'no-session' && sessionTimestamp) {
+          console.log('📝 Updating session as completed:', { sessionId, timestamp: sessionTimestamp });
           
           try {
-            const putSessionCommand = new PutCommand({
+            // Use UpdateCommand with composite key (id + timestamp)
+            const updateCommand = new UpdateCommand({
               TableName: process.env.AWS_DYNAMODB_TABLE,
-              Item: sessionItem,
+              Key: {
+                id: `session_${sessionId}`,
+                timestamp: sessionTimestamp  // Sort key - must match original!
+              },
+              UpdateExpression: 'SET #status = :completed, submittedAt = :submittedAt, designId = :designId',
+              ExpressionAttributeNames: {
+                '#status': 'status'
+              },
+              ExpressionAttributeValues: {
+                ':completed': 'completed',
+                ':submittedAt': new Date().toISOString(),
+                ':designId': designId
+              },
+              ReturnValues: 'ALL_NEW'
             });
             
-            await docClient.send(putSessionCommand);
-            console.log('✅ Session marked as completed');
-          } catch (updateError: any) {
-            console.error('⚠️ Failed to mark session as completed:', {
-              message: updateError.message,
-              code: updateError.Code || updateError.name,
-              sessionId: sessionId
+            const result = await docClient.send(updateCommand);
+            console.log('✅ Session marked as completed (no duplicates!):', result.Attributes?.id);
+          } catch (error: any) {
+            console.error('⚠️ Failed to update session:', {
+              message: error.message,
+              name: error.name,
+              sessionId: sessionId,
+              timestamp: sessionTimestamp
             });
             // Continue even if session update fails
           }
+        } else if (sessionId && sessionId !== 'no-session') {
+          console.log('⚠️ No session timestamp provided, cannot update without creating duplicate');
         }
       } catch (dynamoError: any) {
         console.error('❌ DynamoDB save failed:', {
