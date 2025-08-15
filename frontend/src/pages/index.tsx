@@ -119,7 +119,14 @@ export default function Home() {
     // Handle session logic
     if (!session || session === 'null' || session === 'undefined') {
       // No valid session - generate new one, register it, and redirect
-      const newSessionId = crypto.randomUUID();
+      // Use crypto.randomUUID if available, otherwise fallback
+      const newSessionId = typeof crypto !== 'undefined' && crypto.randomUUID 
+        ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0;
+            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+          });
       console.log('🎫 Generating new session:', newSessionId);
       
       // Set the session ID in state immediately
@@ -2093,6 +2100,15 @@ export default function Home() {
           withoutShadow: true
         });
         
+        // Check size and warn if too large
+        const sizeInMB = dataURL.length * 0.75 / 1024 / 1024; // Approximate size in MB
+        console.log(`📦 Image size: ${sizeInMB.toFixed(2)} MB`);
+        
+        if (sizeInMB > 40) {
+          alert('Image is too large. Please try with a smaller image or lower quality photo.');
+          return;
+        }
+        
         // Use SAME high-quality image for printer (no separate JPEG conversion)
         // This prevents quality loss from format conversion
         const jpegDataURL = dataURL;
@@ -2174,23 +2190,33 @@ export default function Home() {
         };
         
         // Send to backend (save locally)
-        const response = await fetch('/api/submit-design', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ 
-            design: dataURL,
-            debugData: canvasData,
-            timestamp: Date.now(),
-            machineId: machineId,
-            sessionId: sessionId,  // Include session ID
-            sessionTimestamp: sessionTimestamp  // Include original timestamp for updating
-          }),
-        });
+        console.log('📤 Submitting design to backend...');
+        let response;
+        try {
+          response = await fetch('/api/submit-design', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+              design: dataURL,
+              debugData: canvasData,
+              timestamp: Date.now(),
+              machineId: machineId,
+              sessionId: sessionId,  // Include session ID
+              sessionTimestamp: sessionTimestamp  // Include original timestamp for updating
+            }),
+          });
+        } catch (fetchError) {
+          console.error('Network error:', fetchError);
+          alert('Network error. Please check your connection and try again.');
+          return;
+        }
 
         if (!response.ok) {
-          alert('Failed to save design');
+          const errorData = await response.json();
+          console.error('Failed to save design:', errorData);
+          alert(`Failed to save design: ${errorData.error || 'Unknown error'}`);
           return;
         }
         

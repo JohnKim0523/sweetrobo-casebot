@@ -4,6 +4,10 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { v4 as uuidv4 } from 'uuid';
 
+// Canvas dimensions (matching frontend)
+const DISPLAY_WIDTH = 250;
+const DISPLAY_HEIGHT = 200;
+
 // Initialize AWS S3 Client
 const s3Client = new S3Client({
   region: process.env.AWS_REGION || 'us-east-1',
@@ -26,7 +30,7 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient);
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '10mb'
+      sizeLimit: '50mb'  // Increased for mobile photos
     }
   }
 }
@@ -108,6 +112,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       
       // Save design metadata to DynamoDB
       console.log('💾 Saving design to DynamoDB table:', process.env.AWS_DYNAMODB_TABLE);
+      // Don't store large debugData in DynamoDB (400KB limit per item)
+      // Only store essential metadata
       const designItem = {
         id: `design_${designId}`,
         type: 'design',
@@ -119,7 +125,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         status: 'completed',
         submittedAt: new Date().toISOString(),
         imageSize: base64Data.length,
-        debugData: debugData || {},
+        // Store only canvas dimensions from debugData, not the full data
+        canvasInfo: {
+          width: debugData?.width || DISPLAY_WIDTH,
+          height: debugData?.height || DISPLAY_HEIGHT,
+          objectCount: debugData?.objects?.length || 0
+        }
       };
       
       const putCommand = new PutCommand({
