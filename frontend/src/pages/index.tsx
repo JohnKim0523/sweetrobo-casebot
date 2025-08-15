@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import Head from 'next/head';
+import { useRouter } from 'next/router';
 import { useDropzone } from 'react-dropzone';
 import Modal from 'react-modal';
 import 'cropperjs/dist/cropper.css';
@@ -23,11 +24,15 @@ const CONTROL_PADDING = (CANVAS_TOTAL_WIDTH - DISPLAY_WIDTH) / 2; // This center
 const VERTICAL_PADDING = (CANVAS_TOTAL_HEIGHT - DISPLAY_HEIGHT) / 2; // This centers the canvas vertically
 
 export default function Home() {
+  const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvas, setCanvas] = useState<any>(null);
   const [uploadedImage, setUploadedImage] = useState<any>(null);
   const [fabric, setFabric] = useState<any>(null);
   const [machineId, setMachineId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isSessionLocked, setIsSessionLocked] = useState(false);
+  const [showThankYou, setShowThankYou] = useState(false);
   const [crosshairLines, setCrosshairLines] = useState<{vertical: any, horizontal: any}>({vertical: null, horizontal: null});
   const [isSnapping, setIsSnapping] = useState(false);
   
@@ -74,16 +79,51 @@ export default function Home() {
       setFabric(fabricModule);
     });
     
-    // Extract machine ID from URL parameters
+    // Extract URL parameters
     const urlParams = new URLSearchParams(window.location.search);
     const machine = urlParams.get('machineId');
+    const session = urlParams.get('session');
+    
     if (machine) {
       setMachineId(machine);
       console.log('🏭 Machine ID detected:', machine);
+      
+      // Handle session logic
+      if (!session) {
+        // No session - generate new one and redirect
+        const newSessionId = crypto.randomUUID();
+        console.log('🎫 Generating new session:', newSessionId);
+        router.push(`/?machineId=${machine}&session=${newSessionId}`);
+      } else {
+        // Session exists - validate it
+        setSessionId(session);
+        checkSessionStatus(session);
+      }
     } else {
       console.log('🏭 No machine ID in URL');
     }
-  }, []);
+  }, [router]);
+  
+  // Check if session is already used/locked
+  const checkSessionStatus = async (session: string) => {
+    try {
+      const response = await fetch(`/api/check-session?sessionId=${session}`);
+      const data = await response.json();
+      
+      if (data.status === 'completed') {
+        // Session already used - show thank you page
+        setIsSessionLocked(true);
+        setShowThankYou(true);
+      } else if (data.status === 'expired') {
+        // Session expired - generate new one
+        const newSessionId = crypto.randomUUID();
+        router.push(`/?machineId=${machineId}&session=${newSessionId}`);
+      }
+      // If 'active' or doesn't exist, continue normally
+    } catch (error) {
+      console.error('Error checking session:', error);
+    }
+  };
 
   // Define control sets at component level to avoid scope issues
   const normalControls = useRef<any>(null);
@@ -2084,50 +2124,61 @@ export default function Home() {
             design: dataURL,
             debugData: canvasData,
             timestamp: Date.now(),
-            machineId: machineId
+            machineId: machineId,
+            sessionId: sessionId  // Include session ID
           }),
         });
 
         if (!response.ok) {
-          alert('Failed to save design locally');
+          alert('Failed to save design');
           return;
         }
         
-        // Also send to printer - TEMPORARILY DISABLED
-        /*
-        console.log('Sending to printer...');
-        console.log('JPEG data URL length:', jpegDataURL.length);
-        console.log('JPEG data URL preview:', jpegDataURL.substring(0, 100));
+        // Success! Show thank you page and lock session
+        setIsSessionLocked(true);
+        setShowThankYou(true);
         
-        const printerResponse = await fetch('/api/printer-submit', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            imageData: jpegDataURL,  // Use JPEG for printer
-            canvasData: canvasData
-          }),
-        });
-        
-        if (printerResponse.ok) {
-          const printerData = await printerResponse.json();
-          console.log('Printer response:', printerData);
-          alert('Design submitted successfully to printer!');
-        } else {
-          const error = await printerResponse.json();
-          console.error('Printer submission failed:', error);
-          alert('Design saved locally but failed to send to printer: ' + error.error);
-        }
-        */
-        
-        alert('Design submitted successfully!');
+        // Prevent back navigation
+        window.history.pushState(null, '', window.location.href);
+        window.onpopstate = () => {
+          window.history.go(1);
+        };
       } catch (error) {
         console.error('Error submitting design:', error);
         alert('Failed to submit design');
       }
     }
   };
+
+  // Show Thank You page if session is completed
+  if (showThankYou) {
+    return (
+      <>
+        <Head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+          <meta name="apple-mobile-web-app-capable" content="yes" />
+          <meta name="mobile-web-app-capable" content="yes" />
+        </Head>
+        <div className="h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-6">
+          <div className="max-w-md text-center">
+            <div className="text-6xl mb-6">✅</div>
+            <h1 className="text-3xl font-bold mb-4">Thank You!</h1>
+            <p className="text-xl mb-2">Your design has been submitted successfully.</p>
+            <p className="text-lg text-gray-400 mb-8">Your custom print will be ready shortly!</p>
+            
+            <div className="bg-gray-800 rounded-lg p-6 mb-6">
+              <p className="text-sm text-gray-400 mb-2">Session ID:</p>
+              <p className="text-xs font-mono text-gray-500">{sessionId}</p>
+            </div>
+            
+            <p className="text-sm text-gray-500">
+              This session has been completed. Please scan the QR code again for a new design.
+            </p>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

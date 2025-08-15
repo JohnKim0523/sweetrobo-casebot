@@ -43,13 +43,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   
   if (req.method === 'POST') {
     try {
-      const { design, debugData, timestamp: clientTimestamp, machineId } = req.body;
+      const { design, debugData, timestamp: clientTimestamp, machineId, sessionId } = req.body;
       console.log('🔍 Received submission:', {
         hasDesign: !!design,
         designLength: design?.length,
         hasDebugData: !!debugData,
         timestamp: clientTimestamp,
-        machineId: machineId || 'no-machine'
+        machineId: machineId || 'no-machine',
+        sessionId: sessionId || 'no-session'
       });
       
       // Check required environment variables
@@ -112,7 +113,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         timestamp: timestamp,
         imageUrl: imageUrl,
         machineId: machineId || 'no-machine',
-        status: 'pending',
+        sessionId: sessionId || 'no-session',
+        status: 'completed',  // Mark session as completed
         submittedAt: new Date().toISOString(),
         imageSize: base64Data.length,
         debugData: debugData || {},
