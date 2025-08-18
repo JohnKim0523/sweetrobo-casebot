@@ -33,6 +33,7 @@ export default function Home() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTimestamp, setSessionTimestamp] = useState<number | null>(null);
   const [isSessionLocked, setIsSessionLocked] = useState(false);
+  const sessionCheckRef = useRef(false); // Prevent double session checks
   const [debugInfo, setDebugInfo] = useState<string>(''); // Debug info for mobile
   const [showThankYou, setShowThankYou] = useState(false);
   const [thankYouMessage, setThankYouMessage] = useState('Thank you for your design!');
@@ -85,6 +86,9 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    // Skip if we already checked
+    if (sessionCheckRef.current) return;
+    
     // Extract URL parameters
     const urlParams = new URLSearchParams(window.location.search);
     const machine = urlParams.get('machineId');
@@ -116,6 +120,9 @@ export default function Home() {
     // Valid machine ID found
     setMachineId(machine);
     console.log('🏭 Machine ID detected:', machine);
+    
+    // Mark that we've started checking
+    sessionCheckRef.current = true;
     
     // Handle session logic
     if (!session || session === 'null' || session === 'undefined') {
@@ -182,8 +189,12 @@ export default function Home() {
         setShowThankYou(true);
         setThankYouMessage('Session expired. Please scan the QR code again to start a new session.');
         console.log('⏰ Session expired:', session);
+      } else if (data.status === 'active' && data.session) {
+        // Active session - store the timestamp for updates
+        setSessionTimestamp(data.session.timestamp);
+        console.log('✅ Session active with timestamp:', data.session.timestamp);
       }
-      // If 'active' or doesn't exist, continue normally
+      // If doesn't exist, continue normally
     } catch (error) {
       console.error('Error checking session:', error);
     } finally {
@@ -197,8 +208,12 @@ export default function Home() {
   const cropControls = useRef<any>(null);
 
   useEffect(() => {
-    if (canvasRef.current && fabric) {
-      const fabricCanvas = new fabric.Canvas(canvasRef.current, {
+    // Only initialize canvas when all conditions are met
+    if (!canvasRef.current || !fabric || isCheckingSession || isSessionLocked || showThankYou || canvas) {
+      return;
+    }
+    
+    const fabricCanvas = new fabric.Canvas(canvasRef.current, {
         width: CANVAS_TOTAL_WIDTH,   // Full width with padding
         height: CANVAS_TOTAL_HEIGHT,  // Full height with padding
         backgroundColor: '#1a1a2e', // Dark blue background to match mobile app
@@ -1035,8 +1050,7 @@ export default function Home() {
       return () => {
         fabricCanvas.dispose();
       };
-    }
-  }, [fabric, isCropMode]);
+  }, [fabric, isCheckingSession, isSessionLocked, showThankYou]); // Removed isCropMode to prevent re-initialization
 
   // Initialize Cropper when modal opens
   useEffect(() => {
@@ -2369,19 +2383,32 @@ export default function Home() {
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
       </Head>
-      <div 
-        className="h-screen bg-gray-900 text-white flex flex-col items-center justify-center overflow-hidden"
-      >
+      <div className="h-screen bg-gray-900 text-white flex flex-col items-center justify-center" style={{ 
+        minHeight: '-webkit-fill-available',
+        overflow: 'hidden'
+      }}>
         {/* Container - responsive for all screens */}
         <div 
           className="w-full max-w-md h-full relative bg-gray-900 flex flex-col"
+          style={{ 
+            maxWidth: '100vw',
+            padding: '0 env(safe-area-inset-right) 0 env(safe-area-inset-left)'
+          }}
         >
         {/* Canvas container - centered and responsive */}
         <div 
           className="flex-1 relative flex items-center justify-center overflow-hidden" 
-          style={{ maxHeight: 'calc(100vh - 80px)' }}
+          style={{ 
+            maxHeight: 'calc(100vh - 120px)',
+            paddingBottom: '60px'
+          }}
         >
-          <div className="transform scale-90 md:scale-100 -mt-32 md:mt-0">
+          <div 
+            className="transform scale-[0.85] sm:scale-100"
+            style={{
+              marginTop: '-40px'
+            }}
+          >
             <canvas 
               ref={canvasRef}
             />
@@ -2389,13 +2416,13 @@ export default function Home() {
         </div>
         
         {/* Right side controls - floating buttons */}
-        <div className={`absolute right-3 top-1/2 -translate-y-1/2 flex flex-col gap-3 transition-opacity duration-200 z-20 ${isManipulating ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+        <div className={`absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 flex flex-col gap-2 sm:gap-3 transition-opacity duration-200 z-20 ${isManipulating ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
           {/* Upload Button - only show when no image */}
           {!uploadedImage && (
             <div {...getRootProps()}>
               <input {...getInputProps()} />
-              <button className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600">
-                <span className="text-xl">📁</span>
+              <button className="w-12 h-12 sm:w-14 sm:h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600">
+                <span className="text-lg sm:text-xl">📁</span>
               </button>
             </div>
           )}
@@ -2404,9 +2431,9 @@ export default function Home() {
           {!uploadedImage && (
             <button
               onClick={() => setShowCreateModal(true)}
-              className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
+              className="w-12 h-12 sm:w-14 sm:h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
             >
-              <span className="text-xl">🎨</span>
+              <span className="text-lg sm:text-xl">🎨</span>
             </button>
           )}
           
@@ -2414,9 +2441,9 @@ export default function Home() {
           {uploadedImage && (
             <button
               onClick={() => setShowAIModal(true)}
-              className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
+              className="w-12 h-12 sm:w-14 sm:h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
             >
-              <span className="text-xl">✏️</span>
+              <span className="text-lg sm:text-xl">✏️</span>
             </button>
           )}
           
@@ -2444,9 +2471,9 @@ export default function Home() {
                   img.src = imageDataUrl;
                 }
               }}
-              className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
+              className="w-12 h-12 sm:w-14 sm:h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
             >
-              <span className="text-xl">✂️</span>
+              <span className="text-lg sm:text-xl">✂️</span>
             </button>
           )}
           
@@ -2468,9 +2495,9 @@ export default function Home() {
                   console.log('Image deleted from canvas');
                 }
               }}
-              className="w-14 h-14 bg-red-600 rounded-xl flex items-center justify-center hover:bg-red-700 transition shadow-lg border border-red-500"
+              className="w-12 h-12 sm:w-14 sm:h-14 bg-red-600 rounded-xl flex items-center justify-center hover:bg-red-700 transition shadow-lg border border-red-500"
             >
-              <span className="text-xl">🗑️</span>
+              <span className="text-lg sm:text-xl">🗑️</span>
             </button>
           )}
           
@@ -2478,7 +2505,7 @@ export default function Home() {
           {cropHistory.length > 0 && (
             <button
               onClick={undoCrop}
-              className="w-14 h-14 bg-orange-600 rounded-xl flex items-center justify-center hover:bg-orange-700 transition shadow-lg border border-orange-500"
+              className="w-12 h-12 sm:w-14 sm:h-14 bg-orange-600 rounded-xl flex items-center justify-center hover:bg-orange-700 transition shadow-lg border border-orange-500"
             >
               <span className="text-xl">↶</span>
             </button>
@@ -2488,15 +2515,15 @@ export default function Home() {
           {editHistory.length > 0 && (
             <button
               onClick={undoLastEdit}
-              className="w-14 h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
+              className="w-12 h-12 sm:w-14 sm:h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
             >
-              <span className="text-xl">↩️</span>
+              <span className="text-lg sm:text-xl">↩️</span>
             </button>
           )}
         </div>
         
-        {/* Bottom controls - mobile friendly */}
-        <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center">
+        {/* Bottom controls - positioned above submit button */}
+        <div className="absolute left-4 right-4 flex justify-between items-center" style={{ bottom: '140px' }}>
           {/* Rotate buttons */}
           {uploadedImage && (
             <div className="flex gap-2">
@@ -2518,7 +2545,7 @@ export default function Home() {
                     canvas.requestRenderAll();
                   }
                 }}
-                className="w-12 h-12 bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center shadow-lg text-xl font-bold border border-purple-400"
+                className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center shadow-lg text-lg sm:text-xl font-bold border border-purple-400"
               >
                 ↺
               </button>
@@ -2541,7 +2568,7 @@ export default function Home() {
                     canvas.requestRenderAll();
                   }
                 }}
-                className="w-12 h-12 bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center shadow-lg text-xl font-bold border border-purple-400"
+                className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center shadow-lg text-lg sm:text-xl font-bold border border-purple-400"
               >
                 ↻
               </button>
@@ -2551,7 +2578,7 @@ export default function Home() {
         </div>
         
         {/* Submit button - fixed at bottom */}
-        <div className="absolute bottom-0 left-0 right-0 p-3 bg-gray-900 md:relative md:p-4 z-30">
+        <div className="fixed bottom-0 left-0 right-0 p-4 bg-gray-900 z-30" style={{ maxWidth: '500px', margin: '0 auto', borderTopLeftRadius: '12px', borderTopRightRadius: '12px' }}>
           <button
             onClick={handleSubmit}
             className="w-full bg-gradient-to-r from-blue-600 to-blue-800 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:from-blue-700 hover:to-blue-900 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border border-blue-400"

@@ -35,9 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     
     console.log('🗑️ Deleting design:', designId);
-    
-    // Extract the actual UUID from the designId (remove "design_" prefix if present)
-    const actualDesignId = designId.startsWith('design_') ? designId.substring(7) : designId;
+    console.log('📸 Image URL:', imageUrl);
     
     // Extract S3 key from the image URL
     let s3Key = '';
@@ -46,12 +44,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const urlParts = imageUrl.split('.com/');
       if (urlParts.length > 1) {
         s3Key = urlParts[1]; // Gets "designs/uuid.png"
+        console.log('📁 Extracted S3 key from URL:', s3Key);
       } else {
-        // Fallback: construct key from designId
-        s3Key = `designs/${actualDesignId}.png`;
+        // Fallback: try to extract from URL path
+        const pathMatch = imageUrl.match(/designs\/[a-f0-9-]+\.png/);
+        if (pathMatch) {
+          s3Key = pathMatch[0];
+          console.log('📁 Extracted S3 key from URL pattern:', s3Key);
+        }
       }
-    } else {
+    }
+    
+    // If we couldn't extract from URL, construct from designId
+    if (!s3Key) {
+      // The designId in DynamoDB is stored as "design_uuid" but the S3 key uses just the UUID
+      const actualDesignId = designId.startsWith('design_') ? designId.substring(7) : designId;
       s3Key = `designs/${actualDesignId}.png`;
+      console.log('📁 Constructed S3 key from designId:', s3Key);
     }
     
     console.log('📦 Deleting from S3, key:', s3Key);

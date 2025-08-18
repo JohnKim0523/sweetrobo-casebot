@@ -79,11 +79,12 @@ export default async function handler(
         });
       }
       
-      // Session is still active
+      // Session is still active - return session data including timestamp
       return res.status(200).json({ 
         status: 'active',
         message: 'Session is active',
-        expiresAt: session.expiresAt
+        expiresAt: session.expiresAt,
+        session: session  // Include full session data with timestamp
       });
     }
     
