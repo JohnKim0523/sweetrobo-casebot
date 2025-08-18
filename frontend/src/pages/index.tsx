@@ -33,6 +33,7 @@ export default function Home() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTimestamp, setSessionTimestamp] = useState<number | null>(null);
   const [isSessionLocked, setIsSessionLocked] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string>(''); // Debug info for mobile
   const [showThankYou, setShowThankYou] = useState(false);
   const [thankYouMessage, setThankYouMessage] = useState('Thank you for your design!');
   const [isCheckingSession, setIsCheckingSession] = useState(true); // Loading state
@@ -2101,11 +2102,16 @@ export default function Home() {
         });
         
         // Check size and warn if too large
-        const sizeInMB = dataURL.length * 0.75 / 1024 / 1024; // Approximate size in MB
+        const sizeInBytes = dataURL.length * 0.75; // Approximate size in bytes
+        const sizeInMB = sizeInBytes / 1024 / 1024;
         console.log(`📦 Image size: ${sizeInMB.toFixed(2)} MB`);
         
-        if (sizeInMB > 40) {
-          alert('Image is too large. Please try with a smaller image or lower quality photo.');
+        // Vercel has a 4.5MB limit for API requests
+        const maxSizeMB = 4.0; // Stay under 4MB to be safe
+        
+        if (sizeInMB > maxSizeMB) {
+          alert(`Image too large (${sizeInMB.toFixed(1)}MB). Maximum is ${maxSizeMB}MB for web upload. Please use a smaller photo.`);
+          setDebugInfo(`Failed: Image ${sizeInMB.toFixed(1)}MB > ${maxSizeMB}MB limit`);
           return;
         }
         
@@ -2189,8 +2195,68 @@ export default function Home() {
           backgroundColor: 'white'
         };
         
-        // Send to backend (save locally)
-        console.log('📤 Submitting design to backend...');
+        // Step 1: Get presigned URL from backend
+        console.log('📤 Getting upload URL...');
+        setDebugInfo(`Getting upload URL... Size: ${sizeInMB.toFixed(2)}MB`);
+        
+        let uploadData;
+        try {
+          const urlResponse = await fetch('/api/get-upload-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contentType: 'image/png' }),
+          });
+          
+          if (!urlResponse.ok) {
+            throw new Error('Failed to get upload URL');
+          }
+          
+          uploadData = await urlResponse.json();
+          console.log('✅ Got upload URL for:', uploadData.filename);
+        } catch (error: any) {
+          console.error('Failed to get upload URL:', error);
+          setDebugInfo(`Error: ${error.message}`);
+          alert('Failed to prepare upload. Please try again.');
+          return;
+        }
+        
+        // Step 2: Upload directly to S3
+        console.log('📤 Uploading to S3...');
+        setDebugInfo(`Uploading to cloud... ${sizeInMB.toFixed(2)}MB`);
+        
+        try {
+          // Convert base64 to blob for upload
+          const base64Data = dataURL.replace(/^data:image\/png;base64,/, '');
+          const binaryData = atob(base64Data);
+          const bytes = new Uint8Array(binaryData.length);
+          for (let i = 0; i < binaryData.length; i++) {
+            bytes[i] = binaryData.charCodeAt(i);
+          }
+          const blob = new Blob([bytes], { type: 'image/png' });
+          
+          // Upload directly to S3 using presigned URL
+          const s3Response = await fetch(uploadData.uploadUrl, {
+            method: 'PUT',
+            body: blob,
+            headers: {
+              'Content-Type': 'image/png',
+            },
+          });
+          
+          if (!s3Response.ok) {
+            throw new Error(`S3 upload failed: ${s3Response.status}`);
+          }
+          
+          console.log('✅ Uploaded to S3 successfully');
+          setDebugInfo('Upload complete! Saving metadata...');
+        } catch (error: any) {
+          console.error('S3 upload error:', error);
+          setDebugInfo(`Upload failed: ${error.message}`);
+          alert('Failed to upload image. Please try again.');
+          return;
+        }
+        
+        // Step 3: Save metadata to backend
         let response;
         try {
           response = await fetch('/api/submit-design', {
@@ -2199,26 +2265,32 @@ export default function Home() {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({ 
-              design: dataURL,
+              imageUrl: uploadData.imageUrl,  // S3 URL instead of base64
+              designId: uploadData.designId,
               debugData: canvasData,
               timestamp: Date.now(),
               machineId: machineId,
-              sessionId: sessionId,  // Include session ID
-              sessionTimestamp: sessionTimestamp  // Include original timestamp for updating
+              sessionId: sessionId,
+              sessionTimestamp: sessionTimestamp,
+              imageSize: sizeInBytes,  // Send size for record keeping
             }),
           });
-        } catch (fetchError) {
+        } catch (fetchError: any) {
           console.error('Network error:', fetchError);
-          alert('Network error. Please check your connection and try again.');
+          setDebugInfo(`Network error: ${fetchError.message}`);
+          alert('Network error saving metadata. Image was uploaded successfully.');
           return;
         }
 
         if (!response.ok) {
           const errorData = await response.json();
           console.error('Failed to save design:', errorData);
+          setDebugInfo(`Server error: ${errorData.error || 'Unknown error'}`);
           alert(`Failed to save design: ${errorData.error || 'Unknown error'}`);
           return;
         }
+        
+        setDebugInfo('Success! Design submitted.');
         
         // Success! Show thank you page and lock session
         setIsSessionLocked(true);
@@ -2487,6 +2559,12 @@ export default function Home() {
           >
             Submit Design
           </button>
+          {/* Debug info for mobile */}
+          {debugInfo && (
+            <div className="mt-2 p-2 bg-black text-yellow-400 text-xs rounded">
+              Debug: {debugInfo}
+            </div>
+          )}
         </div>
       </div>
       

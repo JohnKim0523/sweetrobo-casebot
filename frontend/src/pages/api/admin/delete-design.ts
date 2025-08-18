@@ -36,6 +36,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     
     console.log('🗑️ Deleting design:', designId);
     
+    // Extract the actual UUID from the designId (remove "design_" prefix if present)
+    const actualDesignId = designId.startsWith('design_') ? designId.substring(7) : designId;
+    
     // Extract S3 key from the image URL
     let s3Key = '';
     if (imageUrl) {
@@ -45,10 +48,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         s3Key = urlParts[1]; // Gets "designs/uuid.png"
       } else {
         // Fallback: construct key from designId
-        s3Key = `designs/${designId}.png`;
+        s3Key = `designs/${actualDesignId}.png`;
       }
     } else {
-      s3Key = `designs/${designId}.png`;
+      s3Key = `designs/${actualDesignId}.png`;
     }
     
     console.log('📦 Deleting from S3, key:', s3Key);

@@ -15,9 +15,10 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient);
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     try {
-      const { machineId, limit = 20 } = req.query;
+      const { machineId } = req.query;
       
       console.log('📊 Fetching designs from DynamoDB...');
+      console.log('Table:', process.env.AWS_DYNAMODB_TABLE);
       console.log('Machine ID filter:', machineId || 'all');
       
       let designs = [];
@@ -36,7 +37,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ExpressionAttributeNames: {
             '#type': 'type'  // 'type' is a reserved word in DynamoDB
           },
-          Limit: Number(limit),
         });
         
         const result = await docClient.send(scanCommand);
@@ -52,14 +52,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ExpressionAttributeNames: {
             '#type': 'type'  // 'type' is a reserved word in DynamoDB
           },
-          Limit: Number(limit),
         });
         
         const result = await docClient.send(scanCommand);
         designs = result.Items || [];
       }
       
-      // Sort by timestamp (newest first)
+      // Sort by timestamp (newest first) 
       designs.sort((a, b) => b.timestamp - a.timestamp);
       
       console.log(`✅ Found ${designs.length} designs`);
