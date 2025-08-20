@@ -33,7 +33,7 @@ export default async function handler(
   }
 
   try {
-    const { image, prompt, mask } = req.body;
+    const { image, prompt } = req.body;
 
     if (!image || !prompt) {
       return res.status(400).json({ error: 'Image and prompt are required' });
@@ -42,7 +42,6 @@ export default async function handler(
     // Enhanced debugging for image format
     console.log('=== AI Edit Request Debug ===');
     console.log('Prompt:', prompt);
-    console.log('Has Mask:', !!mask);
     console.log('Image size (bytes):', image.length);
     console.log('Image preview (first 200 chars):', image.substring(0, 200));
     
@@ -83,29 +82,28 @@ export default async function handler(
       console.log('API Token preview:', process.env.REPLICATE_API_TOKEN.substring(0, 10) + '...');
     }
     
-    // Debug: Check mask format
-    if (mask) {
-      console.log('Mask data preview:', mask.substring(0, 50));
-      console.log('Mask appears to be:', mask.startsWith('data:image') ? 'valid image' : 'invalid format');
-    }
 
     // Always use Flux Kontext Pro for all prompts
     console.log('Using Flux Kontext Pro for all edits');
     console.log('Original prompt:', prompt);
 
-    // Prepare input for Flux Kontext Pro with quality optimizations
+    // Prepare input for Flux Kontext Pro with maximum quality optimizations
     const input = {
       input_image: image,
       prompt: prompt,
-      aspect_ratio: "match_input_image",
-      output_format: "png",  // PNG for lossless
-      output_quality: 100,   // Maximum quality if supported
+      aspect_ratio: "match_input_image",  // Preserve original aspect ratio
+      output_format: "png",  // PNG for lossless quality
+      output_quality: 100,   // Maximum quality setting
       safety_tolerance: 4,
       prompt_upsampling: false,
       seed: Math.floor(Math.random() * 1000000),
-      // Request higher quality output if model supports it
-      num_inference_steps: 50,  // More steps = better quality (default is usually 20-30)
-      guidance_scale: 7.5,      // Balance between prompt following and quality
+      // Maximum quality settings for best results
+      num_inference_steps: 75,  // Increased from 50 to 75 for highest quality
+      guidance_scale: 8.0,      // Slightly increased for better detail preservation
+      // Additional quality parameters if supported by model
+      scheduler: "DPMSolverMultistep",  // High quality scheduler if supported
+      num_outputs: 1,
+      disable_safety_checker: false,
     };
     
     console.log('=== Flux Kontext Pro Input Parameters ===');

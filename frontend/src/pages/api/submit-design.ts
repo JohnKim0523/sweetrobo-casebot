@@ -132,92 +132,76 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         finalImageUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${filename}`;
       }
       
-      // Save design metadata to DynamoDB
-      console.log('💾 Saving design to DynamoDB table:', process.env.AWS_DYNAMODB_TABLE);
-      // Don't store large debugData in DynamoDB (400KB limit per item)
-      // Only store essential metadata
-      const designItem = {
-        id: `design_${designId}`,
-        type: 'design',
-        designId: designId,
-        timestamp: timestamp,
-        imageUrl: finalImageUrl,
-        machineId: machineId || 'no-machine',
-        sessionId: sessionId || 'no-session',
-        status: 'completed',
-        submittedAt: new Date().toISOString(),
-        imageSize: finalImageSize,
-        uploadMethod: isDirectUpload ? 'direct' : 'base64',
-        // Store only canvas dimensions from debugData, not the full data
-        canvasInfo: {
-          width: debugData?.width || DISPLAY_WIDTH,
-          height: debugData?.height || DISPLAY_HEIGHT,
-          objectCount: debugData?.objects?.length || 0
-        }
-      };
-      
-      const putCommand = new PutCommand({
-        TableName: process.env.AWS_DYNAMODB_TABLE,
-        Item: designItem,
-      });
-      
-      try {
-        await docClient.send(putCommand);
-        console.log('✅ Design saved to DynamoDB');
+      // SINGLE UPDATE: Update session with ALL design info and queue for printing
+      // NO SEPARATE DESIGN RECORD - Everything goes in the session record
+      if (sessionId && sessionId !== 'no-session' && sessionTimestamp) {
+        console.log('💾 Updating session with design data:', { sessionId, timestamp: sessionTimestamp });
         
-        // Update the session record to mark it as completed
-        if (sessionId && sessionId !== 'no-session' && sessionTimestamp) {
-          console.log('📝 Updating session as completed:', { sessionId, timestamp: sessionTimestamp });
+        try {
+          // ONE UPDATE with all the data
+          const updateCommand = new UpdateCommand({
+            TableName: process.env.AWS_DYNAMODB_TABLE,
+            Key: {
+              id: `session_${sessionId}`,
+              timestamp: sessionTimestamp  // Sort key - must match original!
+            },
+            UpdateExpression: `SET 
+              #status = :status, 
+              imageUrl = :imageUrl, 
+              imageSize = :imageSize, 
+              designId = :designId, 
+              printStatus = :printStatus, 
+              submittedAt = :submittedAt,
+              updatedAt = :now,
+              uploadMethod = :uploadMethod,
+              canvasWidth = :canvasWidth,
+              canvasHeight = :canvasHeight,
+              objectCount = :objectCount,
+              #ttl = :ttl`,
+            ExpressionAttributeNames: {
+              '#status': 'status',
+              '#ttl': 'ttl'
+            },
+            ExpressionAttributeValues: {
+              ':status': 'completed',
+              ':imageUrl': finalImageUrl,
+              ':imageSize': finalImageSize,
+              ':designId': designId,
+              ':printStatus': 'queued',  // Automatically queue for printing
+              ':submittedAt': new Date().toISOString(),
+              ':now': Date.now(),
+              ':uploadMethod': isDirectUpload ? 'direct' : 'base64',
+              ':canvasWidth': debugData?.width || DISPLAY_WIDTH,
+              ':canvasHeight': debugData?.height || DISPLAY_HEIGHT,
+              ':objectCount': debugData?.objects?.length || 0,
+              ':ttl': Math.floor((Date.now() / 1000) + 1800) // Extend to 30 min for printer
+            },
+            ReturnValues: 'ALL_NEW'
+          });
           
-          try {
-            // Use UpdateCommand with composite key (id + timestamp)
-            const updateCommand = new UpdateCommand({
-              TableName: process.env.AWS_DYNAMODB_TABLE,
-              Key: {
-                id: `session_${sessionId}`,
-                timestamp: sessionTimestamp  // Sort key - must match original!
-              },
-              UpdateExpression: 'SET #status = :completed, submittedAt = :submittedAt, designId = :designId',
-              ExpressionAttributeNames: {
-                '#status': 'status'
-              },
-              ExpressionAttributeValues: {
-                ':completed': 'completed',
-                ':submittedAt': new Date().toISOString(),
-                ':designId': designId
-              },
-              ReturnValues: 'ALL_NEW'
-            });
-            
-            const result = await docClient.send(updateCommand);
-            console.log('✅ Session marked as completed (no duplicates!):', result.Attributes?.id);
-          } catch (error: any) {
-            console.error('⚠️ Failed to update session:', {
-              message: error.message,
-              name: error.name,
-              sessionId: sessionId,
-              timestamp: sessionTimestamp
-            });
-            // Continue even if session update fails
-          }
-        } else if (sessionId && sessionId !== 'no-session') {
-          console.log('⚠️ No session timestamp provided, cannot update without creating duplicate');
+          const result = await docClient.send(updateCommand);
+          console.log('✅ Session updated with design (ONE record only!):', result.Attributes?.id);
+        } catch (error: any) {
+          console.error('❌ Failed to update session:', {
+            message: error.message,
+            name: error.name,
+            sessionId: sessionId,
+            timestamp: sessionTimestamp
+          });
+          // Don't fail the whole request if session update fails
+          // But log it so we know there's an issue
         }
-      } catch (dynamoError: any) {
-        console.error('❌ DynamoDB save failed:', {
-          message: dynamoError.message,
-          code: dynamoError.Code,
-          statusCode: dynamoError.$metadata?.httpStatusCode,
-          requestId: dynamoError.$metadata?.requestId,
-        });
-        throw new Error(`DynamoDB save failed: ${dynamoError.message}`);
+      } else {
+        console.log('⚠️ No session to update - standalone design submission');
+        // For backwards compatibility, you might want to still create a design record
+        // if there's no session, but ideally all submissions should have a session
       }
       
       res.status(200).json({ 
         success: true, 
         designId: designId,
         filename: filename,
-        url: imageUrl,
+        url: finalImageUrl,  // Fixed: was using wrong variable
         message: 'Design submitted successfully!'
       });
       

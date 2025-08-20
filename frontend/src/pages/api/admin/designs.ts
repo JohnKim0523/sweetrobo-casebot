@@ -25,14 +25,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       
       if (machineId && machineId !== 'all') {
         // Query by specific machine ID
-        // Note: This would be more efficient with a GSI (Global Secondary Index) on machineId
-        // For now, we'll scan and filter
+        // Now looking for sessions with completed designs
         const scanCommand = new ScanCommand({
           TableName: process.env.AWS_DYNAMODB_TABLE,
-          FilterExpression: 'machineId = :machineId AND #type = :type',
+          FilterExpression: 'machineId = :machineId AND #type = :type AND attribute_exists(imageUrl)',
           ExpressionAttributeValues: {
             ':machineId': machineId,
-            ':type': 'design',
+            ':type': 'session',  // Changed from 'design' to 'session'
           },
           ExpressionAttributeNames: {
             '#type': 'type'  // 'type' is a reserved word in DynamoDB
@@ -42,12 +41,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const result = await docClient.send(scanCommand);
         designs = result.Items || [];
       } else {
-        // Get all designs (not sessions)
+        // Get all sessions that have designs (imageUrl exists)
         const scanCommand = new ScanCommand({
           TableName: process.env.AWS_DYNAMODB_TABLE,
-          FilterExpression: '#type = :type',
+          FilterExpression: '#type = :type AND attribute_exists(imageUrl)',
           ExpressionAttributeValues: {
-            ':type': 'design',
+            ':type': 'session',  // Changed from 'design' to 'session'
           },
           ExpressionAttributeNames: {
             '#type': 'type'  // 'type' is a reserved word in DynamoDB

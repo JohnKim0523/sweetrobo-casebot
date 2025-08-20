@@ -14,6 +14,7 @@
     "@aws-sdk/lib-dynamodb": "^3.864.0",
     "@aws-sdk/s3-request-presigner": "^3.864.0",
     "@types/react-modal": "^3.16.3",
+    "@types/uuid": "^10.0.0",
     "axios": "^1.11.0",
     "blueimp-canvas-to-blob": "^3.29.0",
     "canvas-to-blob": "^1.0.0",

@@ -141,7 +141,7 @@ export default function Home() {
       setSessionId(newSessionId);
       
       // Register the session in database
-      fetch('/api/create-session', {
+      fetch('/api/unified-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -175,7 +175,7 @@ export default function Home() {
   // Check if session is already used/locked
   const checkSessionStatus = async (session: string) => {
     try {
-      const response = await fetch(`/api/check-session?sessionId=${session}`);
+      const response = await fetch(`/api/unified-session?sessionId=${session}&machineId=${machine}`);
       const data = await response.json();
       
       if (data.status === 'completed') {
@@ -1496,10 +1496,12 @@ export default function Home() {
         }
         
         // The returned image is already at display size (250x462.5)
-        // Just position it correctly on the canvas
+        // Position it centered on the canvas like the regular AI edit
         fabricImage.set({
-          left: CONTROL_PADDING,
-          top: VERTICAL_PADDING,
+          left: CONTROL_PADDING + DISPLAY_WIDTH / 2,
+          top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
+          originX: 'center',
+          originY: 'center',
           scaleX: 1,  // No scaling needed - already at display size
           scaleY: 1,  // No scaling needed - already at display size
           // Apply custom control settings
