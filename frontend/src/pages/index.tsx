@@ -86,9 +86,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // Skip if we already checked
-    if (sessionCheckRef.current) return;
-    
     // Extract URL parameters
     const urlParams = new URLSearchParams(window.location.search);
     const machine = urlParams.get('machineId');
@@ -120,9 +117,6 @@ export default function Home() {
     // Valid machine ID found
     setMachineId(machine);
     console.log('🏭 Machine ID detected:', machine);
-    
-    // Mark that we've started checking
-    sessionCheckRef.current = true;
     
     // Handle session logic
     if (!session || session === 'null' || session === 'undefined') {
@@ -168,12 +162,12 @@ export default function Home() {
       // Valid session exists - just validate it, don't generate new one
       console.log('📋 Using existing session:', session);
       setSessionId(session);
-      checkSessionStatus(session);
+      checkSessionStatus(session, machine);
     }
-  }, []); // Empty dependency array - only run once
+  }, []); // Run once on mount
   
   // Check if session is already used/locked
-  const checkSessionStatus = async (session: string) => {
+  const checkSessionStatus = async (session: string, machine: string) => {
     try {
       const response = await fetch(`/api/unified-session?sessionId=${session}&machineId=${machine}`);
       const data = await response.json();
