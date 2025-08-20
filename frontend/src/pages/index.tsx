@@ -170,6 +170,25 @@ export default function Home() {
   const checkSessionStatus = async (session: string, machine: string) => {
     try {
       const response = await fetch(`/api/unified-session?sessionId=${session}&machineId=${machine}`);
+      
+      // Handle 404 - session doesn't exist (was deleted or never existed)
+      if (response.status === 404) {
+        console.log('🗑️ Session not found (may have been deleted):', session);
+        setIsSessionLocked(true);
+        setShowThankYou(true);
+        setThankYouMessage('This session no longer exists. Please scan the QR code again to start a new session.');
+        return;
+      }
+      
+      // Handle other errors
+      if (!response.ok) {
+        console.error('Session check failed with status:', response.status);
+        setIsSessionLocked(true);
+        setShowThankYou(true);
+        setThankYouMessage('Session validation failed. Please scan the QR code again.');
+        return;
+      }
+      
       const data = await response.json();
       
       if (data.status === 'completed') {
@@ -187,10 +206,19 @@ export default function Home() {
         // Active session - store the timestamp for updates
         setSessionTimestamp(data.session.timestamp);
         console.log('✅ Session active with timestamp:', data.session.timestamp);
+      } else {
+        // Unknown state - treat as invalid to be safe
+        console.warn('Unknown session state:', data);
+        setIsSessionLocked(true);
+        setShowThankYou(true);
+        setThankYouMessage('Session validation failed. Please scan the QR code again.');
       }
-      // If doesn't exist, continue normally
     } catch (error) {
       console.error('Error checking session:', error);
+      // On any error, lock the session to prevent access
+      setIsSessionLocked(true);
+      setShowThankYou(true);
+      setThankYouMessage('Session validation failed. Please scan the QR code again.');
     } finally {
       // Always set checking to false when done
       setIsCheckingSession(false);
