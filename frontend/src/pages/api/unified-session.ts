@@ -240,7 +240,7 @@ async function handleGetSessions(req: NextApiRequest, res: NextApiResponse) {
       // Printer polling for queued jobs - use Scan since we don't have GSI
       const result = await docClient.send(new ScanCommand({
         TableName: TABLE_NAME,
-        FilterExpression: 'machineId = :machineId AND printStatus = :status AND #type = :type',
+        FilterExpression: 'machineId = :machineId AND printStatus = :status AND #type = :type AND attribute_exists(imageUrl)',
         ExpressionAttributeNames: {
           '#type': 'type'
         },
