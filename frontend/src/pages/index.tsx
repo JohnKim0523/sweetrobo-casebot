@@ -191,7 +191,7 @@ export default function Home() {
       
       const data = await response.json();
       
-      if (data.status === 'completed') {
+      if (data.status === 'completed' || data.printStatus === 'completed') {
         // Session already used - show thank you page
         setIsSessionLocked(true);
         setShowThankYou(true);
@@ -202,10 +202,19 @@ export default function Home() {
         setShowThankYou(true);
         setThankYouMessage('Session expired. Please scan the QR code again to start a new session.');
         console.log('⏰ Session expired:', session);
-      } else if (data.status === 'active' && data.session) {
-        // Active session - store the timestamp for updates
-        setSessionTimestamp(data.session.timestamp);
-        console.log('✅ Session active with timestamp:', data.session.timestamp);
+      } else if (data.status === 'active' || data.status === 'submitted' || data.status === 'queued') {
+        // Active/submitted/queued session - allow continued editing unless design already submitted
+        if (data.imageUrl && (data.status === 'submitted' || data.printStatus === 'queued' || data.printStatus === 'printing')) {
+          // Design already submitted - show thank you page
+          setIsSessionLocked(true);
+          setShowThankYou(true);
+          setThankYouMessage('Thank you! Your design has been submitted for printing.');
+          console.log('🎨 Design already submitted for session:', session);
+        } else {
+          // Session still active for editing
+          setSessionTimestamp(data.timestamp);
+          console.log('✅ Session active for editing with timestamp:', data.timestamp);
+        }
       } else {
         // Unknown state - treat as invalid to be safe
         console.warn('Unknown session state:', data);

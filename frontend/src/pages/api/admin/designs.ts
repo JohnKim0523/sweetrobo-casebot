@@ -57,15 +57,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         designs = result.Items || [];
       }
       
-      // Sort by timestamp (newest first) 
-      designs.sort((a, b) => b.timestamp - a.timestamp);
+      // Filter out sessions without images (empty placeholder sessions)
+      const designsWithImages = designs.filter(design => design.imageUrl && design.imageUrl !== null);
       
-      console.log(`✅ Found ${designs.length} designs`);
+      // Sort by timestamp (newest first) 
+      designsWithImages.sort((a, b) => b.timestamp - a.timestamp);
+      
+      console.log(`✅ Found ${designsWithImages.length} designs with images (filtered from ${designs.length} total)`);
       
       res.status(200).json({
         success: true,
-        designs: designs,
-        count: designs.length,
+        designs: designsWithImages,
+        count: designsWithImages.length,
       });
       
     } catch (error: any) {
