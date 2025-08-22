@@ -41,11 +41,10 @@ export default async function handler(
     // Based on the API example, Flux 1.1 Pro has simpler parameters
     const input = {
       prompt: enhancedPrompt,
-      prompt_upsampling: true,  // This enhances the prompt automatically
       aspect_ratio: "1:1",       // Square format for case design
       output_format: "png",      // PNG for better quality
       output_quality: 100,       // Maximum quality
-      safety_tolerance: 2,       // Safety filter level
+      safety_tolerance: 6,       // Safety filter level (1-6, 6 is most permissive)
       seed: Math.floor(Math.random() * 1000000),
     };
 
@@ -99,26 +98,34 @@ export default async function handler(
     // Handle Flux 1.1 Pro output format
     let resultImage = '';
     
-    // According to the Flux 1.1 Pro API example, output has a url() method
-    if (output && typeof output === 'object' && typeof output.url === 'function') {
-      try {
-        const urlResult = await output.url();
-        console.log('Got URL from output.url():', urlResult);
-        
-        // Convert URL object to string if needed
-        if (urlResult instanceof URL) {
-          resultImage = urlResult.href;
-        } else {
-          resultImage = String(urlResult);
-        }
-      } catch (error) {
-        console.error('Error getting URL from output:', error);
-      }
-    } else if (typeof output === 'string') {
-      // Fallback: direct string URL
+    // Flux 1.1 Pro returns a URL string directly
+    if (typeof output === 'string') {
+      // Direct string URL
       resultImage = output;
     } else if (Array.isArray(output) && output.length > 0) {
+      // Array of URLs, take the first one
       resultImage = output[0];
+    } else if (output && typeof output === 'object') {
+      // Check if it has a URL-like property
+      const outputObj = output as any;
+      if (outputObj.url) {
+        // If url is a function, call it
+        if (typeof outputObj.url === 'function') {
+          try {
+            const urlResult = await outputObj.url();
+            resultImage = urlResult instanceof URL ? urlResult.href : String(urlResult);
+          } catch (error) {
+            console.error('Error calling url():', error);
+          }
+        } else {
+          // Direct URL property
+          resultImage = String(outputObj.url);
+        }
+      } else if (outputObj.href) {
+        resultImage = String(outputObj.href);
+      } else if (outputObj.output) {
+        resultImage = String(outputObj.output);
+      }
     }
 
     if (!resultImage) {
