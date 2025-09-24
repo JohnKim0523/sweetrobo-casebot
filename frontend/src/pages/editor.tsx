@@ -46,9 +46,9 @@ export default function Editor() {
   
   // Mobile-only container dimensions
   const CANVAS_TOTAL_WIDTH = MOBILE_SCREEN_WIDTH;
-  const CANVAS_TOTAL_HEIGHT = Math.min(DISPLAY_HEIGHT + 100, MOBILE_SCREEN_HEIGHT);
+  const CANVAS_TOTAL_HEIGHT = Math.min(DISPLAY_HEIGHT + 20, MOBILE_SCREEN_HEIGHT);  // Minimal padding
   const CONTROL_PADDING = Math.round((CANVAS_TOTAL_WIDTH - DISPLAY_WIDTH) / 2);
-  const VERTICAL_PADDING = Math.round((CANVAS_TOTAL_HEIGHT - DISPLAY_HEIGHT) / 2);
+  const VERTICAL_PADDING = 10;  // Very minimal top padding
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvas, setCanvas] = useState<any>(null);
@@ -2511,8 +2511,8 @@ export default function Editor() {
           </div>
         )}
 
-        {/* Main Content Area */}
-        <div className="flex-1 flex items-center justify-center relative no-select">
+        {/* Main Content Area - Split into canvas and button sections */}
+        <div className="flex-1 flex flex-col relative no-select">
           {/* Beautiful card overlay when no image - full mobile screen coverage */}
           {!uploadedImage && (
             <div className="fixed inset-0 z-30 bg-white">
@@ -2612,19 +2612,17 @@ export default function Editor() {
             </div>
           )}
 
-          {/* Canvas - centered without rounded corners or green indicators */}
-          <div className="relative no-select flex-1 flex items-center justify-center bg-white">
+          {/* Canvas Section - Positioned at top */}
+          <div className="flex-1 relative flex items-start justify-center bg-white no-select overflow-hidden">
             <div className="relative">
               <canvas ref={canvasRef} className="no-select" />
             </div>
           </div>
-          
-        
         </div>
 
-        {/* Bottom Toolbar - Fixed position with horizontal layout */}
+        {/* Bottom Toolbar - Fixed at bottom */}
         {uploadedImage && (
-          <div className="fixed bottom-20 left-0 right-0 bg-white py-2 px-4 z-10 no-select">
+          <div className="fixed bottom-14 left-0 right-0 bg-white py-1 px-4 z-10 border-t border-gray-100 no-select">
             <div className="flex justify-center items-center gap-2 max-w-md mx-auto">
               {/* Edit with AI Button */}
               <button
@@ -2714,10 +2712,10 @@ export default function Editor() {
         )}
 
         {/* Submit Button - Fixed at bottom */}
-        <div className="fixed bottom-0 left-0 right-0 p-3 bg-white no-select">
+        <div className="fixed bottom-0 left-0 right-0 p-2 bg-white border-t border-gray-200 z-10 no-select">
           <button
             onClick={handleSubmit}
-            className="w-full font-semibold py-3 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
+            className="w-full font-semibold py-2.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
             style={{
               background: !uploadedImage || isUploading ? '#e5e7eb' : 'linear-gradient(135deg, #a855f7, #ec4899)',
               color: !uploadedImage || isUploading ? '#9ca3af' : 'white',
