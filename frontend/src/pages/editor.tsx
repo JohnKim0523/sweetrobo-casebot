@@ -2490,7 +2490,7 @@ export default function Editor() {
         <div className="flex-1 flex items-center justify-center relative no-select">
           {/* Beautiful card overlay when no image - full mobile screen coverage */}
           {!uploadedImage && (
-            <div className="fixed inset-0 z-30 bg-gradient-to-br from-purple-50 via-pink-50 to-purple-100">
+            <div className="fixed inset-0 z-30 bg-gray-50">
               <div className="h-full w-full flex flex-col px-4 py-3">
                 <div className="w-full max-w-sm mx-auto flex flex-col h-full">
                   {/* Header - Fixed at top */}
@@ -2504,7 +2504,7 @@ export default function Editor() {
 
                   {/* Upload Section - Expands to fill available space */}
                   <div className="flex-1 flex items-center justify-center mb-4">
-                    <div {...getRootProps()} className="w-full h-full max-h-[40vh] min-h-[200px] border-2 border-dashed border-purple-300 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer active:border-purple-400 active:bg-white/50 transition-all bg-white/30 backdrop-blur-sm">
+                    <div {...getRootProps()} className="w-full h-full max-h-[40vh] min-h-[200px] border-2 border-dashed border-purple-300 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer active:border-purple-400 active:bg-purple-50 transition-all bg-white">
                       <input {...getInputProps()} />
                       <div className="w-14 h-14 mx-auto mb-4 bg-purple-100 rounded-full flex items-center justify-center">
                         <svg className="w-7 h-7 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2516,14 +2516,14 @@ export default function Editor() {
                     </div>
                   </div>
 
-                  {/* AI Generate Section - Fixed at bottom */}
-                  <div className="space-y-2.5">
+                  {/* AI Generate Section - Fixed at bottom with white card */}
+                  <div className="bg-white rounded-2xl p-4 shadow-lg space-y-2.5">
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                         <span className="text-white text-xs">✨</span>
                       </div>
                       <span className="font-semibold text-gray-900 text-sm">Generate AI Image</span>
-                      <span className="ml-auto bg-purple-100 text-purple-600 text-xs px-2 py-0.5 rounded-full">AI</span>
+                      <span className="ml-auto bg-gradient-to-r from-purple-400 to-pink-400 text-white text-xs px-2.5 py-0.5 rounded-full font-medium">AI</span>
                     </div>
 
                     <input
@@ -2531,7 +2531,7 @@ export default function Editor() {
                       placeholder="Describe your image..."
                       value={createPrompt}
                       onChange={(e) => setCreatePrompt(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-purple-500 text-sm"
+                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-purple-500 text-sm"
                     />
 
                     <button
@@ -2546,27 +2546,27 @@ export default function Editor() {
                     <div className="pt-2">
                       <p className="text-xs text-gray-500 mb-1.5">Quick prompts:</p>
                       <div className="grid grid-cols-3 gap-1.5">
-                        <button onClick={() => setCreatePrompt('Sunset landscape')} className="flex flex-col items-center p-1.5 active:bg-white/50 rounded-lg">
+                        <button onClick={() => setCreatePrompt('Sunset landscape')} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
                           <span className="text-lg mb-0.5">🌅</span>
                           <span className="text-[10px] text-gray-600">Sunset</span>
                         </button>
-                        <button onClick={() => setCreatePrompt('Cartoon Cat')} className="flex flex-col items-center p-1.5 active:bg-white/50 rounded-lg">
+                        <button onClick={() => setCreatePrompt('Cartoon Cat')} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
                           <span className="text-lg mb-0.5">🐱</span>
                           <span className="text-[10px] text-gray-600">Cartoon Cat</span>
                         </button>
-                        <button onClick={() => setCreatePrompt('Abstract Art')} className="flex flex-col items-center p-1.5 active:bg-white/50 rounded-lg">
+                        <button onClick={() => setCreatePrompt('Abstract Art')} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
                           <span className="text-lg mb-0.5">🎨</span>
                           <span className="text-[10px] text-gray-600">Abstract Art</span>
                         </button>
-                        <button onClick={() => setCreatePrompt('Space Galaxy')} className="flex flex-col items-center p-1.5 active:bg-white/50 rounded-lg">
+                        <button onClick={() => setCreatePrompt('Space Galaxy')} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
                           <span className="text-lg mb-0.5">🌌</span>
                           <span className="text-[10px] text-gray-600">Space/Galaxy</span>
                         </button>
-                        <button onClick={() => setCreatePrompt('Cherry Blossom')} className="flex flex-col items-center p-1.5 active:bg-white/50 rounded-lg">
+                        <button onClick={() => setCreatePrompt('Cherry Blossom')} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
                           <span className="text-lg mb-0.5">🌸</span>
                           <span className="text-[10px] text-gray-600">Cherry Blossom</span>
                         </button>
-                        <button onClick={() => setCreatePrompt('Retro Synthwave')} className="flex flex-col items-center p-1.5 active:bg-white/50 rounded-lg">
+                        <button onClick={() => setCreatePrompt('Retro Synthwave')} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
                           <span className="text-lg mb-0.5">🌆</span>
                           <span className="text-[10px] text-gray-600">Retro Synthwave</span>
                         </button>
