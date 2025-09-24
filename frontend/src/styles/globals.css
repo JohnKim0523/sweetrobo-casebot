@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
 :root {
-  /* Futuristic Color Palette */
-  --background: #000510;
-  --background-secondary: #0a0f1e;
-  --background-glass: rgba(10, 15, 30, 0.8);
+  /* Clean White Color Palette */
+  --background: #ffffff;
+  --background-secondary: #f9fafb;
+  --background-glass: rgba(255, 255, 255, 0.8);
   --foreground: #e8f4fd;
   --foreground-muted: #9ca3af;
   
@@ -63,10 +63,7 @@
 
 body {
   background: var(--background);
-  background-image: 
-    radial-gradient(circle at 20% 20%, var(--neon-cyan) 0%, transparent 50%),
-    radial-gradient(circle at 80% 80%, var(--neon-purple) 0%, transparent 50%),
-    radial-gradient(circle at 40% 60%, var(--neon-blue) 0%, transparent 50%);
+  /* Removed gradient overlays for clean white background */
   color: var(--foreground);
   font-family: var(--font-geist-sans), 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   margin: 0;
@@ -79,22 +76,9 @@ body {
   -webkit-text-size-adjust: none;
 }
 
-/* Mobile-optimized grid background */
+/* Disabled grid background for clean look */
 body::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: 
-    linear-gradient(90deg, transparent 95%, rgba(0, 245, 255, 0.05) 100%),
-    linear-gradient(0deg, transparent 95%, rgba(0, 245, 255, 0.05) 100%);
-  background-size: 30px 30px;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.2;
-  animation: gridMove 25s linear infinite;
+  display: none;
 }
 
 @keyframes gridMove {

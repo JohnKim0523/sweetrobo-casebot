@@ -2484,7 +2484,7 @@ export default function Editor() {
           }
         `}} />
       </Head>
-      <div className="editor-page w-full h-screen bg-gray-50 text-gray-900 flex flex-col overflow-hidden no-select">
+      <div className="editor-page w-full h-screen bg-white text-gray-900 flex flex-col overflow-hidden no-select">
         {/* Top Header with Undo/Redo - Only shown when image is uploaded */}
         {uploadedImage && (
           <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
@@ -2515,7 +2515,7 @@ export default function Editor() {
         <div className="flex-1 flex items-center justify-center relative no-select">
           {/* Beautiful card overlay when no image - full mobile screen coverage */}
           {!uploadedImage && (
-            <div className="fixed inset-0 z-30 bg-gray-50">
+            <div className="fixed inset-0 z-30 bg-white">
               <div className="h-full w-full flex flex-col px-4 py-3">
                 <div className="w-full max-w-sm mx-auto flex flex-col h-full">
                   {/* Header - Fixed at top */}
@@ -2612,119 +2612,112 @@ export default function Editor() {
             </div>
           )}
 
-          {/* Canvas with rounded corners and green corner indicators */}
-          <div className="relative no-select flex-1 flex items-center justify-center bg-gray-50 px-4">
-            <div className="relative bg-white rounded-3xl shadow-sm p-2" style={{ maxWidth: '400px', width: '100%' }}>
-              <canvas ref={canvasRef} className="no-select rounded-2xl" />
-              {/* Green corner indicators */}
-              {uploadedImage && (
-                <>
-                  <div className="absolute top-3 left-3 w-6 h-6 border-l-4 border-t-4 border-green-500 rounded-tl-lg pointer-events-none" />
-                  <div className="absolute top-3 right-3 w-6 h-6 border-r-4 border-t-4 border-green-500 rounded-tr-lg pointer-events-none" />
-                  <div className="absolute bottom-3 left-3 w-6 h-6 border-l-4 border-b-4 border-green-500 rounded-bl-lg pointer-events-none" />
-                  <div className="absolute bottom-3 right-3 w-6 h-6 border-r-4 border-b-4 border-green-500 rounded-br-lg pointer-events-none" />
-                </>
-              )}
+          {/* Canvas - centered without rounded corners or green indicators */}
+          <div className="relative no-select flex-1 flex items-center justify-center bg-white">
+            <div className="relative">
+              <canvas ref={canvasRef} className="no-select" />
             </div>
           </div>
           
         
         </div>
 
-        {/* Bottom Toolbar - Edit with AI and controls */}
+        {/* Bottom Toolbar - Fixed position with horizontal layout */}
         {uploadedImage && (
-          <div className="absolute bottom-32 left-4 right-4 flex justify-center gap-3 z-10 no-select">
-            {/* Edit with AI Button */}
-            <button
-              onClick={() => setShowAIModal(true)}
-              className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all flex items-center gap-2"
-            >
-              <span className="text-sm">✨</span>
-              <span>Edit with AI</span>
-            </button>
+          <div className="fixed bottom-20 left-0 right-0 bg-white py-2 px-4 z-10 no-select">
+            <div className="flex justify-center items-center gap-2 max-w-md mx-auto">
+              {/* Edit with AI Button */}
+              <button
+                onClick={() => setShowAIModal(true)}
+                className="flex-1 max-w-[140px] px-3 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium rounded-lg shadow-sm flex items-center justify-center gap-1 text-sm"
+              >
+                <span>✨</span>
+                <span>Edit with AI</span>
+              </button>
 
-            {/* Rotate Left */}
-            <button
-              onClick={() => {
-                if (uploadedImage && canvas) {
-                  const angle = uploadedImage.angle - 90;
-                  uploadedImage.rotate(angle);
-                  uploadedImage.controls = normalControls.current;
-                  canvas.discardActiveObject();
-                  canvas.setActiveObject(uploadedImage);
-                  canvas.renderAll();
-                  canvas.requestRenderAll();
-                }
-              }}
-              className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
-            >
-              <span className="text-xl">↺</span>
-            </button>
+              {/* Rotate Left */}
+              <button
+                onClick={() => {
+                  if (uploadedImage && canvas) {
+                    const angle = uploadedImage.angle - 90;
+                    uploadedImage.rotate(angle);
+                    uploadedImage.controls = normalControls.current;
+                    canvas.discardActiveObject();
+                    canvas.setActiveObject(uploadedImage);
+                    canvas.renderAll();
+                    canvas.requestRenderAll();
+                  }
+                }}
+                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm border border-gray-200"
+              >
+                <span className="text-lg">↺</span>
+              </button>
 
-            {/* Rotate Right */}
-            <button
-              onClick={() => {
-                if (uploadedImage && canvas) {
-                  const angle = uploadedImage.angle + 90;
-                  uploadedImage.rotate(angle);
-                  uploadedImage.controls = normalControls.current;
-                  canvas.discardActiveObject();
-                  canvas.setActiveObject(uploadedImage);
-                  canvas.renderAll();
-                  canvas.requestRenderAll();
-                }
-              }}
-              className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
-            >
-              <span className="text-xl">↻</span>
-            </button>
+              {/* Rotate Right */}
+              <button
+                onClick={() => {
+                  if (uploadedImage && canvas) {
+                    const angle = uploadedImage.angle + 90;
+                    uploadedImage.rotate(angle);
+                    uploadedImage.controls = normalControls.current;
+                    canvas.discardActiveObject();
+                    canvas.setActiveObject(uploadedImage);
+                    canvas.renderAll();
+                    canvas.requestRenderAll();
+                  }
+                }}
+                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm border border-gray-200"
+              >
+                <span className="text-lg">↻</span>
+              </button>
 
-            {/* Crop Button */}
-            <button
-              onClick={() => {
-                if (uploadedImage && uploadedImage.type === 'image') {
-                  const imageDataUrl = uploadedImage.toDataURL({
-                    format: 'png',
-                    multiplier: 2,
-                    quality: 1.0
-                  });
-                  (window as any).currentCropTarget = uploadedImage;
-                  const img = new Image();
-                  img.onload = () => {
-                    cropperImageRef.current = img;
-                    setShowCropper(true);
-                  };
-                  img.src = imageDataUrl;
-                }
-              }}
-              className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
-            >
-              <span className="text-xl">✂️</span>
-            </button>
+              {/* Crop Button */}
+              <button
+                onClick={() => {
+                  if (uploadedImage && uploadedImage.type === 'image') {
+                    const imageDataUrl = uploadedImage.toDataURL({
+                      format: 'png',
+                      multiplier: 2,
+                      quality: 1.0
+                    });
+                    (window as any).currentCropTarget = uploadedImage;
+                    const img = new Image();
+                    img.onload = () => {
+                      cropperImageRef.current = img;
+                      setShowCropper(true);
+                    };
+                    img.src = imageDataUrl;
+                  }
+                }}
+                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm border border-gray-200"
+              >
+                <span className="text-lg">✂️</span>
+              </button>
 
-            {/* Delete Button */}
-            <button
-              onClick={() => {
-                if (uploadedImage && canvas) {
-                  canvas.remove(uploadedImage);
-                  canvas.renderAll();
-                  setUploadedImage(null);
-                  setCropHistory([]);
-                  console.log('Image deleted from canvas');
-                }
-              }}
-              className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
-            >
-              <span className="text-xl text-red-500">🗑️</span>
-            </button>
+              {/* Delete Button */}
+              <button
+                onClick={() => {
+                  if (uploadedImage && canvas) {
+                    canvas.remove(uploadedImage);
+                    canvas.renderAll();
+                    setUploadedImage(null);
+                    setCropHistory([]);
+                    console.log('Image deleted from canvas');
+                  }
+                }}
+                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm border border-gray-200"
+              >
+                <span className="text-lg text-red-500">🗑️</span>
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Submit Button - Now styled like the screenshot */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 bg-white no-select">
+        {/* Submit Button - Fixed at bottom */}
+        <div className="fixed bottom-0 left-0 right-0 p-3 bg-white no-select">
           <button
             onClick={handleSubmit}
-            className="w-full font-semibold py-4 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
+            className="w-full font-semibold py-3 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
             style={{
               background: !uploadedImage || isUploading ? '#e5e7eb' : 'linear-gradient(135deg, #a855f7, #ec4899)',
               color: !uploadedImage || isUploading ? '#9ca3af' : 'white',
