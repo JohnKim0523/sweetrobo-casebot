@@ -1910,8 +1910,7 @@ export default function Editor() {
       imgElement.onload = function() {
         console.log('Generated image loaded, dimensions:', imgElement.width, 'x', imgElement.height);
         
-        // IMMEDIATELY close modal so user can see the result
-        setShowCreateModal(false);
+        // Clear processing state and prompt
         setIsProcessing(false);
         setCreatePrompt('');
         
@@ -1973,8 +1972,7 @@ export default function Editor() {
       
     } catch (error: any) {
       console.error('AI Create Error:', error);
-      // Close modal and show alert
-      setShowCreateModal(false);
+      // Show alert and reset state
       setIsProcessing(false);
       setCreatePrompt('');
       alert('❌ Failed to generate image. Please try again.');
@@ -2506,10 +2504,19 @@ export default function Editor() {
                   <div className="flex-1 flex items-center justify-center mb-4">
                     <div {...getRootProps()} className="w-full h-full max-h-[40vh] min-h-[200px] border-2 border-dashed border-purple-300 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer active:border-purple-400 active:bg-purple-50 transition-all bg-white">
                       <input {...getInputProps()} />
-                      <div className="w-14 h-14 mx-auto mb-4 bg-purple-100 rounded-full flex items-center justify-center">
-                        <svg className="w-7 h-7 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                        </svg>
+                      <div className="w-12 h-12 mx-auto mb-2 rounded-full flex items-center justify-center relative" style={{ background: 'linear-gradient(135deg, #a78bfa, #ec4899)', padding: '2px' }}>
+                        <div className="w-full h-full bg-white rounded-full flex items-center justify-center">
+                          <span className="text-2xl font-light" style={{
+                            background: 'linear-gradient(135deg, #a78bfa, #ec4899)',
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            backgroundClip: 'text',
+                            display: 'block',
+                            lineHeight: '1',
+                            marginTop: '-1px',
+                            textAlign: 'center'
+                          }}>+</span>
+                        </div>
                       </div>
                       <p className="text-gray-700 font-medium mb-1 text-base">Add your image here</p>
                       <p className="text-xs text-gray-500">Upload from camera roll</p>
@@ -2523,7 +2530,7 @@ export default function Editor() {
                         <span className="text-white text-xs">✨</span>
                       </div>
                       <span className="font-semibold text-gray-900 text-sm">Generate AI Image</span>
-                      <span className="ml-auto bg-gradient-to-r from-purple-400 to-pink-400 text-white text-xs px-2.5 py-0.5 rounded-full font-medium">AI</span>
+                      <span className="ml-auto bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs px-2.5 py-0.5 rounded-full font-semibold">AI</span>
                     </div>
 
                     <input
@@ -2535,11 +2542,11 @@ export default function Editor() {
                     />
 
                     <button
-                      onClick={() => setShowCreateModal(true)}
-                      disabled={!createPrompt.trim()}
+                      onClick={handleCreateAIImage}
+                      disabled={!createPrompt.trim() || isProcessing}
                       className="w-full py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98] text-sm"
                     >
-                      Generate Image
+                      {isProcessing ? 'Generating...' : 'Generate Image'}
                     </button>
 
                     {/* Quick Prompts */}
