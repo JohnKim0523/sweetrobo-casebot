@@ -5,11 +5,14 @@ import {
   Body,
   HttpException,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { S3Service } from '../s3/s3.service';
 import { S3Client, ListObjectsV2Command, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { AdminAuthGuard } from '../auth/admin-auth.guard';
 
 @Controller('api/admin')
+@UseGuards(AdminAuthGuard) // Protect all admin endpoints
 export class AdminController {
   private s3Client: S3Client;
 

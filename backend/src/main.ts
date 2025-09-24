@@ -2,12 +2,19 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import * as bodyParser from 'body-parser';
 import * as dotenv from 'dotenv';
+import helmet from 'helmet';
 
 // Load environment variables
 dotenv.config();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Apply Helmet for security headers
+  app.use(helmet({
+    contentSecurityPolicy: false, // Disable for image uploads
+    crossOriginEmbedderPolicy: false, // Allow cross-origin resources
+  }));
 
   // Increase body size limit for image uploads
   app.use(bodyParser.json({ limit: '50mb' }));

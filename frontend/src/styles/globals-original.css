@@ -1,0 +1,305 @@
+@import "tailwindcss";
+
+:root {
+  /* Futuristic Color Palette */
+  --background: #000510;
+  --background-secondary: #0a0f1e;
+  --background-glass: rgba(10, 15, 30, 0.8);
+  --foreground: #e8f4fd;
+  --foreground-muted: #9ca3af;
+  
+  /* Neon Colors */
+  --neon-cyan: #00f5ff;
+  --neon-blue: #0080ff;
+  --neon-purple: #8b5cf6;
+  --neon-pink: #ff0080;
+  --neon-green: #00ff88;
+  
+  /* Gradient Colors */
+  --gradient-primary: linear-gradient(135deg, var(--neon-cyan) 0%, var(--neon-blue) 50%, var(--neon-purple) 100%);
+  --gradient-secondary: linear-gradient(45deg, var(--neon-pink) 0%, var(--neon-purple) 100%);
+  --gradient-accent: linear-gradient(90deg, var(--neon-green) 0%, var(--neon-cyan) 100%);
+  
+  /* Glass Morphism */
+  --glass-backdrop: rgba(255, 255, 255, 0.05);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+  
+  /* Animations */
+  --animation-speed: 0.3s;
+  --animation-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Glow Effects */
+  --glow-small: 0 0 10px;
+  --glow-medium: 0 0 20px;
+  --glow-large: 0 0 40px;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Simple selection prevention for editor page - same as model selection */
+.editor-page {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.editor-page * {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Define .no-select class used throughout editor */
+.no-select {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: var(--background);
+  background-image: 
+    radial-gradient(circle at 20% 20%, var(--neon-cyan) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, var(--neon-purple) 0%, transparent 50%),
+    radial-gradient(circle at 40% 60%, var(--neon-blue) 0%, transparent 50%);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  height: 100vh;
+  height: 100dvh; /* Dynamic viewport height for mobile */
+  position: relative;
+  /* Mobile-specific fixes */
+  -webkit-text-size-adjust: none;
+}
+
+/* Mobile-optimized grid background */
+body::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: 
+    linear-gradient(90deg, transparent 95%, rgba(0, 245, 255, 0.05) 100%),
+    linear-gradient(0deg, transparent 95%, rgba(0, 245, 255, 0.05) 100%);
+  background-size: 30px 30px;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.2;
+  animation: gridMove 25s linear infinite;
+}
+
+@keyframes gridMove {
+  0% { transform: translate(0, 0); }
+  100% { transform: translate(50px, 50px); }
+}
+
+/* Targeted selection prevention class */
+.no-select {
+  -webkit-touch-callout: none !important; /* iOS Safari */
+  -webkit-user-select: none !important; /* Safari */
+  -khtml-user-select: none !important; /* Konqueror HTML */
+  -moz-user-select: none !important; /* Old versions of Firefox */
+  -ms-user-select: none !important; /* Internet Explorer/Edge */
+  user-select: none !important; /* Modern browsers */
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-user-drag: none !important;
+  -khtml-user-drag: none !important;
+  -moz-user-drag: none !important;
+  -o-user-drag: none !important;
+  user-drag: none !important;
+}
+
+/* Mobile-First Futuristic UI Components */
+.glass-panel {
+  background: var(--glass-backdrop);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  box-shadow: 0 4px 16px 0 rgba(31, 38, 135, 0.2);
+  position: relative;
+  overflow: hidden;
+  /* Mobile optimizations */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  will-change: transform;
+}
+
+/* Removed glass panel top border to fix iPhone green line issue */
+
+/* Mobile-optimized neon button */
+.neon-button {
+  background: transparent;
+  border: 2px solid var(--neon-cyan);
+  color: var(--neon-cyan);
+  padding: 16px 24px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 16px; /* Ensure minimum tap target size */
+  min-height: 44px; /* iOS minimum tap target */
+  cursor: pointer;
+  position: relative;
+  transition: all var(--animation-speed) var(--animation-ease);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  overflow: hidden;
+  /* Mobile optimizations */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.neon-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+  transition: left 0.4s ease;
+  opacity: 0.3;
+}
+
+/* Use touch-based interactions for mobile */
+.neon-button:active::before {
+  left: 100%;
+}
+
+.neon-button:active {
+  box-shadow: var(--glow-small) var(--neon-cyan);
+  transform: translateY(1px) translateZ(0);
+}
+
+/* Mobile-optimized animations */
+.floating-element {
+  animation: float 8s ease-in-out infinite;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px) translateZ(0); }
+  50% { transform: translateY(-6px) translateZ(0); }
+}
+
+.pulse-glow {
+  animation: pulseGlow 3s ease-in-out infinite;
+  transform: translateZ(0);
+  will-change: opacity;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { 
+    box-shadow: var(--glow-small) var(--neon-cyan);
+    opacity: 0.6;
+  }
+  50% { 
+    box-shadow: var(--glow-small) var(--neon-cyan);
+    opacity: 0.9;
+  }
+}
+
+/* Fabric.js canvas container styling */
+.canvas-container {
+  position: relative !important;
+  overflow: visible !important;
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+/* Mobile-optimized canvas controls */
+.upper-canvas {
+  position: absolute !important;
+  left: -16px !important;
+  top: -16px !important;
+  touch-action: manipulation !important;  /* Allow browser scrolling */
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+/* Clip the main canvas content */
+.lower-canvas {
+  clip-path: inset(0px);
+  touch-action: manipulation !important;  /* Allow browser scrolling */
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+/* Mobile viewport fixes - no media query needed since this is mobile-only */
+.h-screen {
+  height: 100vh;
+  height: 100dvh; /* Dynamic viewport height */
+  height: -webkit-fill-available;
+}
+
+/* Add mobile-specific utility classes */
+.mobile-tap-target {
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-safe-area {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Hide ALL external overlays, debugging tools, and analytics widgets */
+[data-nextjs-toast],
+.__next-dev-overlay,
+[class*="__nextjs"],
+[id*="nextjs"],
+[class*="debug"],
+[class*="dev-"],
+/* PostHog overlays and debug tools */
+[class*="posthog"],
+[id*="posthog"],
+[data-posthog],
+.__posthog,
+/* Common analytics/debugging overlays */
+[class*="ph-"],
+[id*="ph-"],
+[class*="analytics"],
+[class*="tracking"],
+[class*="hotjar"],
+[class*="mixpanel"],
+/* Mobile debugging tools */
+[class*="console"],
+[class*="devtools"],
+[class*="inspector"],
+/* Nexus/N logo specifically */
+div[style*="position: fixed"][style*="bottom"],
+div[style*="position: fixed"][style*="left"]:has(img),
+div[style*="position: fixed"]:has([alt*="logo"]),
+/* Generic overlay patterns */
+div[style*="z-index: 99"],
+div[style*="z-index: 999"],
+div[style*="z-index: 9999"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  left: -9999px !important;
+  top: -9999px !important;
+}

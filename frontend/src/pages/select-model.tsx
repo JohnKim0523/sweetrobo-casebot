@@ -1,3 +1,4 @@
+// Phone model selection page
 import React, { useState } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
@@ -15,7 +16,7 @@ export default function SelectModel() {
     // Store selected model in sessionStorage
     sessionStorage.setItem('selectedPhoneModel', model.id);
     
-    // Navigate to editor with model parameter
+    // Navigate to upload page with model parameter
     router.push(`/editor?model=${model.id}`);
   };
 

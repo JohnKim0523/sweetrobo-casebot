@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+:root {
+  /* Clean, simple color palette */
+  --background: #ffffff;
+  --foreground: #000000;
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-400: #9ca3af;
+  --gray-500: #6b7280;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+
+  /* Brand colors */
+  --purple-500: #a855f7;
+  --purple-600: #9333ea;
+  --pink-500: #ec4899;
+  --pink-600: #db2777;
+}
+
+/* Simple selection prevention for editor page */
+.editor-page {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.editor-page * {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Prevent text selection while dragging */
+.no-select {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Ensure canvas container uses proper layout */
+.canvas-container {
+  display: block !important;
+  position: relative !important;
+  margin: 0 auto;
+  background: transparent !important;
+}
+
+/* Canvas styling - REMOVED background override that was breaking Fabric.js rendering */
+/* canvas {
+  background: white !important;
+  border-radius: 0 !important;
+} */
+
+/* Basic global styles */
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: white;
+  color: black;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Ensure full height on mobile */
+html, body, #__next {
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+/* Mobile viewport fixes */
+@supports (-webkit-touch-callout: none) {
+  .h-screen {
+    height: 100vh;
+    height: -webkit-fill-available;
+  }
+}
+
+/* Prevent bounce scrolling on iOS */
+.overflow-hidden {
+  position: fixed;
+  overflow: hidden;
+}
+
+/* Remove tap highlight on mobile */
+* {
+  -webkit-tap-highlight-color: transparent;
+}

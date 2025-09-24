@@ -14,17 +14,38 @@ export default function AdminDashboard() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [currentQueue, setCurrentQueue] = useState<any[]>([]);
+  const [adminToken, setAdminToken] = useState<string>('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Load S3 images from backend
   const loadImages = async () => {
+    if (!adminToken) {
+      setError('Please enter admin token');
+      return;
+    }
+    
     try {
       setLoading(true);
+      setError(null);
       const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-      const response = await fetch(`${backendUrl}/api/admin/s3-images`);
+      const response = await fetch(`${backendUrl}/api/admin/s3-images`, {
+        headers: {
+          'Authorization': `Bearer ${adminToken}`
+        }
+      });
+      
+      if (response.status === 401) {
+        setIsAuthenticated(false);
+        setError('Invalid admin token');
+        setImages([]);
+        return;
+      }
+      
       const data = await response.json();
       
       if (data.success) {
         setImages(data.images);
+        setIsAuthenticated(true);
       } else {
         setError(data.error);
       }
@@ -44,7 +65,10 @@ export default function AdminDashboard() {
       const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
       const response = await fetch(`${backendUrl}/api/admin/s3-images`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
         body: JSON.stringify({ key }),
       });
       
@@ -65,8 +89,19 @@ export default function AdminDashboard() {
   // Queue updates removed - manual refresh only
 
   useEffect(() => {
-    loadImages();
+    // Check for saved token in localStorage
+    const savedToken = localStorage.getItem('adminToken');
+    if (savedToken) {
+      setAdminToken(savedToken);
+    }
   }, []);
+  
+  useEffect(() => {
+    // Load images when token changes
+    if (adminToken) {
+      loadImages();
+    }
+  }, [adminToken]);
 
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
@@ -89,15 +124,73 @@ export default function AdminDashboard() {
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-3xl font-bold">Admin Dashboard</h1>
             <div className="flex items-center gap-4">
-              <button
-                onClick={loadImages}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
-              >
-                🔄 Refresh
-              </button>
+              {isAuthenticated && (
+                <>
+                  <button
+                    onClick={loadImages}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
+                  >
+                    🔄 Refresh
+                  </button>
+                  <button
+                    onClick={() => {
+                      localStorage.removeItem('adminToken');
+                      setAdminToken('');
+                      setIsAuthenticated(false);
+                      setImages([]);
+                    }}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded"
+                  >
+                    🚪 Logout
+                  </button>
+                </>
+              )}
             </div>
           </div>
+          
+          {/* Login Form */}
+          {!isAuthenticated && (
+            <div className="max-w-md mx-auto bg-gray-800 p-6 rounded-lg mb-6">
+              <h2 className="text-xl font-bold mb-4">🔐 Admin Authentication</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Admin Token</label>
+                  <input
+                    type="password"
+                    value={adminToken}
+                    onChange={(e) => setAdminToken(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        localStorage.setItem('adminToken', adminToken);
+                        loadImages();
+                      }
+                    }}
+                    placeholder="Enter admin token"
+                    className="w-full px-3 py-2 bg-gray-700 rounded text-white"
+                  />
+                </div>
+                <button
+                  onClick={() => {
+                    localStorage.setItem('adminToken', adminToken);
+                    loadImages();
+                  }}
+                  disabled={!adminToken}
+                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded"
+                >
+                  🔓 Login
+                </button>
+                {error && (
+                  <div className="p-3 bg-red-600/20 border border-red-600 rounded text-red-400">
+                    {error}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
+          {/* Show content only when authenticated */}
+          {isAuthenticated && (
+            <>
           {/* Current Queue */}
           {currentQueue.length > 0 && (
             <div className="mb-6 p-4 bg-gray-800 rounded">
@@ -193,6 +286,8 @@ export default function AdminDashboard() {
               <div className="text-gray-400">Queue Size</div>
             </div>
           </div>
+            </>
+          )}
         </div>
       </div>
     </>

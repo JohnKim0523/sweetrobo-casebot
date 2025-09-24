@@ -42,10 +42,21 @@ export class SimpleQueueService {
   private readonly RATE_LIMIT_DELAY = 1000; // 1 second between API calls
   private activeJobs = 0;
   private machineRoundRobin = 0;
-  private availableMachines = ['machine-1', 'machine-2', 'machine-3'];
+  private availableMachines: string[];
   private lastApiCall = 0;
 
   constructor() {
+    // Load available machines from environment or use defaults
+    const machinesEnv = process.env.AVAILABLE_MACHINES;
+    if (machinesEnv) {
+      this.availableMachines = machinesEnv.split(',').map(m => m.trim());
+      console.log(`✅ Loaded ${this.availableMachines.length} machines from environment:`, this.availableMachines);
+    } else {
+      // Fallback to defaults if not configured
+      this.availableMachines = ['machine-1', 'machine-2', 'machine-3'];
+      console.log('⚠️ Using default machine IDs. Set AVAILABLE_MACHINES in .env for production');
+    }
+
     // Clean up old cache entries every minute
     setInterval(() => {
       const now = Date.now();

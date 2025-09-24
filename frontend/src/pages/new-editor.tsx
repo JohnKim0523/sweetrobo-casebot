@@ -2485,97 +2485,9 @@ export default function Editor() {
           }
         `}} />
       </Head>
-      <div className="editor-page w-full h-screen bg-gradient-to-br from-purple-50 to-pink-50 text-gray-900 flex flex-col overflow-hidden no-select">
+      <div className="editor-page w-full h-screen bg-gray-900 text-white flex flex-col overflow-hidden no-select">
         {/* Main Content Area */}
         <div className="flex-1 flex items-center justify-center relative no-select">
-          {/* Beautiful card overlay when no image - full screen coverage */}
-          {!uploadedImage && (
-            <div className="fixed inset-0 bg-gradient-to-br from-purple-50 via-pink-50 to-purple-100 flex items-center justify-center z-30">
-              <div className="bg-white rounded-3xl shadow-xl p-6 max-w-sm mx-4 w-full">
-                {/* Header */}
-                <div className="flex items-center gap-3 mb-6">
-                  <img src="/gif.gif" alt="SweetRobo" className="w-12 h-12 object-contain" />
-                  <div>
-                    <h1 className="text-lg font-bold text-gray-900">Case Bot App</h1>
-                    <p className="text-xs text-gray-500">Create amazing images with artificial intelligence</p>
-                  </div>
-                </div>
-
-                {/* Upload Section */}
-                <div className="mb-6">
-                  <div {...getRootProps()} className="border-2 border-dashed border-purple-300 rounded-2xl p-8 text-center cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all">
-                    <input {...getInputProps()} />
-                    <div className="w-12 h-12 mx-auto mb-3 bg-purple-100 rounded-full flex items-center justify-center">
-                      <svg className="w-6 h-6 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                      </svg>
-                    </div>
-                    <p className="text-gray-700 font-medium mb-1">Add your image here</p>
-                    <p className="text-xs text-gray-500">Upload from camera roll</p>
-                  </div>
-                </div>
-
-                {/* AI Generate Section */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-7 h-7 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-sm">✨</span>
-                    </div>
-                    <span className="font-semibold text-gray-900">Generate AI Image</span>
-                    <span className="ml-auto bg-purple-100 text-purple-600 text-xs px-2 py-1 rounded-full">AI</span>
-                  </div>
-
-                  <input
-                    type="text"
-                    placeholder="Describe your image..."
-                    value={createPrompt}
-                    onChange={(e) => setCreatePrompt(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-purple-500 text-sm"
-                  />
-
-                  <button
-                    onClick={() => setShowCreateModal(true)}
-                    disabled={!createPrompt.trim()}
-                    className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:shadow-lg"
-                  >
-                    Generate Image
-                  </button>
-
-                  {/* Quick Prompts */}
-                  <div className="pt-3">
-                    <p className="text-xs text-gray-500 mb-2">Quick prompts:</p>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button onClick={() => setCreatePrompt('Sunset landscape')} className="flex flex-col items-center p-2 hover:bg-gray-50 rounded-lg">
-                        <span className="text-xl mb-1">🌅</span>
-                        <span className="text-xs text-gray-600">Sunset</span>
-                      </button>
-                      <button onClick={() => setCreatePrompt('Cartoon Cat')} className="flex flex-col items-center p-2 hover:bg-gray-50 rounded-lg">
-                        <span className="text-xl mb-1">🐱</span>
-                        <span className="text-xs text-gray-600">Cartoon Cat</span>
-                      </button>
-                      <button onClick={() => setCreatePrompt('Abstract Art')} className="flex flex-col items-center p-2 hover:bg-gray-50 rounded-lg">
-                        <span className="text-xl mb-1">🎨</span>
-                        <span className="text-xs text-gray-600">Abstract Art</span>
-                      </button>
-                      <button onClick={() => setCreatePrompt('Space Galaxy')} className="flex flex-col items-center p-2 hover:bg-gray-50 rounded-lg">
-                        <span className="text-xl mb-1">🌌</span>
-                        <span className="text-xs text-gray-600">Space/Galaxy</span>
-                      </button>
-                      <button onClick={() => setCreatePrompt('Cherry Blossom')} className="flex flex-col items-center p-2 hover:bg-gray-50 rounded-lg">
-                        <span className="text-xl mb-1">🌸</span>
-                        <span className="text-xs text-gray-600">Cherry Blossom</span>
-                      </button>
-                      <button onClick={() => setCreatePrompt('Retro Synthwave')} className="flex flex-col items-center p-2 hover:bg-gray-50 rounded-lg">
-                        <span className="text-xl mb-1">🌆</span>
-                        <span className="text-xs text-gray-600">Retro Synthwave</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Canvas */}
           <div className="relative no-select">
             <canvas ref={canvasRef} className="no-select" />
@@ -2583,13 +2495,35 @@ export default function Editor() {
           
           {/* Side Controls */}
           <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-10 no-select">
+          {/* Upload Button - only show when no image */}
+          {!uploadedImage && (
+            <div {...getRootProps()}>
+              <input {...getInputProps()} />
+              <button className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center glass-panel floating-element pulse-glow" style={{background: 'var(--glass-backdrop)', border: '1px solid var(--neon-cyan)', backdropFilter: 'blur(10px)'}}>
+                <span className="text-lg">📁</span>
+              </button>
+            </div>
+          )}
+          
+          {/* AI Create Button - only show when no image */}
+          {!uploadedImage && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="w-12 h-12 bg-purple-600 rounded-lg flex items-center justify-center glass-panel floating-element pulse-glow"
+              style={{background: 'var(--glass-backdrop)', border: '1px solid var(--neon-purple)', backdropFilter: 'blur(10px)'}}
+            >
+              <span className="text-lg">🎨</span>
+            </button>
+          )}
+          
           {/* AI Edit Button */}
           {uploadedImage && (
             <button
               onClick={() => setShowAIModal(true)}
-              className="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
+              className="w-12 h-12 bg-green-600 rounded-lg flex items-center justify-center glass-panel floating-element pulse-glow"
+              style={{background: 'var(--glass-backdrop)', border: '1px solid var(--neon-green)', backdropFilter: 'blur(10px)'}}
             >
-              <span className="text-xl">✏️</span>
+              <span className="text-lg">✏️</span>
             </button>
           )}
           
