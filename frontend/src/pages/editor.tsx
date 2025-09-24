@@ -1499,7 +1499,7 @@ export default function Editor() {
       console.log('Mask data exists:', !!currentMask);
       
       // Call backend AI edit API with mask
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
       const response = await fetch(`${backendUrl}/api/ai-edit`, {
         method: 'POST',
         headers: {
@@ -1705,7 +1705,7 @@ export default function Editor() {
       }
       
       // Call backend AI edit API
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
       const response = await fetch(`${backendUrl}/api/ai-edit`, {
         method: 'POST',
         headers: {
@@ -1884,7 +1884,8 @@ export default function Editor() {
         console.log('Saved image state to history before AI create with position:', uploadedImage.left, uploadedImage.top);
       }
       // Call backend AI create API
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      // Use relative URL if on same domain, otherwise use configured backend
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
       const response = await fetch(`${backendUrl}/api/ai-create`, {
         method: 'POST',
         headers: {
@@ -2297,7 +2298,7 @@ export default function Editor() {
         let uploadData;
         try {
           // Upload to backend, which will handle S3
-          const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+          const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
           console.log('📤 Uploading to backend:', `${backendUrl}/api/upload-design`);
           setDebugInfo(`Uploading to: ${backendUrl}/api/upload-design`);
           
@@ -2483,7 +2484,33 @@ export default function Editor() {
           }
         `}} />
       </Head>
-      <div className="editor-page w-full h-screen bg-gradient-to-br from-purple-50 to-pink-50 text-gray-900 flex flex-col overflow-hidden no-select">
+      <div className="editor-page w-full h-screen bg-gray-50 text-gray-900 flex flex-col overflow-hidden no-select">
+        {/* Top Header with Undo/Redo - Only shown when image is uploaded */}
+        {uploadedImage && (
+          <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+            <button
+              onClick={undoLastEdit}
+              disabled={editHistory.length === 0}
+              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
+            >
+              <span className="text-xl">↶</span>
+            </button>
+
+            <div className="flex items-center gap-2">
+              <img src="/gif.gif" alt="SweetRobo" className="w-8 h-8 object-contain" />
+              <span className="font-semibold">Case Bot App</span>
+            </div>
+
+            <button
+              onClick={undoCrop}
+              disabled={cropHistory.length === 0}
+              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
+            >
+              <span className="text-xl">↷</span>
+            </button>
+          </div>
+        )}
+
         {/* Main Content Area */}
         <div className="flex-1 flex items-center justify-center relative no-select">
           {/* Beautiful card overlay when no image - full mobile screen coverage */}
@@ -2585,39 +2612,83 @@ export default function Editor() {
             </div>
           )}
 
-          {/* Canvas */}
-          <div className="relative no-select">
-            <canvas ref={canvasRef} className="no-select" />
+          {/* Canvas with rounded corners and green corner indicators */}
+          <div className="relative no-select flex-1 flex items-center justify-center bg-gray-50 px-4">
+            <div className="relative bg-white rounded-3xl shadow-sm p-2" style={{ maxWidth: '400px', width: '100%' }}>
+              <canvas ref={canvasRef} className="no-select rounded-2xl" />
+              {/* Green corner indicators */}
+              {uploadedImage && (
+                <>
+                  <div className="absolute top-3 left-3 w-6 h-6 border-l-4 border-t-4 border-green-500 rounded-tl-lg pointer-events-none" />
+                  <div className="absolute top-3 right-3 w-6 h-6 border-r-4 border-t-4 border-green-500 rounded-tr-lg pointer-events-none" />
+                  <div className="absolute bottom-3 left-3 w-6 h-6 border-l-4 border-b-4 border-green-500 rounded-bl-lg pointer-events-none" />
+                  <div className="absolute bottom-3 right-3 w-6 h-6 border-r-4 border-b-4 border-green-500 rounded-br-lg pointer-events-none" />
+                </>
+              )}
+            </div>
           </div>
           
-          {/* Side Controls */}
-          <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-10 no-select">
-          {/* AI Edit Button */}
-          {uploadedImage && (
+        
+        </div>
+
+        {/* Bottom Toolbar - Edit with AI and controls */}
+        {uploadedImage && (
+          <div className="absolute bottom-32 left-4 right-4 flex justify-center gap-3 z-10 no-select">
+            {/* Edit with AI Button */}
             <button
               onClick={() => setShowAIModal(true)}
-              className="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
+              className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all flex items-center gap-2"
             >
-              <span className="text-xl">✏️</span>
+              <span className="text-sm">✨</span>
+              <span>Edit with AI</span>
             </button>
-          )}
-          
-          {/* Crop Button */}
-          {uploadedImage && (
+
+            {/* Rotate Left */}
+            <button
+              onClick={() => {
+                if (uploadedImage && canvas) {
+                  const angle = uploadedImage.angle - 90;
+                  uploadedImage.rotate(angle);
+                  uploadedImage.controls = normalControls.current;
+                  canvas.discardActiveObject();
+                  canvas.setActiveObject(uploadedImage);
+                  canvas.renderAll();
+                  canvas.requestRenderAll();
+                }
+              }}
+              className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
+            >
+              <span className="text-xl">↺</span>
+            </button>
+
+            {/* Rotate Right */}
+            <button
+              onClick={() => {
+                if (uploadedImage && canvas) {
+                  const angle = uploadedImage.angle + 90;
+                  uploadedImage.rotate(angle);
+                  uploadedImage.controls = normalControls.current;
+                  canvas.discardActiveObject();
+                  canvas.setActiveObject(uploadedImage);
+                  canvas.renderAll();
+                  canvas.requestRenderAll();
+                }
+              }}
+              className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
+            >
+              <span className="text-xl">↻</span>
+            </button>
+
+            {/* Crop Button */}
             <button
               onClick={() => {
                 if (uploadedImage && uploadedImage.type === 'image') {
-                  // Export the current image state
                   const imageDataUrl = uploadedImage.toDataURL({
                     format: 'png',
                     multiplier: 2,
                     quality: 1.0
                   });
-                  
-                  // Store the target for later use when cropping is done
                   (window as any).currentCropTarget = uploadedImage;
-                  
-                  // Create an image element for cropper
                   const img = new Image();
                   img.onload = () => {
                     cropperImageRef.current = img;
@@ -2626,126 +2697,41 @@ export default function Editor() {
                   img.src = imageDataUrl;
                 }
               }}
-              className="w-12 h-12 sm:w-14 sm:h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
+              className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
             >
               <span className="text-xl">✂️</span>
             </button>
-          )}
-          
-          {/* Delete Button */}
-          {uploadedImage && (
+
+            {/* Delete Button */}
             <button
               onClick={() => {
                 if (uploadedImage && canvas) {
-                  // Remove the image from canvas
                   canvas.remove(uploadedImage);
                   canvas.renderAll();
-                  
-                  // Clear the uploaded image state
                   setUploadedImage(null);
-                  
-                  // Clear crop history since image is deleted
                   setCropHistory([]);
-                  
                   console.log('Image deleted from canvas');
                 }
               }}
-              className="w-12 h-12 sm:w-14 sm:h-14 bg-red-600 rounded-xl flex items-center justify-center hover:bg-red-700 transition shadow-lg border border-red-500"
+              className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
             >
-              <span className="text-xl">🗑️</span>
+              <span className="text-xl text-red-500">🗑️</span>
             </button>
-          )}
-          
-          {/* Undo Crop Button */}
-          {cropHistory.length > 0 && (
-            <button
-              onClick={undoCrop}
-              className="w-12 h-12 sm:w-14 sm:h-14 bg-orange-600 rounded-xl flex items-center justify-center hover:bg-orange-700 transition shadow-lg border border-orange-500"
-            >
-              <span className="text-xl">↶</span>
-            </button>
-          )}
-          
-          {/* Undo Button */}
-          {editHistory.length > 0 && (
-            <button
-              onClick={undoLastEdit}
-              className="w-12 h-12 sm:w-14 sm:h-14 bg-gray-800 rounded-xl flex items-center justify-center hover:bg-gray-700 transition shadow-lg border border-gray-600"
-            >
-              <span className="text-xl">↩️</span>
-            </button>
-          )}
-        </div>
-        
-        {/* Bottom controls - positioned above submit button */}
-        <div className="absolute left-4 right-4 flex justify-between items-center" style={{ bottom: '140px' }}>
-          {/* Rotate buttons */}
-          {uploadedImage && (
-            <div className="flex gap-2">
-              <button 
-                onClick={() => {
-                  if (uploadedImage && canvas) {
-                    const angle = uploadedImage.angle - 90;
-                    uploadedImage.rotate(angle);
-                    
-                    // Properly refresh controls like manual rotation
-                    uploadedImage.controls = normalControls.current;
-                    
-                    // Deselect and reselect to force control recalculation
-                    canvas.discardActiveObject();
-                    canvas.setActiveObject(uploadedImage);
-                    
-                    // Force complete canvas refresh
-                    canvas.renderAll();
-                    canvas.requestRenderAll();
-                  }
-                }}
-                className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center shadow-lg text-lg sm:text-xl font-bold border border-purple-400"
-              >
-                ↺
-              </button>
-              
-              <button 
-                onClick={() => {
-                  if (uploadedImage && canvas) {
-                    const angle = uploadedImage.angle + 90;
-                    uploadedImage.rotate(angle);
-                    
-                    // Properly refresh controls like manual rotation
-                    uploadedImage.controls = normalControls.current;
-                    
-                    // Deselect and reselect to force control recalculation
-                    canvas.discardActiveObject();
-                    canvas.setActiveObject(uploadedImage);
-                    
-                    // Force complete canvas refresh
-                    canvas.renderAll();
-                    canvas.requestRenderAll();
-                  }
-                }}
-                className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center shadow-lg text-lg sm:text-xl font-bold border border-purple-400"
-              >
-                ↻
-              </button>
-            </div>
-          )}
           </div>
-        </div>
-        
-        {/* Submit Button - Holographic bottom bar */}
-        <div className="p-4 glass-panel border-t no-select" style={{background: 'var(--glass-backdrop)', borderColor: 'var(--glass-border)', backdropFilter: 'blur(10px)'}}>
+        )}
+
+        {/* Submit Button - Now styled like the screenshot */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 bg-white no-select">
           <button
             onClick={handleSubmit}
-            className="w-full neon-button font-bold py-3 px-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full font-semibold py-4 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
             style={{
-              background: !uploadedImage || isUploading ? 'var(--glass-backdrop)' : 'var(--gradient-primary)', 
-              border: `2px solid ${!uploadedImage || isUploading ? 'var(--foreground-muted)' : 'var(--neon-cyan)'}`,
-              color: !uploadedImage || isUploading ? 'var(--foreground-muted)' : 'var(--foreground)',
-              backdropFilter: 'blur(10px)'
+              background: !uploadedImage || isUploading ? '#e5e7eb' : 'linear-gradient(135deg, #a855f7, #ec4899)',
+              color: !uploadedImage || isUploading ? '#9ca3af' : 'white',
             }}
             disabled={!uploadedImage || isUploading}
           >
-            {isUploading ? '⚡ TRANSMITTING...' : '🚀 INITIATE PRINT'}
+            {isUploading ? 'Processing...' : 'Submit Image'}
           </button>
           {/* Debug info for mobile */}
           {debugInfo && (
