@@ -48,7 +48,7 @@ export default function Editor() {
   const CANVAS_TOTAL_WIDTH = MOBILE_SCREEN_WIDTH;
   const CANVAS_TOTAL_HEIGHT = Math.min(DISPLAY_HEIGHT + 20, MOBILE_SCREEN_HEIGHT);  // Minimal padding
   const CONTROL_PADDING = Math.round((CANVAS_TOTAL_WIDTH - DISPLAY_WIDTH) / 2);
-  const VERTICAL_PADDING = 10;  // Very minimal top padding
+  const VERTICAL_PADDING = 2;  // Very minimal top padding
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvas, setCanvas] = useState<any>(null);
@@ -208,7 +208,7 @@ export default function Editor() {
     const fabricCanvas = new fabric.Canvas(canvasRef.current, {
         width: CANVAS_TOTAL_WIDTH,   // Full width with padding
         height: CANVAS_TOTAL_HEIGHT,  // Full height with padding
-        backgroundColor: '#1a1a2e', // Dark blue background to match mobile app
+        backgroundColor: '#f3f4f6', // Light gray background to match design
         containerClass: 'canvas-container',
         selection: false,  // Disable background drag-to-select box
         allowTouchScrolling: true,  // Allow browser to handle touch scrolling
@@ -2484,24 +2484,24 @@ export default function Editor() {
           }
         `}} />
       </Head>
-      <div className="editor-page w-full h-screen bg-white text-gray-900 flex flex-col overflow-hidden no-select">
-        {/* Top Header - Simple left-aligned */}
-        {uploadedImage && (
-          <div className="bg-white px-4 py-3">
-            <div className="flex items-center gap-3">
-              <img src="/gif.gif" alt="SweetRobo" className="w-10 h-10 object-contain" />
-              <h1 className="text-base font-bold text-gray-900">Case Bot App</h1>
-            </div>
-          </div>
-        )}
+      <div className="editor-page fixed inset-0 bg-gray-50 no-select">
+        {/* Mobile container wrapper - matches upload panel structure */}
+        <div className="h-full w-full flex flex-col items-center justify-center">
+          <div className="w-full max-w-sm h-full bg-white flex flex-col relative overflow-hidden">
+            {/* Top Header - Fixed height section */}
+            {uploadedImage && (
+              <div className="flex-shrink-0 px-4 py-2">
+                <div className="flex items-center gap-3">
+                  <img src="/gif.gif" alt="SweetRobo" className="w-10 h-10 object-contain" />
+                  <h1 className="text-base font-bold text-gray-900">Case Bot App</h1>
+                </div>
+              </div>
+            )}
 
-        {/* Main Content Area - Split into canvas and button sections */}
-        <div className="flex-1 flex flex-col relative no-select">
-          {/* Beautiful card overlay when no image - full mobile screen coverage */}
-          {!uploadedImage && (
-            <div className="fixed inset-0 z-30 bg-white">
-              <div className="h-full w-full flex flex-col px-4 py-3">
-                <div className="w-full max-w-sm mx-auto flex flex-col h-full">
+            {/* Beautiful card overlay when no image */}
+            {!uploadedImage && (
+              <div className="absolute inset-0 z-30 bg-white">
+                <div className="h-full w-full flex flex-col px-4 py-3">
                   {/* Header - Fixed at top */}
                   <div className="flex items-center gap-3 mb-4">
                     <img src="/gif.gif" alt="SweetRobo" className="w-10 h-10 object-contain" />
@@ -2593,21 +2593,19 @@ export default function Editor() {
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Canvas Section - Positioned at top */}
-          <div className="flex-1 relative flex items-start justify-center bg-white no-select overflow-hidden">
-            <div className="relative">
-              <canvas ref={canvasRef} className="no-select" />
+            {/* Canvas Section - Takes remaining space with padding */}
+            <div className="flex-1 min-h-0 relative flex items-center justify-center">
+              <div className="relative">
+                <canvas ref={canvasRef} className="no-select" />
+              </div>
             </div>
-          </div>
-        </div>
 
-        {/* Bottom Toolbar - Fixed without borders */}
-        {uploadedImage && (
-          <div className="fixed bottom-16 left-0 right-0 py-2 px-4 z-10 no-select">
-            <div className="flex justify-center items-center gap-2 max-w-md mx-auto">
+            {/* Bottom Toolbar - Fixed height section */}
+            {uploadedImage && (
+              <div className="flex-shrink-0 px-4 py-2">
+                <div className="flex justify-center items-center gap-2">
               {/* Edit with AI Button */}
               <button
                 onClick={() => setShowAIModal(true)}
@@ -2630,7 +2628,7 @@ export default function Editor() {
                     canvas.requestRenderAll();
                   }
                 }}
-                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm border border-gray-200"
+                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm"
               >
                 <span className="text-lg">↺</span>
               </button>
@@ -2648,7 +2646,7 @@ export default function Editor() {
                     canvas.requestRenderAll();
                   }
                 }}
-                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm border border-gray-200"
+                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm"
               >
                 <span className="text-lg">↻</span>
               </button>
@@ -2671,7 +2669,7 @@ export default function Editor() {
                     img.src = imageDataUrl;
                   }
                 }}
-                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm border border-gray-200"
+                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm"
               >
                 <span className="text-lg">✂️</span>
               </button>
@@ -2687,16 +2685,16 @@ export default function Editor() {
                     console.log('Image deleted from canvas');
                   }
                 }}
-                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm border border-gray-200"
+                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm"
               >
                 <span className="text-lg text-red-500">🗑️</span>
               </button>
-            </div>
-          </div>
-        )}
+                </div>
+              </div>
+            )}
 
-        {/* Submit Button - Fixed without border */}
-        <div className="fixed bottom-0 left-0 right-0 p-3 bg-white z-10 no-select">
+            {/* Submit Button - Fixed height at bottom */}
+            <div className="flex-shrink-0 p-3">
           <button
             onClick={handleSubmit}
             className="w-full font-semibold py-3 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
@@ -2714,6 +2712,8 @@ export default function Editor() {
               Debug: {debugInfo}
             </div>
           )}
+            </div>
+          </div>
         </div>
       </div>
       
