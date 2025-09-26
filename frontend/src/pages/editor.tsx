@@ -2485,29 +2485,13 @@ export default function Editor() {
         `}} />
       </Head>
       <div className="editor-page w-full h-screen bg-white text-gray-900 flex flex-col overflow-hidden no-select">
-        {/* Top Header with Undo/Redo - Only shown when image is uploaded */}
+        {/* Top Header - Simple left-aligned */}
         {uploadedImage && (
-          <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-            <button
-              onClick={undoLastEdit}
-              disabled={editHistory.length === 0}
-              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
-            >
-              <span className="text-xl">↶</span>
-            </button>
-
-            <div className="flex items-center gap-2">
-              <img src="/gif.gif" alt="SweetRobo" className="w-8 h-8 object-contain" />
-              <span className="font-semibold">Case Bot App</span>
+          <div className="bg-white px-4 py-3">
+            <div className="flex items-center gap-3">
+              <img src="/gif.gif" alt="SweetRobo" className="w-10 h-10 object-contain" />
+              <h1 className="text-base font-bold text-gray-900">Case Bot App</h1>
             </div>
-
-            <button
-              onClick={undoCrop}
-              disabled={cropHistory.length === 0}
-              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
-            >
-              <span className="text-xl">↷</span>
-            </button>
           </div>
         )}
 
@@ -2620,9 +2604,9 @@ export default function Editor() {
           </div>
         </div>
 
-        {/* Bottom Toolbar - Fixed at bottom */}
+        {/* Bottom Toolbar - Fixed without borders */}
         {uploadedImage && (
-          <div className="fixed bottom-14 left-0 right-0 bg-white py-1 px-4 z-10 border-t border-gray-100 no-select">
+          <div className="fixed bottom-16 left-0 right-0 py-2 px-4 z-10 no-select">
             <div className="flex justify-center items-center gap-2 max-w-md mx-auto">
               {/* Edit with AI Button */}
               <button
@@ -2711,11 +2695,11 @@ export default function Editor() {
           </div>
         )}
 
-        {/* Submit Button - Fixed at bottom */}
-        <div className="fixed bottom-0 left-0 right-0 p-2 bg-white border-t border-gray-200 z-10 no-select">
+        {/* Submit Button - Fixed without border */}
+        <div className="fixed bottom-0 left-0 right-0 p-3 bg-white z-10 no-select">
           <button
             onClick={handleSubmit}
-            className="w-full font-semibold py-2.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
+            className="w-full font-semibold py-3 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
             style={{
               background: !uploadedImage || isUploading ? '#e5e7eb' : 'linear-gradient(135deg, #a855f7, #ec4899)',
               color: !uploadedImage || isUploading ? '#9ca3af' : 'white',
