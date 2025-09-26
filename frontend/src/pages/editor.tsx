@@ -2595,87 +2595,90 @@ export default function Editor() {
               </div>
             )}
 
-            {/* Canvas Section - Takes remaining space with padding */}
-            <div className="flex-1 min-h-0 relative flex items-center justify-center">
+            {/* Canvas and Buttons Container - Takes remaining space */}
+            <div className="flex-1 min-h-0 flex flex-col items-center justify-center">
+              {/* Canvas - Dynamic size based on phone model */}
               <div className="relative">
                 <canvas ref={canvasRef} className="no-select" />
               </div>
-            </div>
 
-            {/* Bottom Toolbar - Fixed height section */}
-            {uploadedImage && (
-              <div className="flex-shrink-0 px-4 py-2">
-                <div className="flex justify-center items-center gap-2">
-              {/* Edit with AI Button */}
-              <button
-                onClick={() => setShowAIModal(true)}
-                className="flex-1 max-w-[140px] px-3 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium rounded-lg shadow-sm flex items-center justify-center gap-1 text-sm"
-              >
-                <span>✨</span>
-                <span>Edit with AI</span>
-              </button>
+              {/* Edit Buttons - Attached directly below canvas */}
+              {uploadedImage && (
+                <div className="w-full px-3">
+                  <div className="flex justify-between items-center">
+                {/* Edit with AI Button */}
+                <button
+                  onClick={() => setShowAIModal(true)}
+                  className="px-3 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium rounded-lg shadow-sm flex items-center justify-center gap-1 text-sm"
+                >
+                  <span>✨</span>
+                  <span>Edit with AI</span>
+                </button>
 
-              {/* Rotate Left */}
-              <button
-                onClick={() => {
-                  if (uploadedImage && canvas) {
-                    const angle = uploadedImage.angle - 90;
-                    uploadedImage.rotate(angle);
-                    uploadedImage.controls = normalControls.current;
-                    canvas.discardActiveObject();
-                    canvas.setActiveObject(uploadedImage);
-                    canvas.renderAll();
-                    canvas.requestRenderAll();
-                  }
-                }}
-                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm"
-              >
-                <span className="text-lg">↺</span>
-              </button>
+                {/* Middle buttons group */}
+                <div className="flex items-center gap-1.5">
+                  {/* Rotate Left */}
+                  <button
+                  onClick={() => {
+                    if (uploadedImage && canvas) {
+                      const angle = uploadedImage.angle - 90;
+                      uploadedImage.rotate(angle);
+                      uploadedImage.controls = normalControls.current;
+                      canvas.discardActiveObject();
+                      canvas.setActiveObject(uploadedImage);
+                      canvas.renderAll();
+                      canvas.requestRenderAll();
+                    }
+                  }}
+                  className="w-11 h-11 bg-white rounded-lg flex items-center justify-center shadow-sm"
+                >
+                  <span className="text-lg">↺</span>
+                </button>
 
-              {/* Rotate Right */}
-              <button
-                onClick={() => {
-                  if (uploadedImage && canvas) {
-                    const angle = uploadedImage.angle + 90;
-                    uploadedImage.rotate(angle);
-                    uploadedImage.controls = normalControls.current;
-                    canvas.discardActiveObject();
-                    canvas.setActiveObject(uploadedImage);
-                    canvas.renderAll();
-                    canvas.requestRenderAll();
-                  }
-                }}
-                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm"
-              >
-                <span className="text-lg">↻</span>
-              </button>
+                  {/* Rotate Right */}
+                  <button
+                  onClick={() => {
+                    if (uploadedImage && canvas) {
+                      const angle = uploadedImage.angle + 90;
+                      uploadedImage.rotate(angle);
+                      uploadedImage.controls = normalControls.current;
+                      canvas.discardActiveObject();
+                      canvas.setActiveObject(uploadedImage);
+                      canvas.renderAll();
+                      canvas.requestRenderAll();
+                    }
+                  }}
+                  className="w-11 h-11 bg-white rounded-lg flex items-center justify-center shadow-sm"
+                >
+                  <span className="text-lg">↻</span>
+                </button>
 
-              {/* Crop Button */}
-              <button
-                onClick={() => {
-                  if (uploadedImage && uploadedImage.type === 'image') {
-                    const imageDataUrl = uploadedImage.toDataURL({
-                      format: 'png',
-                      multiplier: 2,
-                      quality: 1.0
-                    });
-                    (window as any).currentCropTarget = uploadedImage;
-                    const img = new Image();
-                    img.onload = () => {
-                      cropperImageRef.current = img;
-                      setShowCropper(true);
-                    };
-                    img.src = imageDataUrl;
-                  }
-                }}
-                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm"
-              >
-                <span className="text-lg">✂️</span>
-              </button>
+                  {/* Crop Button */}
+                  <button
+                  onClick={() => {
+                    if (uploadedImage && uploadedImage.type === 'image') {
+                      const imageDataUrl = uploadedImage.toDataURL({
+                        format: 'png',
+                        multiplier: 2,
+                        quality: 1.0
+                      });
+                      (window as any).currentCropTarget = uploadedImage;
+                      const img = new Image();
+                      img.onload = () => {
+                        cropperImageRef.current = img;
+                        setShowCropper(true);
+                      };
+                      img.src = imageDataUrl;
+                    }
+                  }}
+                  className="w-11 h-11 bg-white rounded-lg flex items-center justify-center shadow-sm"
+                >
+                  <span className="text-lg">✂️</span>
+                </button>
+                </div>
 
-              {/* Delete Button */}
-              <button
+                {/* Delete Button */}
+                <button
                 onClick={() => {
                   if (uploadedImage && canvas) {
                     canvas.remove(uploadedImage);
@@ -2685,13 +2688,14 @@ export default function Editor() {
                     console.log('Image deleted from canvas');
                   }
                 }}
-                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm"
+                className="w-11 h-11 bg-white rounded-lg flex items-center justify-center shadow-sm"
               >
                 <span className="text-lg text-red-500">🗑️</span>
               </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Submit Button - Fixed height at bottom */}
             <div className="flex-shrink-0 p-3">
