@@ -2663,7 +2663,8 @@ export default function Editor() {
               {/* Edit with AI Button */}
               <button
                 onClick={() => setShowAIModal(true)}
-                className="flex-1 max-w-[140px] px-3 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium rounded-lg shadow-sm flex items-center justify-center gap-1 text-sm"
+                className="flex-1 max-w-[140px] px-3 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium rounded-lg flex items-center justify-center gap-1 text-sm"
+                style={{ boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.15)' }}
               >
                 <span>✨</span>
                 <span>Edit with AI</span>
@@ -2682,7 +2683,7 @@ export default function Editor() {
                     canvas.requestRenderAll();
                   }
                 }}
-                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm"
+                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-lg"
               >
                 <span className="text-lg">↺</span>
               </button>
@@ -2700,7 +2701,7 @@ export default function Editor() {
                     canvas.requestRenderAll();
                   }
                 }}
-                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm"
+                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-lg"
               >
                 <span className="text-lg">↻</span>
               </button>
@@ -2723,7 +2724,7 @@ export default function Editor() {
                     img.src = imageDataUrl;
                   }
                 }}
-                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm"
+                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-lg"
               >
                 <span className="text-lg">✂️</span>
               </button>
@@ -2739,7 +2740,7 @@ export default function Editor() {
                     console.log('Image deleted from canvas');
                   }
                 }}
-                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm"
+                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-lg"
               >
                 <span className="text-lg text-red-500">🗑️</span>
               </button>
