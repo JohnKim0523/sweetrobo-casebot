@@ -688,7 +688,7 @@ export default function Editor() {
 
       // Add border as a fabric object (positioned with padding)
       // Inset the border by half the stroke width to prevent clipping
-      const borderStrokeWidth = 2;
+      const borderStrokeWidth = 1;
       const borderInset = borderStrokeWidth / 2;
       const border = new fabric.Rect({
         left: CONTROL_PADDING + borderInset,
@@ -696,8 +696,11 @@ export default function Editor() {
         width: DISPLAY_WIDTH - borderStrokeWidth,
         height: DISPLAY_HEIGHT - borderStrokeWidth,
         fill: 'white',  // White background for the actual canvas area
-        stroke: '#333',
+        stroke: '#9ca3af',  // Medium gray color (darker for better visibility)
         strokeWidth: borderStrokeWidth,
+        strokeDashArray: [2, 3],  // Very detailed dotted pattern: 2px dash, 3px gap
+        rx: 20,  // Rounded corners - horizontal radius
+        ry: 20,  // Rounded corners - vertical radius
         selectable: false,
         evented: false
       });
@@ -733,7 +736,18 @@ export default function Editor() {
       });
 
       fabricCanvas.add(border);
-      
+
+      // Set up clipping path with rounded corners to clip image content
+      fabricCanvas.clipPath = new fabric.Rect({
+        left: CONTROL_PADDING,
+        top: VERTICAL_PADDING,
+        width: DISPLAY_WIDTH,
+        height: DISPLAY_HEIGHT,
+        rx: 20,  // Rounded corners - horizontal radius
+        ry: 20,  // Rounded corners - vertical radius
+        absolutePositioned: true
+      });
+
       // Add crosshairs after other elements are set up
       // This ensures they're always on top initially
       setCrosshairLines({vertical: verticalLine, horizontal: horizontalLine});
