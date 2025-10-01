@@ -2682,7 +2682,7 @@ export default function Editor() {
                     canvas.requestRenderAll();
                   }
                 }}
-                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm"
+                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm"
               >
                 <span className="text-lg">↺</span>
               </button>
@@ -2700,7 +2700,7 @@ export default function Editor() {
                     canvas.requestRenderAll();
                   }
                 }}
-                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm"
+                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm"
               >
                 <span className="text-lg">↻</span>
               </button>
@@ -2723,7 +2723,7 @@ export default function Editor() {
                     img.src = imageDataUrl;
                   }
                 }}
-                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm"
+                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm"
               >
                 <span className="text-lg">✂️</span>
               </button>
@@ -2739,7 +2739,7 @@ export default function Editor() {
                     console.log('Image deleted from canvas');
                   }
                 }}
-                className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm"
+                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm"
               >
                 <span className="text-lg text-red-500">🗑️</span>
               </button>
@@ -2747,7 +2747,10 @@ export default function Editor() {
               </div>
             )}
 
-            {/* Submit Button - Fixed height at bottom */}
+            {/* Spacer to push submit button to bottom */}
+            <div className="flex-1"></div>
+
+            {/* Submit Button - Fixed at bottom */}
             <div className="flex-shrink-0 p-3">
           <button
             onClick={handleSubmit}
