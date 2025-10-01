@@ -133,6 +133,8 @@ export default function Editor() {
   const [textUnderline, setTextUnderline] = useState(false);
   const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>('center');
   const [textColor, setTextColor] = useState('#000000');
+  const [initialTextColor, setInitialTextColor] = useState('#000000');
+  const [customTextColor, setCustomTextColor] = useState<string | null>(null);
   const [stickerSearch, setStickerSearch] = useState('');
 
   // Filter states
@@ -142,7 +144,12 @@ export default function Editor() {
   const [blur, setBlur] = useState(0);
   const [sharpness, setSharpness] = useState(0);
   const [warmth, setWarmth] = useState(0);
+  const [isBlackAndWhite, setIsBlackAndWhite] = useState(false);
+  const [canvasBackgroundColor, setCanvasBackgroundColor] = useState('transparent');
   const [filtersTouched, setFiltersTouched] = useState(false);
+  // Store initial state when modal opens for reverting
+  const [initialBWState, setInitialBWState] = useState(false);
+  const [initialBgColor, setInitialBgColor] = useState('transparent');
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showMaskModal, setShowMaskModal] = useState(false);  // New modal for mask editing
@@ -312,21 +319,21 @@ export default function Editor() {
         stateful: false  // Disable state tracking for better performance
       });
       
-      // Add white background rectangle for the actual canvas area
+      // Add a background rectangle inside the display area (will not be clipped)
       const canvasBackground = new fabric.Rect({
         left: CONTROL_PADDING,
         top: VERTICAL_PADDING,
         width: DISPLAY_WIDTH,
         height: DISPLAY_HEIGHT,
-        fill: 'white',
+        fill: 'transparent',
         selectable: false,
         evented: false,
         excludeFromExport: true
       });
-      
+
       fabricCanvas.add(canvasBackground);
-      
-      // Set up clipping to hide image parts outside white canvas area
+
+      // Set up clipping to hide image parts outside canvas area
       fabricCanvas.clipPath = new fabric.Rect({
         left: CONTROL_PADDING,
         top: VERTICAL_PADDING,
@@ -1325,6 +1332,34 @@ export default function Editor() {
     };
   }, [showCropper]);
 
+  // Sync canvas background color with state
+  useEffect(() => {
+    if (!canvas) return;
+
+    // Find the background rectangle
+    const objects = canvas.getObjects();
+    const background = objects.find((obj: any) =>
+      obj.type === 'rect' && obj.excludeFromExport === true
+    );
+
+    // Find the white border rectangle (the one with stroke)
+    const borderRect = objects.find((obj: any) =>
+      obj.type === 'rect' && obj.stroke && obj.fill === 'white'
+    );
+
+    if (background) {
+      background.set('fill', canvasBackgroundColor);
+    }
+
+    if (borderRect) {
+      borderRect.set('fill', canvasBackgroundColor);
+    }
+
+    // Update the canvas backgroundColor to match
+    canvas.backgroundColor = canvasBackgroundColor;
+    canvas.renderAll();
+  }, [canvasBackgroundColor, canvas]);
+
   const onDrop = (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0 && canvas && fabric) {
       const file = acceptedFiles[0];
@@ -1392,7 +1427,16 @@ export default function Editor() {
 
             // Add image normally - crosshairs will stay on top due to render order
             canvas.add(fabricImage);
-            
+
+            // Ensure background rectangle stays at the bottom
+            const objects = canvas.getObjects();
+            const background = objects.find((obj: any) =>
+              obj.type === 'rect' && obj.excludeFromExport === true
+            );
+            if (background) {
+              canvas.sendObjectToBack(background);
+            }
+
             canvas.setActiveObject(fabricImage);
             canvas.renderAll();
             setUploadedImage(fabricImage);
@@ -2087,38 +2131,26 @@ export default function Editor() {
     setBlur(0);
     setSharpness(0);
     setWarmth(0);
+    setIsBlackAndWhite(false);
+    setCanvasBackgroundColor('transparent');
 
     if (uploadedImage && canvas) {
       uploadedImage.filters = [];
       uploadedImage.applyFilters();
+
+      // Reset background rectangle to transparent
+      const objects = canvas.getObjects();
+      const background = objects.find((obj: any) =>
+        obj.type === 'rect' && obj.excludeFromExport === true
+      );
+      if (background) {
+        background.set('fill', 'transparent');
+      }
+
       canvas.renderAll();
     }
   };
 
-  const ensureCanvasBackground = () => {
-    // Check if white background exists
-    const objects = canvas.getObjects();
-    const hasBackground = objects.some((obj: any) =>
-      obj.type === 'rect' && obj.fill === 'white' && obj.left === CONTROL_PADDING && obj.top === VERTICAL_PADDING
-    );
-
-    if (!hasBackground) {
-      // Recreate white background
-      const canvasBackground = new fabric.Rect({
-        left: CONTROL_PADDING,
-        top: CONTROL_PADDING,
-        width: DISPLAY_WIDTH,
-        height: DISPLAY_HEIGHT,
-        fill: 'white',
-        selectable: false,
-        evented: false,
-        excludeFromExport: true
-      });
-      canvas.add(canvasBackground);
-      canvas.sendToBack(canvasBackground);
-    }
-  };
-  
   const handleCreateAIImage = async () => {
     if (!canvas || !createPrompt.trim()) return;
     
@@ -2329,9 +2361,6 @@ export default function Editor() {
       canvas.remove(uploadedImage);
       setUploadedImage(null);
     }
-    
-    // Ensure canvas background is still there
-    ensureCanvasBackground();
     
     // If we have a previous state, restore it
     if (previousStateStr && previousStateStr !== '') {
@@ -2672,9 +2701,8 @@ export default function Editor() {
           </Head>
           <div className="h-screen text-white flex flex-col items-center justify-center p-6">
             <div className="glass-panel p-8 text-center floating-element">
-              <div className="text-3xl mb-6 pulse-glow" style={{color: 'var(--neon-cyan)'}}>⚡</div>
+              <img src="/icons/sweetrobo-logo.gif" alt="SweetRobo" className="w-24 h-24 mx-auto mb-6" />
               <div className="text-2xl mb-4" style={{background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text'}}>Loading...</div>
-              <div className="text-sm" style={{color: 'var(--foreground-muted)'}}>Initializing neural interface</div>
             </div>
           </div>
         </>
@@ -2748,7 +2776,7 @@ export default function Editor() {
           }
         `}} />
       </Head>
-      <div className="editor-page fixed inset-0 bg-gray-50 no-select">
+      <div className="editor-page fixed inset-0 bg-white no-select">
         {/* Mobile container wrapper - matches upload panel structure */}
         <div className="h-full w-full flex flex-col items-center justify-center">
           <div className="w-full max-w-sm h-full bg-white flex flex-col relative">
@@ -2880,7 +2908,13 @@ export default function Editor() {
                 <div className="flex justify-between items-center gap-2 w-full">
               {/* Edit with AI Button */}
               <button
-                onClick={() => setShowAIModal(true)}
+                onClick={() => {
+                  // Save initial states before opening modal
+                  setInitialBWState(isBlackAndWhite);
+                  setInitialBgColor(canvasBackgroundColor);
+                  setInitialTextColor(textColor);
+                  setShowAIModal(true);
+                }}
                 className="h-11 px-3 bg-white font-medium rounded-lg flex items-center justify-center gap-1 text-sm shadow-lg"
                 style={{
                   background: 'white',
@@ -3057,6 +3091,39 @@ export default function Editor() {
               <h2 className="text-gray-900 text-base font-semibold">Edit with AI</h2>
               <button
                 onClick={() => {
+                  // If filters were touched but not applied, revert changes
+                  if (filtersTouched && uploadedImage && canvas) {
+                    // Revert black and white to initial state
+                    if (isBlackAndWhite !== initialBWState) {
+                      if (initialBWState) {
+                        // Add grayscale back
+                        const filters = uploadedImage.filters || [];
+                        filters.push(new (fabric as any).filters.Grayscale());
+                        uploadedImage.filters = filters;
+                      } else {
+                        // Remove grayscale
+                        uploadedImage.filters = (uploadedImage.filters || []).filter((f: any) => f.type !== 'Grayscale');
+                      }
+                      uploadedImage.applyFilters();
+                      setIsBlackAndWhite(initialBWState);
+                    }
+
+                    // Revert background color to initial state
+                    if (canvasBackgroundColor !== initialBgColor) {
+                      setCanvasBackgroundColor(initialBgColor);
+                    }
+
+                    canvas.renderAll();
+                  }
+                  // Revert text color to initial state if changed
+                  if (textColor !== initialTextColor) {
+                    setTextColor(initialTextColor);
+                  }
+                  // Reset custom text color icon
+                  setCustomTextColor(null);
+                  // Clear AI inputs
+                  setAiPrompt('');
+                  setTextInput('');
                   setShowAIModal(false);
                   setAiModalTab('custom');
                   setFiltersTouched(false);
@@ -3110,22 +3177,6 @@ export default function Editor() {
                   {/* Quick Action Buttons Grid */}
                   <div className="grid grid-cols-2 gap-3 mb-4">
                     <button
-                      onClick={() => setAiPrompt('Remove background')}
-                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                      disabled={isProcessing}
-                    >
-                      <span className="text-xl">🗑️</span>
-                      <span className="text-gray-700 font-medium">Remove Background</span>
-                    </button>
-                    <button
-                      onClick={() => setAiPrompt('Enhance quality and make clearer')}
-                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                      disabled={isProcessing}
-                    >
-                      <span className="text-xl">✨</span>
-                      <span className="text-gray-700 font-medium">Enhance Quality</span>
-                    </button>
-                    <button
                       onClick={() => setAiPrompt('Make it look like oil painting')}
                       className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
                       disabled={isProcessing}
@@ -3166,13 +3217,105 @@ export default function Editor() {
                       <span className="text-gray-700 font-medium">Watercolor</span>
                     </button>
                     <button
-                      onClick={() => setAiPrompt('Apply HDR effect with enhanced details')}
+                      onClick={() => setAiPrompt('Add dramatic cinematic lighting')}
                       className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
                       disabled={isProcessing}
                     >
-                      <span className="text-xl">🔆</span>
-                      <span className="text-gray-700 font-medium">HDR</span>
+                      <span className="text-xl">🎬</span>
+                      <span className="text-gray-700 font-medium">Cinematic</span>
                     </button>
+                  </div>
+
+                  {/* Quick Effects Section */}
+                  <div className="mt-6 mb-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-semibold text-gray-700">Quick Effects</p>
+                      {(isBlackAndWhite || canvasBackgroundColor !== 'transparent') && (
+                        <button
+                          onClick={() => {
+                            setIsBlackAndWhite(false);
+                            setCanvasBackgroundColor('transparent');
+
+                            // Remove grayscale filter from image
+                            if (uploadedImage && canvas) {
+                              uploadedImage.filters = (uploadedImage.filters || []).filter((f: any) =>
+                                f.type !== 'Grayscale'
+                              );
+                              uploadedImage.applyFilters();
+                              canvas.backgroundColor = 'transparent';
+                              canvas.renderAll();
+                            }
+
+                            // Close modal immediately
+                            setShowAIModal(false);
+                            setAiModalTab('custom');
+                            setFiltersTouched(false);
+                          }}
+                          className="text-xs text-red-600 font-medium hover:text-red-700"
+                        >
+                          Remove Effects
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => {
+                          if (!uploadedImage || !canvas) return;
+                          const newValue = !isBlackAndWhite;
+                          setIsBlackAndWhite(newValue);
+                          setFiltersTouched(true);
+
+                          // Apply or remove grayscale filter
+                          if (newValue) {
+                            const filters = uploadedImage.filters || [];
+                            filters.push(new (fabric as any).filters.Grayscale());
+                            uploadedImage.filters = filters;
+                          } else {
+                            // Remove grayscale filter
+                            uploadedImage.filters = (uploadedImage.filters || []).filter((f: any) =>
+                              f.type !== 'Grayscale'
+                            );
+                          }
+                          uploadedImage.applyFilters();
+                          canvas.renderAll();
+                        }}
+                        className={`flex items-center gap-2 px-3 py-2 border rounded-lg transition text-sm ${
+                          isBlackAndWhite
+                            ? 'bg-purple-500 border-purple-500 text-white'
+                            : 'bg-white border-gray-300 hover:border-purple-500 hover:bg-purple-50 text-gray-700'
+                        }`}
+                        disabled={isProcessing}
+                      >
+                        <span className="text-xl">⚫⚪</span>
+                        <span className="font-medium">{isBlackAndWhite ? 'B&W Active' : 'Black & White'}</span>
+                      </button>
+                      <div className="relative">
+                        <input
+                          type="color"
+                          value={canvasBackgroundColor === 'transparent' ? '#FFFFFF' : canvasBackgroundColor}
+                          onChange={(e) => {
+                            setCanvasBackgroundColor(e.target.value);
+                            setFiltersTouched(false);
+                            // Clear AI inputs and close modal immediately
+                            setAiPrompt('');
+                            setTextInput('');
+                            setShowAIModal(false);
+                            setAiModalTab('custom');
+                          }}
+                          disabled={isProcessing}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          style={{ zIndex: 10 }}
+                        />
+                        <div className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm pointer-events-none">
+                          <span className="text-xl">🎨</span>
+                          <span className="text-gray-700 font-medium">Background Color</span>
+                          <div
+                            className="w-5 h-5 rounded border border-gray-300 ml-1"
+                            style={{ backgroundColor: canvasBackgroundColor }}
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <p className="text-xs text-gray-500 mb-2">Or describe your own edit:</p>
@@ -3357,6 +3500,26 @@ export default function Editor() {
                         style={{ backgroundColor: color, border: color === '#FFFFFF' ? '1px solid #d1d5db' : 'none' }}
                       />
                     ))}
+                    {/* Custom Color Picker */}
+                    <div className="relative w-8 h-8">
+                      <input
+                        type="color"
+                        value={customTextColor || textColor}
+                        onChange={(e) => {
+                          const newColor = e.target.value;
+                          setTextColor(newColor);
+                          setCustomTextColor(newColor);
+                        }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        style={{ zIndex: 10 }}
+                      />
+                      <div
+                        className="w-8 h-8 rounded-full border-2 border-gray-300 flex items-center justify-center pointer-events-none"
+                        style={{ backgroundColor: customTextColor || '#FFFFFF' }}
+                      >
+                        <span className="text-lg leading-none">🎨</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -3854,6 +4017,11 @@ export default function Editor() {
                     <div className="mt-4 flex flex-col gap-2">
                       <button
                         onClick={() => {
+                          // Clear AI inputs
+                          setAiPrompt('');
+                          setTextInput('');
+                          // Reset custom text color icon
+                          setCustomTextColor(null);
                           setShowAIModal(false);
                           setAiModalTab('custom');
                           setFiltersTouched(false);
@@ -3866,7 +4034,7 @@ export default function Editor() {
                   )}
 
                   {/* Reset button - Show when any filter is not at default */}
-                  {(brightness !== 0 || contrast !== 0 || saturation !== 0 || blur !== 0 || sharpness !== 0 || warmth !== 0) && (
+                  {(brightness !== 0 || contrast !== 0 || saturation !== 0 || blur !== 0 || sharpness !== 0 || warmth !== 0 || isBlackAndWhite || canvasBackgroundColor !== '#FFFFFF') && (
                     <div className={filtersTouched ? "flex flex-col gap-2" : "mt-4 flex flex-col gap-2"}>
                       <button
                         onClick={() => {
@@ -3916,13 +4084,25 @@ export default function Editor() {
                       setTextInput('');
                       setTextTemplate(null);
                       setFiltersTouched(false);
+                      // Reset custom text color icon
+                      setCustomTextColor(null);
+                    } else if (aiModalTab === 'custom' && filtersTouched) {
+                      // Quick Effects were used or removed - just close the modal
+                      // Clear AI inputs
+                      setAiPrompt('');
+                      setTextInput('');
+                      // Reset custom text color icon
+                      setCustomTextColor(null);
+                      setShowAIModal(false);
+                      setAiModalTab('custom');
+                      setFiltersTouched(false);
                     } else {
                       // Handle AI edit
                       handleAIEdit();
                     }
                   }}
                   className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2"
-                  disabled={isProcessing || (aiModalTab === 'custom' && !aiPrompt.trim()) || (aiModalTab === 'text' && !textInput.trim())}
+                  disabled={isProcessing || (aiModalTab === 'custom' && !aiPrompt.trim() && !isBlackAndWhite && canvasBackgroundColor === '#FFFFFF') || (aiModalTab === 'text' && !textInput.trim())}
                 >
                   {isProcessing ? (
                     <>
@@ -3938,9 +4118,16 @@ export default function Editor() {
                 </button>
                 <button
                   onClick={() => {
+                    // Revert text color to initial state if changed
+                    if (textColor !== initialTextColor) {
+                      setTextColor(initialTextColor);
+                    }
+                    // Reset custom text color icon
+                    setCustomTextColor(null);
                     setShowAIModal(false);
                     setAiModalTab('custom');
                     setAiPrompt('');
+                    setTextInput('');
                     setAiError(null);
                     setFiltersTouched(false);
                   }}

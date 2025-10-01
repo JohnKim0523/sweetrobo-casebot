@@ -30,29 +30,34 @@ export default function SelectModel() {
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </Head>
 
-      <div className="min-h-screen bg-gradient-to-b from-purple-500 to-pink-500 safe-top safe-bottom">
+      <div className="min-h-screen bg-white safe-top safe-bottom">
         {/* Mobile-only header */}
-        <div className="sticky top-0 bg-black/20 backdrop-blur-md z-10 px-4 py-3 safe-top">
-          <h1 className="text-2xl font-bold text-white text-center">
-            Select Your Phone
-          </h1>
-          <p className="text-sm text-white/80 text-center mt-1">
-            Choose your model to start designing
-          </p>
+        <div className="sticky top-0 bg-white border-b border-gray-200 z-10 px-4 py-3 safe-top">
+          <div className="flex items-center gap-3 mb-2">
+            <img src="/icons/sweetrobo-logo.gif" alt="SweetRobo" className="w-16 h-16 object-contain" />
+            <div className="flex-1">
+              <h1 className="text-2xl font-bold text-gray-900">
+                Select Your Phone
+              </h1>
+              <p className="text-sm text-gray-600 mt-1">
+                Choose your model to start designing
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Brand Tabs */}
         <div className="px-4 pt-4">
-          <div className="flex space-x-2 bg-white/10 p-1 rounded-xl backdrop-blur-sm">
+          <div className="flex space-x-2 bg-gray-100 p-1 rounded-xl">
             {brands.map((brand) => (
               <button
                 key={brand}
                 onClick={() => setSelectedBrand(brand)}
                 className={`
                   flex-1 py-3 px-4 rounded-lg font-medium transition-all
-                  ${selectedBrand === brand 
-                    ? 'bg-white text-purple-600 shadow-lg' 
-                    : 'text-white/80 active:scale-95'
+                  ${selectedBrand === brand
+                    ? 'bg-white text-purple-600 shadow-lg'
+                    : 'text-gray-600 active:scale-95'
                   }
                 `}
               >
@@ -66,7 +71,7 @@ export default function SelectModel() {
         <div className="px-4 py-4 space-y-3">
           {currentModels.length === 0 ? (
             <div className="text-center py-8">
-              <p className="text-white/80">No models available for {selectedBrand}</p>
+              <p className="text-gray-600">No models available for {selectedBrand}</p>
             </div>
           ) : (
             currentModels.map((model) => (
@@ -75,11 +80,11 @@ export default function SelectModel() {
                 onClick={() => handleModelSelect(model)}
                 disabled={!model.available}
                 className={`
-                  w-full bg-white rounded-2xl p-4 
+                  w-full bg-white rounded-2xl p-4 border border-gray-200
                   flex items-center space-x-4
                   transition-all duration-200 transform
-                  ${model.available 
-                    ? 'active:scale-95 shadow-lg' 
+                  ${model.available
+                    ? 'active:scale-95 shadow-lg'
                     : 'opacity-50'
                   }
                 `}
@@ -155,8 +160,8 @@ export default function SelectModel() {
 
         {/* Model Count Info */}
         <div className="px-4 pb-4">
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
-            <div className="flex justify-between items-center text-white/80 text-sm">
+          <div className="bg-gray-100 rounded-xl p-4">
+            <div className="flex justify-between items-center text-gray-600 text-sm">
               <span>{currentModels.filter(m => m.available).length} models available</span>
               <span>{currentModels.filter(m => !m.available).length} coming soon</span>
             </div>

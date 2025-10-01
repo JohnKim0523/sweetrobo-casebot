@@ -92,7 +92,7 @@ export default function Success() {
           .editor-preview {
             position: absolute;
             inset: 0;
-            background: #f5f5f5;
+            background: #ffffff;
             opacity: 0.3;
             filter: blur(2px);
           }
