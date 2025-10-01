@@ -48,34 +48,30 @@ export class AiController {
       let result;
       
       if (body.mask) {
-        // Inpainting with mask
-        console.log('🎭 Using inpainting with mask');
-        result = await fal.subscribe('fal-ai/stable-diffusion-v3-medium-inpainting', {
+        // Inpainting with mask using Flux Fill Pro
+        console.log('🎭 Using Flux Fill Pro for inpainting with mask');
+        result = await fal.subscribe('fal-ai/flux-pro/v1.1/fill', {
           input: {
             image_url: body.image,
             mask_url: body.mask,
             prompt: body.prompt,
-            negative_prompt: "ugly, deformed, noisy, blurry, distorted, grainy, low quality, nsfw, nude, explicit",
-            image_size: "square",
-            num_inference_steps: 28,
-            guidance_scale: 7.5,
-            strength: 0.95,
+            guidance_scale: 30,
+            num_inference_steps: 50,
             seed: Math.floor(Math.random() * 1000000),
+            safety_tolerance: 2,
           },
         });
       } else {
-        // Image-to-image without mask
-        console.log('🖼️ Using image-to-image transformation');
-        result = await fal.subscribe('fal-ai/stable-diffusion-v3-medium', {
+        // Image-to-image without mask using Flux Redux Pro
+        console.log('🖼️ Using Flux Redux Pro for image-to-image transformation');
+        result = await fal.subscribe('fal-ai/flux-pro/v1.1/redux', {
           input: {
             prompt: body.prompt,
             image_url: body.image,
-            negative_prompt: "ugly, deformed, noisy, blurry, distorted, grainy, low quality, nsfw, nude, explicit",
-            image_size: "square",
-            num_inference_steps: 28,
-            guidance_scale: 7.5,
-            strength: 0.7,
+            guidance_scale: 3.5,
+            num_inference_steps: 50,
             seed: Math.floor(Math.random() * 1000000),
+            safety_tolerance: 2,
           },
         });
       }

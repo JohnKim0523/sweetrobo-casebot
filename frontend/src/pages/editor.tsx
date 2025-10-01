@@ -121,6 +121,7 @@ export default function Editor() {
   
   // AI Editing states
   const [showAIModal, setShowAIModal] = useState(false);
+  const [aiModalTab, setAiModalTab] = useState<'custom' | 'text' | 'adjustments' | 'quick'>('custom'); // AI modal tabs
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showMaskModal, setShowMaskModal] = useState(false);  // New modal for mask editing
   const [aiPrompt, setAiPrompt] = useState('');
@@ -1192,7 +1193,7 @@ export default function Editor() {
         const Cropper = (await import('cropperjs')).default;
         cropperRef.current = new Cropper(cropperElementRef.current, {
           aspectRatio: NaN, // Free aspect ratio
-          viewMode: 0, // No restrictions - allow crop box to go beyond canvas
+          viewMode: 2, // Restrict canvas to container and crop box to canvas
           dragMode: 'move',
           autoCropArea: 0.9,
           restore: false,
@@ -1204,6 +1205,8 @@ export default function Editor() {
           toggleDragModeOnDblclick: false,
           responsive: true,
           checkOrientation: false,
+          minContainerWidth: 100,
+          minContainerHeight: 100,
         });
       }
     };
@@ -2771,8 +2774,8 @@ export default function Editor() {
                       const reservedHeight = 284;
                       const maxModalHeight = viewportHeight * 0.9; // Modal is max-h-[90vh]
 
-                      const maxWidth = Math.min(340, viewportWidth - 64); // Max width with horizontal padding
-                      const maxHeight = Math.min(maxModalHeight - reservedHeight, 500); // Available height for image, capped at reasonable max
+                      const maxWidth = Math.min(300, viewportWidth - 96); // Reduced max width with more horizontal padding
+                      const maxHeight = Math.min(maxModalHeight - reservedHeight, 450); // Available height for image, capped at reasonable max
 
                       const imgWidth = img.width;
                       const imgHeight = img.height;
@@ -2844,141 +2847,200 @@ export default function Editor() {
       </div>
       
       {/* AI Edit Modal */}
-      <Modal
-        isOpen={showAIModal}
-        onRequestClose={() => !isProcessing && setShowAIModal(false)}
-        className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 glass-panel p-4 w-[90%] max-w-sm max-h-[85vh] overflow-y-auto"
-        overlayClassName="fixed inset-0 bg-black bg-opacity-75 z-50"
-        shouldCloseOnOverlayClick={true}
-      >
-        <div className="text-white relative">
-          {/* Close button */}
-          <button
-            onClick={() => setShowAIModal(false)}
-            className="absolute -top-2 -right-2 w-8 h-8 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-white font-bold"
-            disabled={isProcessing}
-          >
-            ×
-          </button>
-          <h2 className="text-2xl font-bold mb-4">🤖 AI Image Editor</h2>
-          
-          {/* Quick Action Templates */}
-          <div className="mb-4">
-            <p className="text-sm text-gray-400 mb-2">Quick Actions:</p>
-            <div className="flex flex-wrap gap-2">
+      {showAIModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-white flex flex-col rounded-2xl shadow-2xl max-h-[90vh]">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-200 relative">
+              <h2 className="text-gray-900 text-base font-semibold">Edit with AI</h2>
               <button
-                onClick={() => setAiPrompt('Remove background')}
-                className="px-3 py-1 glass-panel hover:bg-gray-600 rounded text-sm transition-all"
-                style={{border: '1px solid var(--neon-purple)', color: 'var(--neon-purple)'}}
+                onClick={() => setShowAIModal(false)}
+                className="absolute top-4 right-4 w-6 h-6 flex items-center justify-center text-gray-400 hover:text-gray-600"
                 disabled={isProcessing}
               >
-                Remove Background
-              </button>
-              <button
-                onClick={() => setAiPrompt('Enhance quality and make clearer')}
-                className="px-3 py-1 glass-panel hover:bg-gray-600 rounded text-sm transition-all"
-                style={{border: '1px solid var(--neon-purple)', color: 'var(--neon-purple)'}}
-                disabled={isProcessing}
-              >
-                Enhance Quality
-              </button>
-              <button
-                onClick={() => setAiPrompt('Make it look like oil painting')}
-                className="px-3 py-1 glass-panel hover:bg-gray-600 rounded text-sm transition-all"
-                style={{border: '1px solid var(--neon-purple)', color: 'var(--neon-purple)'}}
-                disabled={isProcessing}
-              >
-                Oil Painting
-              </button>
-              <button
-                onClick={() => setAiPrompt('Convert to cartoon style')}
-                className="px-3 py-1 glass-panel hover:bg-gray-600 rounded text-sm transition-all"
-                style={{border: '1px solid var(--neon-purple)', color: 'var(--neon-purple)'}}
-                disabled={isProcessing}
-              >
-                Cartoon Style
-              </button>
-              <button
-                onClick={() => setAiPrompt('Make it vintage')}
-                className="px-3 py-1 glass-panel hover:bg-gray-600 rounded text-sm transition-all"
-                style={{border: '1px solid var(--neon-purple)', color: 'var(--neon-purple)'}}
-                disabled={isProcessing}
-              >
-                Vintage
-              </button>
-              <button
-                onClick={() => setAiPrompt('Add sunset lighting')}
-                className="px-3 py-1 glass-panel hover:bg-gray-600 rounded text-sm transition-all"
-                style={{border: '1px solid var(--neon-purple)', color: 'var(--neon-purple)'}}
-                disabled={isProcessing}
-              >
-                Sunset
+                <span className="text-2xl leading-none">&times;</span>
               </button>
             </div>
-          </div>
-          
-          {/* Main Prompt Input */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium mb-2">
-              Describe what you want to change:
-            </label>
-            <textarea
-              value={aiPrompt}
-              onChange={(e) => setAiPrompt(e.target.value)}
-              placeholder="e.g., Remove the person in the background, Make the sky purple, Add snow..."
-              className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none text-white"
-              rows={3}
-              disabled={isProcessing}
-            />
-          </div>
-          
-          {/* Error Display */}
-          {aiError && (
-            <div className="mb-4 p-3 bg-red-900 bg-opacity-50 border border-red-600 rounded">
-              <p className="text-red-300 text-sm">{aiError}</p>
+
+            {/* Tab Icons */}
+            <div className="flex items-center justify-around p-4 border-b border-gray-200">
+              <button
+                onClick={() => setAiModalTab('custom')}
+                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${aiModalTab === 'custom' ? 'bg-purple-100' : ''}`}
+              >
+                <span className="text-2xl">✨</span>
+                <span className="text-xs text-gray-700">Effects</span>
+              </button>
+              <button
+                onClick={() => setAiModalTab('text')}
+                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${aiModalTab === 'text' ? 'bg-purple-100' : ''}`}
+              >
+                <span className="text-2xl">T</span>
+                <span className="text-xs text-gray-700">Text</span>
+              </button>
+              <button
+                onClick={() => setAiModalTab('adjustments')}
+                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${aiModalTab === 'adjustments' ? 'bg-purple-100' : ''}`}
+              >
+                <span className="text-2xl">🎨</span>
+                <span className="text-xs text-gray-700">Stickers</span>
+              </button>
+              <button
+                onClick={() => setAiModalTab('quick')}
+                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${aiModalTab === 'quick' ? 'bg-purple-100' : ''}`}
+              >
+                <span className="text-2xl">☰</span>
+                <span className="text-xs text-gray-700">Filters</span>
+              </button>
             </div>
-          )}
-          
-          {/* Action Buttons */}
-          <div className="flex justify-end gap-3">
-            <button
-              onClick={() => {
-                setShowAIModal(false);
-                setAiPrompt('');
-                setAiError(null);
-              }}
-              className="px-6 py-2 bg-gray-600 hover:bg-gray-700 rounded font-medium transition"
-              disabled={isProcessing}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleAIEdit}
-              className="px-6 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 rounded font-medium transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              disabled={isProcessing || !aiPrompt.trim()}
-            >
-              {isProcessing ? (
-                <>
-                  <span className="animate-spin">⚙️</span>
-                  Processing...
-                </>
-              ) : (
-                <>
-                  ✨ Apply AI Edit
-                </>
+
+            {/* Content Area */}
+            <div className="flex-1 p-4 overflow-y-auto">
+              {/* Custom AI Edit Tab */}
+              {aiModalTab === 'custom' && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Custom AI Edit</h3>
+
+                  {/* Quick Action Buttons Grid */}
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <button
+                      onClick={() => setAiPrompt('Remove background')}
+                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                      disabled={isProcessing}
+                    >
+                      <span className="text-xl">🗑️</span>
+                      <span className="text-gray-700 font-medium">Remove Background</span>
+                    </button>
+                    <button
+                      onClick={() => setAiPrompt('Enhance quality and make clearer')}
+                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                      disabled={isProcessing}
+                    >
+                      <span className="text-xl">✨</span>
+                      <span className="text-gray-700 font-medium">Enhance Quality</span>
+                    </button>
+                    <button
+                      onClick={() => setAiPrompt('Make it look like oil painting')}
+                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                      disabled={isProcessing}
+                    >
+                      <span className="text-xl">🎨</span>
+                      <span className="text-gray-700 font-medium">Oil Painting</span>
+                    </button>
+                    <button
+                      onClick={() => setAiPrompt('Convert to cartoon style')}
+                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                      disabled={isProcessing}
+                    >
+                      <span className="text-xl">🎭</span>
+                      <span className="text-gray-700 font-medium">Cartoon Style</span>
+                    </button>
+                    <button
+                      onClick={() => setAiPrompt('Make it vintage')}
+                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                      disabled={isProcessing}
+                    >
+                      <span className="text-xl">📷</span>
+                      <span className="text-gray-700 font-medium">Vintage</span>
+                    </button>
+                    <button
+                      onClick={() => setAiPrompt('Add sunset lighting')}
+                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                      disabled={isProcessing}
+                    >
+                      <span className="text-xl">🌅</span>
+                      <span className="text-gray-700 font-medium">Sunset</span>
+                    </button>
+                    <button
+                      onClick={() => setAiPrompt('Apply watercolor effect')}
+                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                      disabled={isProcessing}
+                    >
+                      <span className="text-xl">💧</span>
+                      <span className="text-gray-700 font-medium">Watercolor</span>
+                    </button>
+                    <button
+                      onClick={() => setAiPrompt('Apply HDR effect with enhanced details')}
+                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                      disabled={isProcessing}
+                    >
+                      <span className="text-xl">🔆</span>
+                      <span className="text-gray-700 font-medium">HDR</span>
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-gray-500 mb-2">Or describe your own edit:</p>
+                  <textarea
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    placeholder="Enter your edit..."
+                    className="w-full px-3 py-2 bg-gray-50 rounded-lg border border-gray-300 focus:border-purple-500 focus:outline-none text-gray-900 text-sm"
+                    rows={3}
+                    disabled={isProcessing}
+                  />
+                </div>
               )}
-            </button>
-          </div>
-          
-          {/* Processing Status */}
-          {isProcessing && (
-            <div className="mt-4 text-center">
-              <p className="text-sm text-gray-400">AI is working on your image...</p>
-              <p className="text-xs text-gray-500 mt-1">This may take 10-30 seconds</p>
+
+              {/* Text Tab */}
+              {aiModalTab === 'text' && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Add Text</h3>
+                  <p className="text-xs text-gray-500 mb-3">Text tools coming soon...</p>
+                </div>
+              )}
+
+              {/* Adjustments Tab */}
+              {aiModalTab === 'adjustments' && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Manual Adjustments</h3>
+                  <p className="text-xs text-gray-500 mb-3">Adjustment sliders coming soon...</p>
+                </div>
+              )}
+
+              {/* Quick Add Tab */}
+              {aiModalTab === 'quick' && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Quick Add</h3>
+                  <p className="text-xs text-gray-500 mb-3">Quick add options coming soon...</p>
+                </div>
+              )}
             </div>
-          )}
+
+            {/* Buttons */}
+            <div className="p-4 flex flex-col gap-2">
+              <button
+                onClick={handleAIEdit}
+                className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2"
+                disabled={isProcessing || !aiPrompt.trim()}
+              >
+                {isProcessing ? (
+                  <>
+                    <span className="animate-spin">⚙️</span>
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>&#10003;</span>
+                    <span>Apply</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setShowAIModal(false);
+                  setAiPrompt('');
+                  setAiError(null);
+                }}
+                className="w-full py-3 bg-white text-gray-700 rounded-xl font-semibold border border-gray-300 flex items-center justify-center gap-2"
+                disabled={isProcessing}
+              >
+                <span>&times;</span>
+                <span>Cancel</span>
+              </button>
+            </div>
+          </div>
         </div>
-      </Modal>
+      )}
       
       {/* Create AI Image Modal */}
       <Modal
@@ -3155,11 +3217,11 @@ export default function Editor() {
             </div>
             {/* Image area with dark rounded background */}
             <div className="flex-1 p-4 flex items-center justify-center overflow-hidden">
-              <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center" style={{ maxWidth: '100%', maxHeight: `${cropperDimensions.height + 32}px` }}>
+              <div className="bg-gray-900 rounded-2xl p-4 inline-block" style={{ maxWidth: 'fit-content' }}>
                 <img
                   ref={cropperElementRef}
                   src={cropperImageRef.current?.src}
-                  style={{ maxWidth: `${cropperDimensions.width}px`, maxHeight: `${cropperDimensions.height}px`, width: 'auto', height: 'auto', display: 'block', margin: '0 auto' }}
+                  style={{ maxWidth: `${cropperDimensions.width}px`, maxHeight: `${cropperDimensions.height}px`, width: 'auto', height: 'auto', display: 'block' }}
                 />
               </div>
             </div>
