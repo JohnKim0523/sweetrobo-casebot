@@ -61,6 +61,21 @@ export const PHONE_MODELS: PhoneModel[] = [
     image: '/images/phones/iphone-16-pro-max.png',
     available: false,
   },
+  // Test Model - Small Square
+  {
+    id: 'test',
+    brand: 'Test',
+    model: 'Small Square',
+    displayName: 'Test - Small Square',
+    dimensions: {
+      widthMM: 50,    // Small square 50mm x 50mm
+      heightMM: 50,
+      widthPX: Math.round(50 * MM_TO_PX),   // ~590px
+      heightPX: Math.round(50 * MM_TO_PX),  // ~590px
+    },
+    image: '/images/phones/test.png',
+    available: true,
+  },
   // Samsung Models
   {
     id: 'samsung-s24-ultra',
