@@ -287,3 +287,33 @@ div[style*="z-index: 9999"] {
   left: -9999px !important;
   top: -9999px !important;
 }
+
+/* Remove Cropper.js grid background pattern */
+.cropper-bg {
+  background-image: none !important;
+  background-color: transparent !important;
+}
+
+/* Remove Cropper.js black container backgrounds */
+.cropper-container,
+.cropper-canvas,
+.cropper-drag-box,
+.cropper-crop-box,
+.cropper-modal {
+  background-color: transparent !important;
+}
+
+/* Fix Cropper.js resize handles to be uniform size */
+.cropper-point {
+  width: 8px !important;
+  height: 8px !important;
+  opacity: 1 !important;
+  background-color: #39f !important;
+  border-radius: 50% !important;
+}
+
+/* Ensure bottom-right handle is same size as others */
+.cropper-point.point-se {
+  width: 8px !important;
+  height: 8px !important;
+}

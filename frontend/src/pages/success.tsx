@@ -29,7 +29,7 @@ export default function Success() {
         <div className="editor-preview">
           <header className="preview-header">
             <div className="header-left">
-              <img src="/sweetrobo-logo.gif" alt="SweetRobo" className="header-logo" />
+              <img src="/icons/sweetrobo-logo.gif" alt="SweetRobo" className="header-logo" />
               <span className="header-title">Case Bot App</span>
             </div>
           </header>

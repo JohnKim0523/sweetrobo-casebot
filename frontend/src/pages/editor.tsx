@@ -143,6 +143,7 @@ export default function Editor() {
   const hasSnappedRef = useRef<{x: boolean, y: boolean, rotation: boolean, borderLeft: boolean, borderRight: boolean, borderTop: boolean, borderBottom: boolean}>({x: false, y: false, rotation: false, borderLeft: false, borderRight: false, borderTop: false, borderBottom: false});
   const dragStartBounds = useRef<{left: number, top: number, right: number, bottom: number, width: number, height: number} | null>(null);
   const [showCropper, setShowCropper] = useState(false);
+  const [cropperDimensions, setCropperDimensions] = useState({ width: 280, height: 400 });
   const cropperRef = useRef<any>(null);
   const cropperImageRef = useRef<HTMLImageElement | null>(null);
   const cropperElementRef = useRef<HTMLImageElement | null>(null);
@@ -1191,9 +1192,9 @@ export default function Editor() {
         const Cropper = (await import('cropperjs')).default;
         cropperRef.current = new Cropper(cropperElementRef.current, {
           aspectRatio: NaN, // Free aspect ratio
-          viewMode: 1,
+          viewMode: 0, // No restrictions - allow crop box to go beyond canvas
           dragMode: 'move',
-          autoCropArea: 1,
+          autoCropArea: 0.9,
           restore: false,
           guides: true,
           center: true,
@@ -1201,6 +1202,8 @@ export default function Editor() {
           cropBoxMovable: true,
           cropBoxResizable: true,
           toggleDragModeOnDblclick: false,
+          responsive: true,
+          checkOrientation: false,
         });
       }
     };
@@ -2573,7 +2576,7 @@ export default function Editor() {
             {uploadedImage && (
               <div className="flex-shrink-0 px-4 py-2">
                 <div className="flex items-center gap-3">
-                  <img src="/gif.gif" alt="SweetRobo" className="w-14 h-14 object-contain" />
+                  <img src="/icons/sweetrobo-logo.gif" alt="SweetRobo" className="w-16 h-16 object-contain" />
                   <h1 className="text-base font-bold text-gray-900">Case Bot App</h1>
                 </div>
               </div>
@@ -2585,7 +2588,7 @@ export default function Editor() {
                 <div className="h-full w-full flex flex-col px-4 py-3">
                   {/* Header - Fixed at top */}
                   <div className="flex items-center gap-3 mb-4">
-                    <img src="/gif.gif" alt="SweetRobo" className="w-14 h-14 object-contain" />
+                    <img src="/icons/sweetrobo-logo.gif" alt="SweetRobo" className="w-16 h-16 object-contain" />
                     <div className="flex-1">
                       <h1 className="text-base font-bold text-gray-900">Case Bot App</h1>
                       <p className="text-xs text-gray-500">Create amazing images with artificial intelligence</p>
@@ -2759,6 +2762,30 @@ export default function Editor() {
                     const img = new Image();
                     img.onload = () => {
                       cropperImageRef.current = img;
+
+                      // Calculate dynamic dimensions based on image size and viewport
+                      const viewportHeight = window.innerHeight;
+                      const viewportWidth = window.innerWidth;
+
+                      // Reserve space for modal elements: header (~72px) + buttons (~116px) + dark bg padding (32px) + modal padding (32px) + screen margins (32px)
+                      const reservedHeight = 284;
+                      const maxModalHeight = viewportHeight * 0.9; // Modal is max-h-[90vh]
+
+                      const maxWidth = Math.min(340, viewportWidth - 64); // Max width with horizontal padding
+                      const maxHeight = Math.min(maxModalHeight - reservedHeight, 500); // Available height for image, capped at reasonable max
+
+                      const imgWidth = img.width;
+                      const imgHeight = img.height;
+
+                      // Calculate scale to fit within bounds while maintaining aspect ratio
+                      const scaleX = maxWidth / imgWidth;
+                      const scaleY = maxHeight / imgHeight;
+                      const scale = Math.min(scaleX, scaleY, 1); // Don't upscale small images
+
+                      const displayWidth = Math.round(imgWidth * scale);
+                      const displayHeight = Math.round(imgHeight * scale);
+
+                      setCropperDimensions({ width: displayWidth, height: displayHeight });
                       setShowCropper(true);
                     };
                     img.src = imageDataUrl;
@@ -2766,7 +2793,7 @@ export default function Editor() {
                 }}
                 className="w-11 h-11 bg-white rounded-lg flex items-center justify-center shadow-lg"
               >
-                <img src="/crop.png" alt="Crop" className="w-5 h-5" />
+                <img src="/icons/crop.png" alt="Crop" className="w-5 h-5" />
               </button>
               </div>
 
@@ -2783,7 +2810,7 @@ export default function Editor() {
                 }}
                 className="w-11 h-11 bg-white rounded-lg flex items-center justify-center shadow-lg"
               >
-                <img src="/delete.png" alt="Delete" className="w-5 h-5" />
+                <img src="/icons/delete.png" alt="Delete" className="w-5 h-5" />
               </button>
                 </div>
               </div>
@@ -3097,7 +3124,7 @@ export default function Editor() {
 
       {/* Cropper Modal */}
       {showCropper && (
-        <div className="fixed inset-0 bg-black bg-opacity-90 z-50" onClick={(e) => {
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={(e) => {
           if (e.target === e.currentTarget) {
             setShowCropper(false);
             if (cropperRef.current) {
@@ -3107,9 +3134,10 @@ export default function Editor() {
             cropperImageRef.current = null;
           }
         }}>
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[90%] max-w-sm bg-gray-800 flex flex-col rounded-lg max-h-[85vh]">
-            <div className="p-3 border-b border-gray-600 relative">
-              <h2 className="text-white text-lg font-semibold">Crop Image</h2>
+          <div className="w-full max-w-sm bg-white flex flex-col rounded-2xl shadow-2xl max-h-[90vh]">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-200 relative">
+              <h2 className="text-gray-900 text-base font-semibold">Crop Image</h2>
               {/* Close button */}
               <button
                 onClick={() => {
@@ -3120,24 +3148,25 @@ export default function Editor() {
                   }
                   cropperImageRef.current = null;
                 }}
-                className="absolute top-2 right-2 w-8 h-8 bg-red-600 hover:bg-red-700 rounded-full flex items-center justify-center text-white font-bold"
+                className="absolute top-4 right-4 w-6 h-6 flex items-center justify-center text-gray-400 hover:text-gray-600"
               >
-                ×
+                <span className="text-2xl leading-none">&times;</span>
               </button>
             </div>
-            <div className="flex-1 p-3 flex items-center justify-center overflow-hidden">
-              <div className="w-full max-w-[280px] max-h-[400px] flex items-center justify-center">
-                <img 
+            {/* Image area with dark rounded background */}
+            <div className="flex-1 p-4 flex items-center justify-center overflow-hidden">
+              <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-center" style={{ maxWidth: '100%', maxHeight: `${cropperDimensions.height + 32}px` }}>
+                <img
                   ref={cropperElementRef}
                   src={cropperImageRef.current?.src}
-                  style={{ maxWidth: '280px', maxHeight: '400px', objectFit: 'contain', display: 'block' }}
+                  style={{ maxWidth: `${cropperDimensions.width}px`, maxHeight: `${cropperDimensions.height}px`, width: 'auto', height: 'auto', display: 'block', margin: '0 auto' }}
                 />
               </div>
             </div>
-            <div className="p-3 border-t border-gray-600">
-              <div className="flex gap-2 w-full">
-                <button
-                  onClick={() => {
+            {/* Buttons */}
+            <div className="p-4 flex flex-col gap-2">
+              <button
+                onClick={() => {
                     if (cropperRef.current) {
                       console.log('Cropper instance exists:', cropperRef.current);
                       // Get the cropped canvas using v1 API with high quality options
@@ -3234,9 +3263,10 @@ export default function Editor() {
                       imgElement.src = croppedDataUrl;
                     }
                   }}
-                  className="flex-1 px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 font-medium text-sm"
+                  className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2"
                 >
-                  Apply Crop
+                  <span>&#10003;</span>
+                  <span>Crop</span>
                 </button>
                 <button
                   onClick={() => {
@@ -3247,14 +3277,14 @@ export default function Editor() {
                     cropperImageRef.current = null;
                     setShowCropper(false);
                   }}
-                  className="flex-1 px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 font-medium text-sm"
+                  className="w-full py-3 bg-white text-gray-700 rounded-xl font-semibold border border-gray-300 flex items-center justify-center gap-2"
                 >
-                  Cancel
+                  <span>&times;</span>
+                  <span>Cancel</span>
                 </button>
               </div>
             </div>
           </div>
-        </div>
       )}
     </>
   );
