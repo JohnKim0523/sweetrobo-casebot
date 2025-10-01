@@ -385,7 +385,8 @@ export default function Editor() {
       // Configure custom control settings to match the reference design
       fabric.Object.prototype.transparentCorners = false;
       fabric.Object.prototype.cornerColor = '#2196F3';
-      fabric.Object.prototype.cornerSize = 15;
+      fabric.Object.prototype.cornerSize = 20; // Increased from 15 to 20 for easier selection
+      fabric.Object.prototype.touchCornerSize = 30; // Larger touch area for mobile (40px)
       fabric.Object.prototype.cornerStyle = 'rect';
       fabric.Object.prototype.borderColor = 'transparent';
       fabric.Object.prototype.borderScaleFactor = 0;
@@ -394,7 +395,7 @@ export default function Editor() {
       
       // Custom L-shaped corner renderer
       const renderLCorner = (ctx: CanvasRenderingContext2D, left: number, top: number, styleOverride: any, fabricObject: any, flipX = false, flipY = false) => {
-        const size = fabricObject.cornerSize || 15;
+        const size = fabricObject.cornerSize || 20;
         const armLength = size * 0.8;
         
         ctx.save();
@@ -436,7 +437,7 @@ export default function Editor() {
       
       // Custom rotation icon renderer with square and circular arrows
       const renderRotationIcon = (ctx: CanvasRenderingContext2D, left: number, top: number, styleOverride: any, fabricObject: any) => {
-        const size = (fabricObject.cornerSize || 15) + 4;
+        const size = (fabricObject.cornerSize || 20) + 4;
         
         ctx.save();
         ctx.fillStyle = '#2196F3';
@@ -482,7 +483,7 @@ export default function Editor() {
       
       // Generic arrow renderer that rotates with the object
       const renderArrow = (ctx: CanvasRenderingContext2D, left: number, top: number, styleOverride: any, fabricObject: any, direction: 'up' | 'down' | 'left' | 'right') => {
-        const size = 12;
+        const size = 16; // Increased from 12 to 16 for easier visibility
         ctx.save();
         ctx.strokeStyle = '#4CAF50';
         ctx.fillStyle = '#4CAF50';
@@ -1205,6 +1206,85 @@ export default function Editor() {
         fabricCanvas.dispose();
       };
   }, [fabric, isCheckingSession, isSessionLocked, showThankYou]); // Removed isCropMode to prevent re-initialization
+
+  // Add pinch-to-zoom gesture support for mobile
+  useEffect(() => {
+    if (!canvas || !canvasRef.current) return;
+
+    const canvasElement = canvasRef.current;
+    let initialDistance = 0;
+    let initialScale = { x: 1, y: 1 };
+    let activeObject: any = null;
+    let isPinching = false;
+
+    const getDistance = (touches: TouchList) => {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      console.log('Touch start, touches:', e.touches.length);
+      if (e.touches.length === 2) {
+        // Two-finger touch detected
+        const obj = canvas.getActiveObject();
+        console.log('Active object:', obj);
+        if (obj && obj.selectable !== false) {
+          e.preventDefault();
+          e.stopPropagation();
+          isPinching = true;
+          activeObject = obj;
+          initialDistance = getDistance(e.touches);
+          initialScale = {
+            x: activeObject.scaleX || 1,
+            y: activeObject.scaleY || 1
+          };
+          console.log('Pinch started, initial distance:', initialDistance, 'initial scale:', initialScale);
+        }
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && isPinching && activeObject && initialDistance > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        const currentDistance = getDistance(e.touches);
+        const scale = currentDistance / initialDistance;
+        console.log('Pinching, scale:', scale);
+
+        // Apply scaling to the active object
+        activeObject.set({
+          scaleX: initialScale.x * scale,
+          scaleY: initialScale.y * scale
+        });
+
+        canvas.requestRenderAll();
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      console.log('Touch end, remaining touches:', e.touches.length);
+      if (e.touches.length < 2) {
+        isPinching = false;
+        initialDistance = 0;
+        activeObject = null;
+      }
+    };
+
+    // Add listeners to the wrapper div, not just the canvas
+    const canvasWrapper = canvasElement.parentElement;
+    if (canvasWrapper) {
+      canvasWrapper.addEventListener('touchstart', handleTouchStart, { passive: false });
+      canvasWrapper.addEventListener('touchmove', handleTouchMove, { passive: false });
+      canvasWrapper.addEventListener('touchend', handleTouchEnd, { passive: false });
+
+      return () => {
+        canvasWrapper.removeEventListener('touchstart', handleTouchStart);
+        canvasWrapper.removeEventListener('touchmove', handleTouchMove);
+        canvasWrapper.removeEventListener('touchend', handleTouchEnd);
+      };
+    }
+  }, [canvas]);
 
   // Selection prevention is now handled by simple CSS (same as model selection page)
 
@@ -2687,12 +2767,22 @@ export default function Editor() {
               <div className="absolute inset-0 z-30 bg-white">
                 <div className="h-full w-full flex flex-col px-4 py-3">
                   {/* Header - Fixed at top */}
-                  <div className="flex items-center gap-3 mb-4">
+                  <div className="flex items-center gap-3 mb-4 relative">
                     <img src="/icons/sweetrobo-logo.gif" alt="SweetRobo" className="w-16 h-16 object-contain" />
                     <div className="flex-1">
                       <h1 className="text-base font-bold text-gray-900">Case Bot App</h1>
                       <p className="text-xs text-gray-500">Create amazing images with artificial intelligence</p>
                     </div>
+                    {/* Back button to model selection */}
+                    <button
+                      onClick={() => router.push('/')}
+                      className="absolute top-0 right-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all"
+                      title="Change phone model"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
 
                   {/* Upload Section - Expands to fill available space */}
