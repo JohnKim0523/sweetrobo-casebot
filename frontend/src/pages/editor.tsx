@@ -22,38 +22,91 @@ export default function Editor() {
   
   // Get phone model configuration
   const phoneModel = modelId ? getPhoneModel(modelId as string) : null;
-  
-  // Mobile-optimized canvas dimensions
-  // Calculate scale to fit phone screen (most phones are ~375-430px wide)
-  const MOBILE_SCREEN_WIDTH = 380; // Target mobile width
-  const MOBILE_SCREEN_HEIGHT = 700; // Usable height (minus controls)
-  
-  // Calculate scale to fit the phone case in mobile viewport
-  const scaleX = (MOBILE_SCREEN_WIDTH - 40) / (phoneModel?.dimensions.widthMM || DEFAULT_WIDTH_MM);
-  const scaleY = (MOBILE_SCREEN_HEIGHT - 150) / (phoneModel?.dimensions.heightMM || DEFAULT_HEIGHT_MM);
-  const SCALE_FACTOR = Math.min(scaleX, scaleY, 3); // Cap at 3x to prevent too large
-  
-  const DISPLAY_WIDTH = phoneModel 
-    ? Math.round(phoneModel.dimensions.widthMM * SCALE_FACTOR)
-    : DEFAULT_WIDTH_MM * DEFAULT_SCALE_FACTOR;
-  const DISPLAY_HEIGHT = phoneModel
-    ? Math.round(phoneModel.dimensions.heightMM * SCALE_FACTOR)
-    : DEFAULT_HEIGHT_MM * DEFAULT_SCALE_FACTOR;
-    
-  // Export dimensions (actual size for printing)
-  const EXPORT_WIDTH = phoneModel ? phoneModel.dimensions.widthPX : Math.round(DEFAULT_WIDTH_MM * 11.81);
-  const EXPORT_HEIGHT = phoneModel ? phoneModel.dimensions.heightPX : Math.round(DEFAULT_HEIGHT_MM * 11.81);
-  
-  // Mobile-only container dimensions
-  const CANVAS_TOTAL_WIDTH = MOBILE_SCREEN_WIDTH;
-  const CANVAS_TOTAL_HEIGHT = Math.min(DISPLAY_HEIGHT + 20, MOBILE_SCREEN_HEIGHT);  // Minimal padding
-  const CONTROL_PADDING = Math.round((CANVAS_TOTAL_WIDTH - DISPLAY_WIDTH) / 2);
-  const VERTICAL_PADDING = 2;  // Very minimal top padding
-  
+
+  // Initialize state variables first
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvas, setCanvas] = useState<any>(null);
   const [uploadedImage, setUploadedImage] = useState<any>(null);
   const [fabric, setFabric] = useState<any>(null);
+
+  // Dynamic viewport detection with state
+  const [viewportHeight, setViewportHeight] = useState(typeof window !== 'undefined' ? window.innerHeight : 800);
+  const [viewportWidth, setViewportWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 380);
+
+  // Update viewport dimensions on resize
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportHeight(window.innerHeight);
+      setViewportWidth(window.innerWidth);
+    };
+
+    window.addEventListener('resize', handleResize);
+    handleResize(); // Call immediately to get correct initial size
+
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // STEP 1: Fixed UI element heights (these never change)
+  const CONTAINER_MAX_WIDTH = 384; // max-w-sm constraint
+  const FIXED_HEADER_HEIGHT = 60; // Header at top (fixed)
+  const FIXED_SUBMIT_HEIGHT = 90; // Submit button at bottom (fixed)
+  const FIXED_EDIT_BUTTONS_HEIGHT = 60; // Edit buttons (fixed physical size)
+  const SAFETY_BUFFER = 20; // Extra buffer to ensure no overlap
+
+  // STEP 2: Calculate total space needed for ALL UI elements except canvas
+  const TOTAL_UI_HEIGHT = FIXED_HEADER_HEIGHT + FIXED_EDIT_BUTTONS_HEIGHT + FIXED_SUBMIT_HEIGHT + SAFETY_BUFFER;
+
+  // STEP 3: Calculate space available ONLY for canvas
+  // Layout: [Header] [Canvas] [Edit Buttons] [Submit Button]
+  const SPACE_FOR_CANVAS_ONLY = viewportHeight - TOTAL_UI_HEIGHT;
+
+  // STEP 4: Calculate available width (accounting for container constraints)
+  const AVAILABLE_WIDTH = Math.min(viewportWidth, CONTAINER_MAX_WIDTH);
+  const AVAILABLE_WIDTH_FOR_CANVAS = AVAILABLE_WIDTH - 20; // Small padding
+
+  // STEP 5: Get phone model dimensions
+  const modelWidthMM = phoneModel?.dimensions.widthMM || DEFAULT_WIDTH_MM;
+  const modelHeightMM = phoneModel?.dimensions.heightMM || DEFAULT_HEIGHT_MM;
+
+  // STEP 6: Calculate scale factors to fit in available canvas space
+  const scaleX = AVAILABLE_WIDTH_FOR_CANVAS / modelWidthMM;
+  const scaleY = SPACE_FOR_CANVAS_ONLY / modelHeightMM;
+
+  // STEP 7: Use smaller scale to maintain aspect ratio and fit maximally WITHOUT overflow
+  const SCALE_FACTOR = Math.min(scaleX, scaleY);
+
+  // STEP 8: Calculate final display dimensions (scaled to fit perfectly)
+  const DISPLAY_WIDTH = Math.round(modelWidthMM * SCALE_FACTOR);
+  const DISPLAY_HEIGHT = Math.round(modelHeightMM * SCALE_FACTOR);
+
+  // Export dimensions (actual size for printing)
+  const EXPORT_WIDTH = phoneModel ? phoneModel.dimensions.widthPX : Math.round(DEFAULT_WIDTH_MM * 11.81);
+  const EXPORT_HEIGHT = phoneModel ? phoneModel.dimensions.heightPX : Math.round(DEFAULT_HEIGHT_MM * 11.81);
+
+  // Canvas dimensions - add small padding to ensure borders are fully visible
+  const CANVAS_TOTAL_WIDTH = AVAILABLE_WIDTH;
+  const CANVAS_TOTAL_HEIGHT = DISPLAY_HEIGHT + 6; // Add 6px for border visibility (2px stroke + padding)
+  const CONTROL_PADDING = Math.round((CANVAS_TOTAL_WIDTH - DISPLAY_WIDTH) / 2);
+  const VERTICAL_PADDING = 3; // Padding for borders (ensures 2px stroke is fully visible)
+
+  // Debug log to monitor scaling
+  console.log('Dynamic Canvas Scaling:', {
+    viewport: { width: viewportWidth, height: viewportHeight },
+    fixedElements: {
+      header: FIXED_HEADER_HEIGHT,
+      submit: FIXED_SUBMIT_HEIGHT,
+      editButtons: FIXED_EDIT_BUTTONS_HEIGHT,
+      totalUIHeight: TOTAL_UI_HEIGHT
+    },
+    calculated: {
+      spaceForCanvasOnly: SPACE_FOR_CANVAS_ONLY
+    },
+    model: { widthMM: modelWidthMM, heightMM: modelHeightMM },
+    scaleFactor: SCALE_FACTOR,
+    display: { width: DISPLAY_WIDTH, height: DISPLAY_HEIGHT },
+    canvas: { width: CANVAS_TOTAL_WIDTH, height: CANVAS_TOTAL_HEIGHT }
+  });
+
   const [machineId, setMachineId] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTimestamp, setSessionTimestamp] = useState<number | null>(null);
@@ -2490,7 +2543,7 @@ export default function Editor() {
       <div className="editor-page fixed inset-0 bg-gray-50 no-select">
         {/* Mobile container wrapper - matches upload panel structure */}
         <div className="h-full w-full flex flex-col items-center justify-center">
-          <div className="w-full max-w-sm h-full bg-white flex flex-col relative overflow-hidden">
+          <div className="w-full max-w-sm h-full bg-white flex flex-col relative">
             {/* Top Header - Fixed height section */}
             {uploadedImage && (
               <div className="flex-shrink-0 px-4 py-2">
