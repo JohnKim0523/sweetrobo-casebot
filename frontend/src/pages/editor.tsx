@@ -2548,7 +2548,7 @@ export default function Editor() {
             {uploadedImage && (
               <div className="flex-shrink-0 px-4 py-2">
                 <div className="flex items-center gap-3">
-                  <img src="/gif.gif" alt="SweetRobo" className="w-10 h-10 object-contain" />
+                  <img src="/gif.gif" alt="SweetRobo" className="w-14 h-14 object-contain" />
                   <h1 className="text-base font-bold text-gray-900">Case Bot App</h1>
                 </div>
               </div>
@@ -2560,7 +2560,7 @@ export default function Editor() {
                 <div className="h-full w-full flex flex-col px-4 py-3">
                   {/* Header - Fixed at top */}
                   <div className="flex items-center gap-3 mb-4">
-                    <img src="/gif.gif" alt="SweetRobo" className="w-10 h-10 object-contain" />
+                    <img src="/gif.gif" alt="SweetRobo" className="w-14 h-14 object-contain" />
                     <div className="flex-1">
                       <h1 className="text-base font-bold text-gray-900">Case Bot App</h1>
                       <p className="text-xs text-gray-500">Create amazing images with artificial intelligence</p>
@@ -2658,18 +2658,31 @@ export default function Editor() {
 
             {/* Bottom Toolbar - Attached below canvas */}
             {uploadedImage && (
-              <div className="flex-shrink-0 px-4 py-1">
-                <div className="flex justify-center items-center gap-2">
+              <div className="flex-shrink-0 px-3 py-1">
+                <div className="flex justify-between items-center gap-2 w-full">
               {/* Edit with AI Button */}
               <button
                 onClick={() => setShowAIModal(true)}
-                className="flex-1 max-w-[140px] px-3 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium rounded-lg flex items-center justify-center gap-1 text-sm"
-                style={{ boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.15)' }}
+                className="h-11 px-3 bg-white font-medium rounded-lg flex items-center justify-center gap-1 text-sm shadow-lg"
+                style={{
+                  background: 'white',
+                  color: 'transparent',
+                  backgroundImage: 'linear-gradient(135deg, #a855f7, #ec4899)',
+                  WebkitBackgroundClip: 'text',
+                  backgroundClip: 'text'
+                }}
               >
-                <span>✨</span>
+                <span style={{
+                  backgroundImage: 'linear-gradient(135deg, #a855f7, #ec4899)',
+                  WebkitBackgroundClip: 'text',
+                  backgroundClip: 'text',
+                  color: 'transparent'
+                }}>✨</span>
                 <span>Edit with AI</span>
               </button>
 
+              {/* Middle buttons group */}
+              <div className="flex items-center gap-2">
               {/* Rotate Left */}
               <button
                 onClick={() => {
@@ -2683,9 +2696,10 @@ export default function Editor() {
                     canvas.requestRenderAll();
                   }
                 }}
-                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-lg"
+                className="w-11 h-11 bg-white rounded-lg flex flex-col items-center justify-center shadow-lg"
               >
-                <span className="text-lg">↺</span>
+                <span className="text-lg text-black">↺</span>
+                <span className="text-[8px] text-gray-600 -mt-1">90°</span>
               </button>
 
               {/* Rotate Right */}
@@ -2701,9 +2715,10 @@ export default function Editor() {
                     canvas.requestRenderAll();
                   }
                 }}
-                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-lg"
+                className="w-11 h-11 bg-white rounded-lg flex flex-col items-center justify-center shadow-lg"
               >
-                <span className="text-lg">↻</span>
+                <span className="text-lg text-black">↻</span>
+                <span className="text-[8px] text-gray-600 -mt-1">90°</span>
               </button>
 
               {/* Crop Button */}
@@ -2724,10 +2739,11 @@ export default function Editor() {
                     img.src = imageDataUrl;
                   }
                 }}
-                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-lg"
+                className="w-11 h-11 bg-white rounded-lg flex items-center justify-center shadow-lg"
               >
-                <span className="text-lg">✂️</span>
+                <img src="/crop.png" alt="Crop" className="w-5 h-5" />
               </button>
+              </div>
 
               {/* Delete Button */}
               <button
@@ -2740,9 +2756,9 @@ export default function Editor() {
                     console.log('Image deleted from canvas');
                   }
                 }}
-                className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-lg"
+                className="w-11 h-11 bg-white rounded-lg flex items-center justify-center shadow-lg"
               >
-                <span className="text-lg text-red-500">🗑️</span>
+                <img src="/delete.png" alt="Delete" className="w-5 h-5" />
               </button>
                 </div>
               </div>
