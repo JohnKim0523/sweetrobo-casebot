@@ -122,8 +122,31 @@ export default function Editor() {
   // AI Editing states
   const [showAIModal, setShowAIModal] = useState(false);
   const [aiModalTab, setAiModalTab] = useState<'custom' | 'text' | 'adjustments' | 'quick'>('custom'); // AI modal tabs
+
+  // Text customization states
+  const [textInput, setTextInput] = useState('');
+  const [textTemplate, setTextTemplate] = useState<'quote' | 'title' | 'signature' | 'date' | null>(null);
+  const [fontFamily, setFontFamily] = useState('Arial');
+  const [fontSize, setFontSize] = useState(32);
+  const [textBold, setTextBold] = useState(false);
+  const [textItalic, setTextItalic] = useState(false);
+  const [textUnderline, setTextUnderline] = useState(false);
+  const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>('center');
+  const [textColor, setTextColor] = useState('#000000');
+  const [stickerSearch, setStickerSearch] = useState('');
+
+  // Filter states
+  const [brightness, setBrightness] = useState(0);
+  const [contrast, setContrast] = useState(0);
+  const [saturation, setSaturation] = useState(0);
+  const [blur, setBlur] = useState(0);
+  const [sharpness, setSharpness] = useState(0);
+  const [warmth, setWarmth] = useState(0);
+  const [filtersTouched, setFiltersTouched] = useState(false);
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showMaskModal, setShowMaskModal] = useState(false);  // New modal for mask editing
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [createPrompt, setCreatePrompt] = useState('');
   const [maskPrompt, setMaskPrompt] = useState('');  // Separate prompt for mask editing
@@ -1251,16 +1274,14 @@ export default function Editor() {
             // Clear edit history when uploading a new image (fresh start)
             setEditHistory([]);
 
-            // Scale image to fit within display canvas
-            const maxDisplayWidth = DISPLAY_WIDTH * 0.8;  // 80% of canvas width
-            const maxDisplayHeight = DISPLAY_HEIGHT * 0.8; // 80% of canvas height
-            const scale = Math.min(maxDisplayWidth / fabricImage.width!, maxDisplayHeight / fabricImage.height!);
+            // Scale image to fill canvas height completely (top to bottom)
+            const scale = DISPLAY_HEIGHT / fabricImage.height!;
             fabricImage.scale(scale);
-            
+
             // Center the image on the canvas (accounting for padding)
             fabricImage.set({
-              left: CONTROL_PADDING + DISPLAY_WIDTH / 2,  // Center position with padding
-              top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,   // Center position with padding
+              left: CONTROL_PADDING + DISPLAY_WIDTH / 2,  // Center position horizontally
+              top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,   // Center position vertically
               originX: 'center',
               originY: 'center',
               // Ensure object is selectable and manipulable
@@ -1606,8 +1627,10 @@ export default function Editor() {
         
         // Close the modal and show user-friendly alert
         setShowAIModal(false);
+        setAiModalTab('custom');
         setShowMaskModal(false);
         setIsProcessing(false);
+        setFiltersTouched(false);
         setAiPrompt('');
         setMaskPrompt('');
         
@@ -1812,8 +1835,10 @@ export default function Editor() {
         
         // Close the modal and show user-friendly alert
         setShowAIModal(false);
+        setAiModalTab('custom');
         setShowMaskModal(false);
         setIsProcessing(false);
+        setFiltersTouched(false);
         setAiPrompt('');
         setMaskPrompt('');
         
@@ -1847,8 +1872,10 @@ export default function Editor() {
         
         // IMMEDIATELY close modal so user can see the result
         setShowAIModal(false);
+        setAiModalTab('custom');
         setIsProcessing(false);
         setAiPrompt('');
+        setFiltersTouched(false);
         
         // Create fabric image from the loaded element
         const fabricImage = new fabric.Image(imgElement);
@@ -1912,19 +1939,89 @@ export default function Editor() {
       console.error('AI Edit Error:', error);
       // Close modal and show alert
       setShowAIModal(false);
+      setAiModalTab('custom');
       setIsProcessing(false);
       setAiPrompt('');
+      setFiltersTouched(false);
       alert('❌ Failed to process image. Please try again.');
     }
   };
   
+  // Apply filters to the main uploaded image
+  const applyFilters = () => {
+    if (!uploadedImage || !fabric || !canvas) return;
+
+    const filters: any[] = [];
+
+    // Access filters directly from the fabric module
+    const ImageFilters = (fabric as any).filters;
+    if (!ImageFilters) {
+      console.error('Image filters not available');
+      return;
+    }
+
+    // Brightness filter
+    if (brightness !== 0) {
+      filters.push(new ImageFilters.Brightness({ brightness }));
+    }
+
+    // Contrast filter
+    if (contrast !== 0) {
+      filters.push(new ImageFilters.Contrast({ contrast }));
+    }
+
+    // Saturation filter
+    if (saturation !== 0) {
+      filters.push(new ImageFilters.Saturation({ saturation }));
+    }
+
+    // Blur filter
+    if (blur > 0) {
+      filters.push(new ImageFilters.Blur({ blur: blur * 0.5 }));
+    }
+
+    // Sharpness (using Convolute matrix)
+    if (sharpness > 0) {
+      const sharpnessMatrix = [
+        0, -1 * sharpness, 0,
+        -1 * sharpness, 1 + 4 * sharpness, -1 * sharpness,
+        0, -1 * sharpness, 0
+      ];
+      filters.push(new ImageFilters.Convolute({ matrix: sharpnessMatrix }));
+    }
+
+    // Warmth (using HueRotation - approximate warm/cool)
+    if (warmth !== 0) {
+      filters.push(new ImageFilters.HueRotation({ rotation: warmth * 0.1 }));
+    }
+
+    uploadedImage.filters = filters;
+    uploadedImage.applyFilters();
+    canvas.renderAll();
+  };
+
+  const resetFilters = () => {
+    setBrightness(0);
+    setContrast(0);
+    setSaturation(0);
+    setBlur(0);
+    setSharpness(0);
+    setWarmth(0);
+
+    if (uploadedImage && canvas) {
+      uploadedImage.filters = [];
+      uploadedImage.applyFilters();
+      canvas.renderAll();
+    }
+  };
+
   const ensureCanvasBackground = () => {
     // Check if white background exists
     const objects = canvas.getObjects();
-    const hasBackground = objects.some((obj: any) => 
+    const hasBackground = objects.some((obj: any) =>
       obj.type === 'rect' && obj.fill === 'white' && obj.left === CONTROL_PADDING && obj.top === VERTICAL_PADDING
     );
-    
+
     if (!hasBackground) {
       // Recreate white background
       const canvasBackground = new fabric.Rect({
@@ -2803,12 +2900,27 @@ export default function Editor() {
               {/* Delete Button */}
               <button
                 onClick={() => {
-                  if (uploadedImage && canvas) {
-                    canvas.remove(uploadedImage);
-                    canvas.renderAll();
-                    setUploadedImage(null);
-                    setCropHistory([]);
-                    console.log('Image deleted from canvas');
+                  if (!canvas) return;
+
+                  const activeObject = canvas.getActiveObject();
+
+                  if (activeObject) {
+                    // Something is selected
+                    if (activeObject === uploadedImage) {
+                      // The main image is selected - show confirmation modal
+                      setShowDeleteConfirmation(true);
+                    } else {
+                      // A text or other object is selected - just delete that object
+                      canvas.remove(activeObject);
+                      canvas.discardActiveObject();
+                      canvas.renderAll();
+                      console.log('Selected object deleted:', activeObject.type);
+                    }
+                  } else {
+                    // Nothing selected - show confirmation modal for main image
+                    if (uploadedImage) {
+                      setShowDeleteConfirmation(true);
+                    }
                   }
                 }}
                 className="w-11 h-11 bg-white rounded-lg flex items-center justify-center shadow-lg"
@@ -2854,7 +2966,11 @@ export default function Editor() {
             <div className="p-4 border-b border-gray-200 relative">
               <h2 className="text-gray-900 text-base font-semibold">Edit with AI</h2>
               <button
-                onClick={() => setShowAIModal(false)}
+                onClick={() => {
+                  setShowAIModal(false);
+                  setAiModalTab('custom');
+                  setFiltersTouched(false);
+                }}
                 className="absolute top-4 right-4 w-6 h-6 flex items-center justify-center text-gray-400 hover:text-gray-600"
                 disabled={isProcessing}
               >
@@ -2984,60 +3100,768 @@ export default function Editor() {
               {/* Text Tab */}
               {aiModalTab === 'text' && (
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Add Text</h3>
-                  <p className="text-xs text-gray-500 mb-3">Text tools coming soon...</p>
+                  {/* Text Templates */}
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <button
+                      onClick={() => {
+                        setTextTemplate('quote');
+                        setTextInput('"Beautiful moment"');
+                      }}
+                      className={`flex flex-col items-center gap-1 p-3 rounded-lg border ${textTemplate === 'quote' ? 'border-purple-500 bg-purple-50' : 'border-gray-300 bg-white'}`}
+                    >
+                      <span className="text-2xl">💭</span>
+                      <span className="text-xs text-gray-700 font-medium">Quote</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setTextTemplate('title');
+                        setTextInput('MAIN TITLE');
+                      }}
+                      className={`flex flex-col items-center gap-1 p-3 rounded-lg border ${textTemplate === 'title' ? 'border-purple-500 bg-purple-50' : 'border-gray-300 bg-white'}`}
+                    >
+                      <span className="text-2xl font-bold">T</span>
+                      <span className="text-xs text-gray-700 font-medium">Title</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setTextTemplate('signature');
+                        setTextInput('Your Name');
+                      }}
+                      className={`flex flex-col items-center gap-1 p-3 rounded-lg border ${textTemplate === 'signature' ? 'border-purple-500 bg-purple-50' : 'border-gray-300 bg-white'}`}
+                    >
+                      <span className="text-2xl">✍️</span>
+                      <span className="text-xs text-gray-700 font-medium">Signature</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setTextTemplate('date');
+                        setTextInput(new Date().toLocaleDateString());
+                      }}
+                      className={`flex flex-col items-center gap-1 p-3 rounded-lg border ${textTemplate === 'date' ? 'border-purple-500 bg-purple-50' : 'border-gray-300 bg-white'}`}
+                    >
+                      <span className="text-2xl">📅</span>
+                      <span className="text-xs text-gray-700 font-medium">Date</span>
+                    </button>
+                  </div>
+
+                  {/* Add Custom Text Label */}
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">Add Custom Text</label>
+
+                  {/* Text Input */}
+                  <textarea
+                    value={textInput}
+                    onChange={(e) => setTextInput(e.target.value)}
+                    placeholder="Enter your text..."
+                    className="w-full px-3 py-2 bg-gray-50 rounded-lg border border-gray-300 focus:border-purple-500 focus:outline-none text-gray-900 text-sm mb-3"
+                    rows={2}
+                  />
+
+                  {/* Font Family */}
+                  <label className="block text-xs font-semibold text-gray-900 mb-1">Font Family</label>
+                  <select
+                    value={fontFamily}
+                    onChange={(e) => setFontFamily(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-50 rounded-lg border border-gray-300 focus:border-purple-500 focus:outline-none text-gray-900 text-sm mb-3"
+                    style={{ fontFamily: fontFamily }}
+                  >
+                    <option value="Arial" style={{ fontFamily: 'Arial' }}>Arial</option>
+                    <option value="Roboto" style={{ fontFamily: 'Roboto' }}>Roboto</option>
+                    <option value="Open Sans" style={{ fontFamily: 'Open Sans' }}>Open Sans</option>
+                    <option value="Lato" style={{ fontFamily: 'Lato' }}>Lato</option>
+                    <option value="Montserrat" style={{ fontFamily: 'Montserrat' }}>Montserrat</option>
+                    <option value="Poppins" style={{ fontFamily: 'Poppins' }}>Poppins</option>
+                    <option value="Raleway" style={{ fontFamily: 'Raleway' }}>Raleway</option>
+                    <option value="Playfair Display" style={{ fontFamily: 'Playfair Display' }}>Playfair Display</option>
+                    <option value="Merriweather" style={{ fontFamily: 'Merriweather' }}>Merriweather</option>
+                    <option value="Oswald" style={{ fontFamily: 'Oswald' }}>Oswald</option>
+                    <option value="Bebas Neue" style={{ fontFamily: 'Bebas Neue' }}>Bebas Neue</option>
+                    <option value="Pacifico" style={{ fontFamily: 'Pacifico' }}>Pacifico</option>
+                    <option value="Dancing Script" style={{ fontFamily: 'Dancing Script' }}>Dancing Script</option>
+                    <option value="Lobster" style={{ fontFamily: 'Lobster' }}>Lobster</option>
+                    <option value="Great Vibes" style={{ fontFamily: 'Great Vibes' }}>Great Vibes</option>
+                    <option value="Satisfy" style={{ fontFamily: 'Satisfy' }}>Satisfy</option>
+                    <option value="Caveat" style={{ fontFamily: 'Caveat' }}>Caveat</option>
+                    <option value="Indie Flower" style={{ fontFamily: 'Indie Flower' }}>Indie Flower</option>
+                    <option value="Permanent Marker" style={{ fontFamily: 'Permanent Marker' }}>Permanent Marker</option>
+                    <option value="Shadows Into Light" style={{ fontFamily: 'Shadows Into Light' }}>Shadows Into Light</option>
+                    <option value="Architects Daughter" style={{ fontFamily: 'Architects Daughter' }}>Architects Daughter</option>
+                  </select>
+
+                  {/* Font Size */}
+                  <label className="block text-xs font-semibold text-gray-900 mb-1">Font Size: {fontSize}px</label>
+                  <input
+                    type="range"
+                    min="12"
+                    max="120"
+                    value={fontSize}
+                    onChange={(e) => setFontSize(parseInt(e.target.value))}
+                    className="w-full mb-3"
+                  />
+
+                  {/* Text Style */}
+                  <label className="block text-xs font-semibold text-gray-900 mb-1">Text Style</label>
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      onClick={() => setTextBold(!textBold)}
+                      className={`flex-1 py-2 rounded-lg border font-bold ${textBold ? 'border-purple-500 bg-purple-500 text-white' : 'border-gray-300 bg-white text-gray-700'}`}
+                    >
+                      B
+                    </button>
+                    <button
+                      onClick={() => setTextItalic(!textItalic)}
+                      className={`flex-1 py-2 rounded-lg border italic ${textItalic ? 'border-purple-500 bg-purple-500 text-white' : 'border-gray-300 bg-white text-gray-700'}`}
+                    >
+                      I
+                    </button>
+                    <button
+                      onClick={() => setTextUnderline(!textUnderline)}
+                      className={`flex-1 py-2 rounded-lg border underline ${textUnderline ? 'border-purple-500 bg-purple-500 text-white' : 'border-gray-300 bg-white text-gray-700'}`}
+                    >
+                      U
+                    </button>
+                  </div>
+
+                  {/* Text Alignment */}
+                  <label className="block text-xs font-semibold text-gray-900 mb-1">Text Alignment</label>
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      onClick={() => setTextAlign('left')}
+                      className={`flex-1 py-2 rounded-lg border flex items-center justify-center ${textAlign === 'left' ? 'border-purple-500 bg-purple-500 text-white' : 'border-gray-300 bg-white text-gray-700'}`}
+                    >
+                      <div className="flex flex-col items-start" style={{ gap: '1px' }}>
+                        <div style={{ fontSize: '8px', lineHeight: '6px' }}>━━━</div>
+                        <div style={{ fontSize: '8px', lineHeight: '6px' }}>━━</div>
+                        <div style={{ fontSize: '8px', lineHeight: '6px' }}>━━━━</div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setTextAlign('center')}
+                      className={`flex-1 py-2 rounded-lg border flex items-center justify-center ${textAlign === 'center' ? 'border-purple-500 bg-purple-500 text-white' : 'border-gray-300 bg-white text-gray-700'}`}
+                    >
+                      <div className="flex flex-col items-center" style={{ gap: '1px' }}>
+                        <div style={{ fontSize: '8px', lineHeight: '6px' }}>━━━</div>
+                        <div style={{ fontSize: '8px', lineHeight: '6px' }}>━━</div>
+                        <div style={{ fontSize: '8px', lineHeight: '6px' }}>━━━━</div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setTextAlign('right')}
+                      className={`flex-1 py-2 rounded-lg border flex items-center justify-center ${textAlign === 'right' ? 'border-purple-500 bg-purple-500 text-white' : 'border-gray-300 bg-white text-gray-700'}`}
+                    >
+                      <div className="flex flex-col items-end" style={{ gap: '1px' }}>
+                        <div style={{ fontSize: '8px', lineHeight: '6px' }}>━━━</div>
+                        <div style={{ fontSize: '8px', lineHeight: '6px' }}>━━</div>
+                        <div style={{ fontSize: '8px', lineHeight: '6px' }}>━━━━</div>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Text Color */}
+                  <label className="block text-xs font-semibold text-gray-900 mb-1">Text Color</label>
+                  <div className="grid grid-cols-8 gap-2 mb-3">
+                    {['#000000', '#EF4444', '#F97316', '#10B981', '#3B82F6', '#8B5CF6', '#F59E0B', '#EC4899', '#F472B6', '#C084FC', '#FCA5A5', '#7C2D12', '#FFFFFF'].map((color) => (
+                      <button
+                        key={color}
+                        onClick={() => setTextColor(color)}
+                        className={`w-8 h-8 rounded-full ${textColor === color ? 'ring-2 ring-purple-500 ring-offset-2' : ''}`}
+                        style={{ backgroundColor: color, border: color === '#FFFFFF' ? '1px solid #d1d5db' : 'none' }}
+                      />
+                    ))}
+                  </div>
                 </div>
               )}
 
-              {/* Adjustments Tab */}
+              {/* Stickers Tab */}
               {aiModalTab === 'adjustments' && (
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Manual Adjustments</h3>
-                  <p className="text-xs text-gray-500 mb-3">Adjustment sliders coming soon...</p>
+                <div className="flex flex-col h-full">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Stickers</h3>
+
+                  {/* Upload Custom Sticker Button */}
+                  <label className="w-full mb-3 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium text-sm text-center cursor-pointer hover:opacity-90 transition flex items-center justify-center gap-2">
+                    <span>📤</span>
+                    <span>Upload Custom Sticker</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        console.log('File input changed');
+                        const file = e.target.files?.[0];
+                        console.log('File:', file);
+                        console.log('Canvas:', canvas);
+                        console.log('Fabric:', fabric);
+
+                        if (!file) {
+                          console.log('No file selected');
+                          return;
+                        }
+                        if (!canvas) {
+                          console.log('Canvas not available');
+                          return;
+                        }
+                        if (!fabric) {
+                          console.log('Fabric not available');
+                          return;
+                        }
+
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          console.log('File loaded');
+                          const imgUrl = event.target?.result as string;
+                          console.log('Image URL length:', imgUrl?.length);
+
+                          // Create an HTML Image element first
+                          const imgElement = new Image();
+                          imgElement.crossOrigin = 'anonymous';
+
+                          imgElement.onload = () => {
+                            console.log('Image element loaded, dimensions:', imgElement.width, 'x', imgElement.height);
+
+                            // Now create fabric image from the loaded element
+                            const fabricImage = new fabric.Image(imgElement);
+                            console.log('Fabric image created:', fabricImage);
+
+                            // Scale to reasonable size
+                            const maxSize = 150;
+                            const scale = Math.min(maxSize / fabricImage.width!, maxSize / fabricImage.height!);
+                            console.log('Scale:', scale, 'Width:', fabricImage.width, 'Height:', fabricImage.height);
+
+                            fabricImage.set({
+                              left: CONTROL_PADDING + DISPLAY_WIDTH / 2,
+                              top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
+                              scaleX: scale,
+                              scaleY: scale,
+                              originX: 'center',
+                              originY: 'center',
+                            });
+
+                            canvas.add(fabricImage);
+                            canvas.setActiveObject(fabricImage);
+                            canvas.renderAll();
+                            console.log('Image added to canvas');
+
+                            setShowAIModal(false);
+                            setAiModalTab('custom');
+                            setFiltersTouched(false);
+                            console.log('Modal closed');
+                          };
+
+                          imgElement.onerror = (error) => {
+                            console.error('Image element load error:', error);
+                          };
+
+                          // Set the source to trigger loading
+                          imgElement.src = imgUrl;
+                        };
+
+                        reader.onerror = (error) => {
+                          console.error('FileReader error:', error);
+                        };
+
+                        console.log('Starting to read file');
+                        reader.readAsDataURL(file);
+
+                        // Reset input
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+
+                  {/* Search Bar with Paste Support */}
+                  <input
+                    type="text"
+                    value={stickerSearch}
+                    onChange={(e) => setStickerSearch(e.target.value)}
+                    onPaste={async (e) => {
+                      const items = e.clipboardData?.items;
+                      if (!items || !canvas || !fabric) return;
+
+                      // Check for images in clipboard
+                      for (let i = 0; i < items.length; i++) {
+                        if (items[i].type.indexOf('image') !== -1) {
+                          e.preventDefault();
+                          const blob = items[i].getAsFile();
+                          if (!blob) continue;
+
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            const imgUrl = event.target?.result as string;
+
+                            // Create an HTML Image element first
+                            const imgElement = new Image();
+                            imgElement.crossOrigin = 'anonymous';
+
+                            imgElement.onload = () => {
+                              // Now create fabric image from the loaded element
+                              const fabricImage = new fabric.Image(imgElement);
+
+                              // Scale to reasonable size
+                              const maxSize = 150;
+                              const scale = Math.min(maxSize / fabricImage.width!, maxSize / fabricImage.height!);
+
+                              fabricImage.set({
+                                left: CONTROL_PADDING + DISPLAY_WIDTH / 2,
+                                top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
+                                scaleX: scale,
+                                scaleY: scale,
+                                originX: 'center',
+                                originY: 'center',
+                              });
+
+                              canvas.add(fabricImage);
+                              canvas.setActiveObject(fabricImage);
+                              canvas.renderAll();
+                              setShowAIModal(false);
+                              setAiModalTab('custom');
+                            };
+
+                            // Set the source to trigger loading
+                            imgElement.src = imgUrl;
+                          };
+                          reader.readAsDataURL(blob);
+                          break;
+                        }
+                      }
+                    }}
+                    placeholder="Search or paste stickers..."
+                    className="w-full px-3 py-2 mb-3 bg-gray-50 rounded-lg border border-gray-300 focus:border-purple-500 focus:outline-none text-gray-900 text-sm"
+                  />
+
+                  {/* Sticker Grid - Scrollable */}
+                  <div className="flex-1 overflow-y-auto">
+                    <div className="grid grid-cols-4 gap-2 pb-2">
+                      {(() => {
+                        const allStickers = [
+                          // Smileys & Emotions
+                          { emoji: '😀', label: 'Smile', keywords: 'smile happy face grin' },
+                          { emoji: '😂', label: 'Joy', keywords: 'laugh joy tears funny' },
+                          { emoji: '🥰', label: 'Love', keywords: 'love hearts adore' },
+                          { emoji: '😎', label: 'Cool', keywords: 'cool sunglasses awesome' },
+                          { emoji: '🤩', label: 'Star Eyes', keywords: 'star struck wow amazed' },
+                          { emoji: '😍', label: 'Heart Eyes', keywords: 'love heart eyes' },
+                          { emoji: '😘', label: 'Kiss', keywords: 'kiss love heart' },
+                          { emoji: '😊', label: 'Blush', keywords: 'blush smile happy' },
+                          { emoji: '🥳', label: 'Party', keywords: 'party celebrate birthday' },
+                          { emoji: '😇', label: 'Angel', keywords: 'angel innocent halo' },
+                          { emoji: '🤗', label: 'Hug', keywords: 'hug embrace care' },
+                          { emoji: '🤔', label: 'Think', keywords: 'think hmm wondering' },
+
+                          // Hearts & Symbols
+                          { emoji: '❤️', label: 'Red Heart', keywords: 'heart love red' },
+                          { emoji: '💖', label: 'Sparkle Heart', keywords: 'heart sparkle love' },
+                          { emoji: '💕', label: 'Two Hearts', keywords: 'hearts love pink' },
+                          { emoji: '💗', label: 'Growing Heart', keywords: 'heart grow love' },
+                          { emoji: '💓', label: 'Beating Heart', keywords: 'heart beat pulse' },
+                          { emoji: '💝', label: 'Heart Gift', keywords: 'heart gift box' },
+                          { emoji: '💘', label: 'Cupid', keywords: 'heart arrow cupid love' },
+                          { emoji: '✨', label: 'Sparkles', keywords: 'sparkle shine star' },
+                          { emoji: '⭐', label: 'Star', keywords: 'star yellow' },
+                          { emoji: '🌟', label: 'Glowing Star', keywords: 'star glow shine' },
+                          { emoji: '💫', label: 'Dizzy', keywords: 'dizzy stars spinning' },
+                          { emoji: '⚡', label: 'Lightning', keywords: 'lightning bolt electric' },
+                          { emoji: '🔥', label: 'Fire', keywords: 'fire hot flame' },
+                          { emoji: '💎', label: 'Diamond', keywords: 'diamond gem jewel' },
+                          { emoji: '👑', label: 'Crown', keywords: 'crown king queen royal' },
+                          { emoji: '🎀', label: 'Ribbon', keywords: 'ribbon bow gift' },
+
+                          // Nature
+                          { emoji: '🌸', label: 'Cherry Blossom', keywords: 'flower blossom spring pink' },
+                          { emoji: '🌺', label: 'Hibiscus', keywords: 'flower tropical hibiscus' },
+                          { emoji: '🌻', label: 'Sunflower', keywords: 'sunflower yellow flower' },
+                          { emoji: '🌹', label: 'Rose', keywords: 'rose flower red romantic' },
+                          { emoji: '🌷', label: 'Tulip', keywords: 'tulip flower spring' },
+                          { emoji: '🌈', label: 'Rainbow', keywords: 'rainbow colors sky' },
+                          { emoji: '☀️', label: 'Sun', keywords: 'sun sunny bright day' },
+                          { emoji: '🌙', label: 'Moon', keywords: 'moon night crescent' },
+                          { emoji: '⭐', label: 'Star', keywords: 'star night sky' },
+                          { emoji: '☁️', label: 'Cloud', keywords: 'cloud weather sky' },
+                          { emoji: '🦋', label: 'Butterfly', keywords: 'butterfly insect nature' },
+                          { emoji: '🐝', label: 'Bee', keywords: 'bee insect honey' },
+                          { emoji: '🐶', label: 'Dog', keywords: 'dog puppy pet animal' },
+                          { emoji: '🐱', label: 'Cat', keywords: 'cat kitten pet animal' },
+                          { emoji: '🦄', label: 'Unicorn', keywords: 'unicorn magic fantasy' },
+                          { emoji: '🐼', label: 'Panda', keywords: 'panda bear animal' },
+
+                          // Food & Drinks
+                          { emoji: '🍕', label: 'Pizza', keywords: 'pizza food italian' },
+                          { emoji: '🍔', label: 'Burger', keywords: 'burger hamburger food' },
+                          { emoji: '🍟', label: 'Fries', keywords: 'fries french food' },
+                          { emoji: '🌭', label: 'Hot Dog', keywords: 'hotdog food' },
+                          { emoji: '🍿', label: 'Popcorn', keywords: 'popcorn movie snack' },
+                          { emoji: '🍰', label: 'Cake', keywords: 'cake dessert birthday' },
+                          { emoji: '🎂', label: 'Birthday Cake', keywords: 'birthday cake celebrate' },
+                          { emoji: '🧁', label: 'Cupcake', keywords: 'cupcake dessert sweet' },
+                          { emoji: '🍪', label: 'Cookie', keywords: 'cookie dessert sweet' },
+                          { emoji: '🍩', label: 'Donut', keywords: 'donut doughnut sweet' },
+                          { emoji: '🍦', label: 'Ice Cream', keywords: 'icecream dessert sweet' },
+                          { emoji: '🍭', label: 'Lollipop', keywords: 'lollipop candy sweet' },
+                          { emoji: '🍬', label: 'Candy', keywords: 'candy sweet' },
+                          { emoji: '☕', label: 'Coffee', keywords: 'coffee drink hot' },
+                          { emoji: '🥤', label: 'Drink', keywords: 'drink soda beverage' },
+                          { emoji: '🧃', label: 'Juice', keywords: 'juice box drink' },
+
+                          // Activities & Objects
+                          { emoji: '⚽', label: 'Soccer', keywords: 'soccer football ball sport' },
+                          { emoji: '🏀', label: 'Basketball', keywords: 'basketball ball sport' },
+                          { emoji: '🏈', label: 'Football', keywords: 'football american sport' },
+                          { emoji: '⚾', label: 'Baseball', keywords: 'baseball ball sport' },
+                          { emoji: '🎾', label: 'Tennis', keywords: 'tennis ball sport' },
+                          { emoji: '🎮', label: 'Game', keywords: 'game controller gaming' },
+                          { emoji: '🎯', label: 'Target', keywords: 'target dart bullseye' },
+                          { emoji: '🎨', label: 'Art', keywords: 'art paint palette' },
+                          { emoji: '🎭', label: 'Theater', keywords: 'theater masks drama' },
+                          { emoji: '🎪', label: 'Circus', keywords: 'circus tent fun' },
+                          { emoji: '🎸', label: 'Guitar', keywords: 'guitar music rock' },
+                          { emoji: '🎹', label: 'Piano', keywords: 'piano music keyboard' },
+                          { emoji: '🎵', label: 'Music', keywords: 'music note song' },
+                          { emoji: '🎤', label: 'Mic', keywords: 'microphone sing karaoke' },
+                          { emoji: '🎧', label: 'Headphones', keywords: 'headphones music audio' },
+                          { emoji: '📷', label: 'Camera', keywords: 'camera photo picture' },
+                          { emoji: '📸', label: 'Flash Camera', keywords: 'camera flash photo' },
+                          { emoji: '🎬', label: 'Movie', keywords: 'movie film cinema' },
+                          { emoji: '🎥', label: 'Video', keywords: 'video camera recording' },
+                          { emoji: '🎁', label: 'Gift', keywords: 'gift present box' },
+                          { emoji: '🎈', label: 'Balloon', keywords: 'balloon party celebrate' },
+                          { emoji: '🎉', label: 'Party Popper', keywords: 'party celebrate confetti' },
+                          { emoji: '🎊', label: 'Confetti', keywords: 'confetti party celebrate' },
+
+                          // Travel & Places
+                          { emoji: '✈️', label: 'Airplane', keywords: 'airplane plane travel flight' },
+                          { emoji: '🚗', label: 'Car', keywords: 'car auto vehicle' },
+                          { emoji: '🚙', label: 'SUV', keywords: 'suv car vehicle' },
+                          { emoji: '🚕', label: 'Taxi', keywords: 'taxi cab car' },
+                          { emoji: '🚌', label: 'Bus', keywords: 'bus vehicle transport' },
+                          { emoji: '🚲', label: 'Bike', keywords: 'bike bicycle cycle' },
+                          { emoji: '🛴', label: 'Scooter', keywords: 'scooter kick ride' },
+                          { emoji: '🏠', label: 'House', keywords: 'house home building' },
+                          { emoji: '🏡', label: 'Home', keywords: 'home house garden' },
+                          { emoji: '🏢', label: 'Office', keywords: 'office building work' },
+                          { emoji: '🏪', label: 'Store', keywords: 'store shop market' },
+                          { emoji: '🏖️', label: 'Beach', keywords: 'beach vacation sand' },
+                          { emoji: '🏝️', label: 'Island', keywords: 'island tropical paradise' },
+                          { emoji: '🗼', label: 'Tower', keywords: 'tower tokyo landmark' },
+                          { emoji: '🗽', label: 'Liberty', keywords: 'liberty statue newyork' },
+
+                          // Objects & Tech
+                          { emoji: '📱', label: 'Phone', keywords: 'phone mobile cell' },
+                          { emoji: '💻', label: 'Laptop', keywords: 'laptop computer tech' },
+                          { emoji: '⌨️', label: 'Keyboard', keywords: 'keyboard type computer' },
+                          { emoji: '🖥️', label: 'Desktop', keywords: 'desktop computer monitor' },
+                          { emoji: '🖱️', label: 'Mouse', keywords: 'mouse computer click' },
+                          { emoji: '⌚', label: 'Watch', keywords: 'watch time clock' },
+                          { emoji: '📚', label: 'Books', keywords: 'books reading library' },
+                          { emoji: '📖', label: 'Book', keywords: 'book read open' },
+                          { emoji: '✏️', label: 'Pencil', keywords: 'pencil write draw' },
+                          { emoji: '✒️', label: 'Pen', keywords: 'pen write ink' },
+                          { emoji: '📝', label: 'Note', keywords: 'note memo write' },
+                          { emoji: '💼', label: 'Briefcase', keywords: 'briefcase work business' },
+                          { emoji: '👔', label: 'Tie', keywords: 'tie formal business' },
+                          { emoji: '🎓', label: 'Graduate', keywords: 'graduate cap education' },
+                          { emoji: '🔑', label: 'Key', keywords: 'key lock unlock' },
+                          { emoji: '🔒', label: 'Lock', keywords: 'lock secure closed' },
+                          { emoji: '🔓', label: 'Unlock', keywords: 'unlock open' },
+                          { emoji: '💡', label: 'Bulb', keywords: 'bulb light idea' },
+                          { emoji: '🔦', label: 'Flashlight', keywords: 'flashlight torch light' },
+                          { emoji: '🕯️', label: 'Candle', keywords: 'candle light fire' },
+                        ];
+
+                        // Filter stickers based on search
+                        const filteredStickers = stickerSearch.trim()
+                          ? allStickers.filter(s =>
+                              s.label.toLowerCase().includes(stickerSearch.toLowerCase()) ||
+                              s.keywords.toLowerCase().includes(stickerSearch.toLowerCase())
+                            )
+                          : allStickers;
+
+                        return filteredStickers.map((sticker, index) => (
+                          <button
+                            key={index}
+                            onClick={() => {
+                              if (!canvas || !fabric) return;
+                              const stickerObj = new fabric.Text(sticker.emoji, {
+                                left: CONTROL_PADDING + DISPLAY_WIDTH / 2,
+                                top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
+                                fontSize: 60,
+                                originX: 'center',
+                                originY: 'center',
+                              });
+                              canvas.add(stickerObj);
+                              canvas.setActiveObject(stickerObj);
+                              canvas.renderAll();
+                              setShowAIModal(false);
+                              setAiModalTab('custom');
+                              setStickerSearch('');
+                              setFiltersTouched(false);
+                            }}
+                            className="flex flex-col items-center gap-1 p-2 bg-white border border-gray-300 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition"
+                          >
+                            <span className="text-3xl">{sticker.emoji}</span>
+                            <span className="text-[10px] text-gray-700 font-medium truncate w-full text-center">{sticker.label}</span>
+                          </button>
+                        ));
+                      })()}
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {/* Quick Add Tab */}
+              {/* Filters Tab */}
               {aiModalTab === 'quick' && (
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Quick Add</h3>
-                  <p className="text-xs text-gray-500 mb-3">Quick add options coming soon...</p>
+                <div className="flex flex-col h-full">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-900">Manual Adjustments</h3>
+                  </div>
+
+                  {/* Filters List - Scrollable */}
+                  <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+                    {/* Brightness */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">☀️</span>
+                          <label className="text-sm font-medium text-gray-700">Brightness</label>
+                        </div>
+                        <span className="text-xs text-gray-500">{Math.round(brightness * 100)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="-1"
+                        max="1"
+                        step="0.01"
+                        value={brightness}
+                        onChange={(e) => {
+                          setBrightness(parseFloat(e.target.value));
+                          setFiltersTouched(true);
+                          applyFilters();
+                        }}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                      />
+                    </div>
+
+                    {/* Contrast */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">◐</span>
+                          <label className="text-sm font-medium text-gray-700">Contrast</label>
+                        </div>
+                        <span className="text-xs text-gray-500">{Math.round(contrast * 100)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="-1"
+                        max="1"
+                        step="0.01"
+                        value={contrast}
+                        onChange={(e) => {
+                          setContrast(parseFloat(e.target.value));
+                          setFiltersTouched(true);
+                          applyFilters();
+                        }}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                      />
+                    </div>
+
+                    {/* Saturation */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">🎨</span>
+                          <label className="text-sm font-medium text-gray-700">Saturation</label>
+                        </div>
+                        <span className="text-xs text-gray-500">{Math.round(saturation * 100)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="-1"
+                        max="1"
+                        step="0.01"
+                        value={saturation}
+                        onChange={(e) => {
+                          setSaturation(parseFloat(e.target.value));
+                          setFiltersTouched(true);
+                          applyFilters();
+                        }}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                      />
+                    </div>
+
+                    {/* Blur */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">💨</span>
+                          <label className="text-sm font-medium text-gray-700">Blur</label>
+                        </div>
+                        <span className="text-xs text-gray-500">{Math.round(blur * 100)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={blur}
+                        onChange={(e) => {
+                          setBlur(parseFloat(e.target.value));
+                          setFiltersTouched(true);
+                          applyFilters();
+                        }}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                      />
+                    </div>
+
+                    {/* Sharpness */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">◇</span>
+                          <label className="text-sm font-medium text-gray-700">Sharpness</label>
+                        </div>
+                        <span className="text-xs text-gray-500">{Math.round(sharpness * 100)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={sharpness}
+                        onChange={(e) => {
+                          setSharpness(parseFloat(e.target.value));
+                          setFiltersTouched(true);
+                          applyFilters();
+                        }}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                      />
+                    </div>
+
+                    {/* Warmth */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">🔥</span>
+                          <label className="text-sm font-medium text-gray-700">Warmth</label>
+                        </div>
+                        <span className="text-xs text-gray-500">{Math.round(warmth * 100)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="-1"
+                        max="1"
+                        step="0.01"
+                        value={warmth}
+                        onChange={(e) => {
+                          setWarmth(parseFloat(e.target.value));
+                          setFiltersTouched(true);
+                          applyFilters();
+                        }}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Apply and Reset buttons - Only show when filters have been touched */}
+                  {filtersTouched && (
+                    <div className="mt-4 flex flex-col gap-2">
+                      <button
+                        onClick={() => {
+                          setShowAIModal(false);
+                          setAiModalTab('custom');
+                          setFiltersTouched(false);
+                        }}
+                        className="w-full py-2.5 px-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-semibold rounded-lg hover:from-purple-600 hover:to-pink-600 transition-all shadow-sm flex items-center justify-center gap-2"
+                      >
+                        ✓ Apply
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Reset button - Show when any filter is not at default */}
+                  {(brightness !== 0 || contrast !== 0 || saturation !== 0 || blur !== 0 || sharpness !== 0 || warmth !== 0) && (
+                    <div className={filtersTouched ? "flex flex-col gap-2" : "mt-4 flex flex-col gap-2"}>
+                      <button
+                        onClick={() => {
+                          resetFilters();
+                          setFiltersTouched(false);
+                        }}
+                        className="w-full py-2.5 px-4 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+                      >
+                        Reset to Default
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Buttons */}
-            <div className="p-4 flex flex-col gap-2">
-              <button
-                onClick={handleAIEdit}
-                className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2"
-                disabled={isProcessing || !aiPrompt.trim()}
-              >
-                {isProcessing ? (
-                  <>
-                    <span className="animate-spin">⚙️</span>
-                    <span>Processing...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>&#10003;</span>
-                    <span>Apply</span>
-                  </>
-                )}
-              </button>
-              <button
-                onClick={() => {
-                  setShowAIModal(false);
-                  setAiPrompt('');
-                  setAiError(null);
-                }}
-                className="w-full py-3 bg-white text-gray-700 rounded-xl font-semibold border border-gray-300 flex items-center justify-center gap-2"
-                disabled={isProcessing}
-              >
-                <span>&times;</span>
-                <span>Cancel</span>
-              </button>
-            </div>
+            {/* Buttons - Hide on Stickers and Filters tabs */}
+            {aiModalTab !== 'adjustments' && aiModalTab !== 'quick' && (
+              <div className="p-4 flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    if (aiModalTab === 'text') {
+                      // Handle text addition
+                      if (!canvas || !fabric || !textInput.trim()) return;
+
+                      const text = new fabric.IText(textInput, {
+                        left: CONTROL_PADDING + DISPLAY_WIDTH / 2,
+                        top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
+                        fontFamily: fontFamily,
+                        fontSize: fontSize,
+                        fontWeight: textBold ? 'bold' : 'normal',
+                        fontStyle: textItalic ? 'italic' : 'normal',
+                        underline: textUnderline,
+                        fill: textColor,
+                        textAlign: textAlign,
+                        originX: 'center',
+                        originY: 'center',
+                      });
+
+                      canvas.add(text);
+                      canvas.setActiveObject(text);
+                      canvas.renderAll();
+
+                      // Close modal and reset
+                      setShowAIModal(false);
+                      setAiModalTab('custom');
+                      setTextInput('');
+                      setTextTemplate(null);
+                      setFiltersTouched(false);
+                    } else {
+                      // Handle AI edit
+                      handleAIEdit();
+                    }
+                  }}
+                  className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2"
+                  disabled={isProcessing || (aiModalTab === 'custom' && !aiPrompt.trim()) || (aiModalTab === 'text' && !textInput.trim())}
+                >
+                  {isProcessing ? (
+                    <>
+                      <span className="animate-spin">⚙️</span>
+                      <span>Processing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>&#10003;</span>
+                      <span>Apply</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAIModal(false);
+                    setAiModalTab('custom');
+                    setAiPrompt('');
+                    setAiError(null);
+                    setFiltersTouched(false);
+                  }}
+                  className="w-full py-3 bg-white text-gray-700 rounded-xl font-semibold border border-gray-300 flex items-center justify-center gap-2"
+                  disabled={isProcessing}
+                >
+                  <span>&times;</span>
+                  <span>Cancel</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -3347,6 +4171,67 @@ export default function Editor() {
               </div>
             </div>
           </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirmation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 flex flex-col items-center gap-4">
+            {/* Sad Cat Icon */}
+            <div className="text-6xl">😿</div>
+
+            {/* Title */}
+            <h2 className="text-gray-900 text-xl font-bold text-center">Delete Everything?</h2>
+
+            {/* Message */}
+            <p className="text-gray-600 text-center text-sm">
+              This will delete your image and all added elements (text, stickers, etc.). This action cannot be undone.
+            </p>
+
+            {/* Buttons */}
+            <div className="w-full flex flex-col gap-3 mt-2">
+              <button
+                onClick={() => {
+                  if (!canvas) return;
+
+                  // Remove all objects except border and background
+                  const objectsToRemove = canvas.getObjects().filter((obj: any) =>
+                    !obj.excludeFromExport && obj.selectable !== false
+                  );
+                  objectsToRemove.forEach((obj: any) => canvas.remove(obj));
+                  canvas.renderAll();
+
+                  setUploadedImage(null);
+                  setCropHistory([]);
+
+                  // Reset text customization states
+                  setTextInput('');
+                  setTextTemplate(null);
+                  setFontFamily('Arial');
+                  setFontSize(32);
+                  setTextBold(false);
+                  setTextItalic(false);
+                  setTextUnderline(false);
+                  setTextAlign('center');
+                  setTextColor('#000000');
+
+                  setShowDeleteConfirmation(false);
+                  console.log('Everything deleted, returning to upload page');
+                }}
+                className="w-full py-3 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 transition-colors"
+              >
+                Yes, Delete Everything
+              </button>
+
+              <button
+                onClick={() => setShowDeleteConfirmation(false)}
+                className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
+              >
+                No, Keep It
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
