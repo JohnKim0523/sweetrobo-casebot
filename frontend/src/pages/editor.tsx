@@ -279,8 +279,9 @@ export default function Editor() {
         skipTargetFind: false,  // Keep object targeting for manipulation
         perPixelTargetFind: false,  // Disable pixel-perfect targeting for performance
         targetFindTolerance: 4,  // Small tolerance for easier touch targeting
-        enableRetinaScaling: false,  // Disable retina scaling
-        imageSmoothingEnabled: false,  // Disable image smoothing for performance
+        enableRetinaScaling: true,  // Enable retina scaling for better quality
+        imageSmoothingEnabled: true,  // Enable image smoothing for better quality
+        imageSmoothingQuality: 'high',  // Use high quality image smoothing
         renderOnAddRemove: true,  // Control rendering behavior
         skipOffscreen: true,  // Skip offscreen rendering
         stateful: false  // Disable state tracking for better performance
@@ -1209,9 +1210,19 @@ export default function Editor() {
       reader.onload = (e) => {
         if (e.target?.result) {
           const imgElement = new Image();
+          imgElement.crossOrigin = 'anonymous'; // Enable high-quality rendering
           imgElement.onload = function() {
-            const fabricImage = new fabric.Image(imgElement);
-            
+            const fabricImage = new fabric.Image(imgElement, {
+              // Preserve image quality
+              imageSmoothing: true,
+              cacheProperties: ['fill', 'stroke', 'strokeWidth', 'strokeDashArray', 'width', 'height'],
+              objectCaching: true,
+              statefullCache: false,
+              noScaleCache: false,
+              strokeUniform: false,
+              dirty: true
+            });
+
             // Remove previous image if exists
             if (uploadedImage) {
               canvas.remove(uploadedImage);
