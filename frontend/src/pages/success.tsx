@@ -11,11 +11,33 @@ export default function Success() {
     const id = Math.random().toString(36).substring(2, 15) +
                Math.random().toString(36).substring(2, 15);
     setSessionId(id.toUpperCase().substring(0, 20));
-  }, []);
 
-  const handleNewSession = () => {
-    router.push('/');
-  };
+    // Prevent back navigation - more aggressive approach
+    const preventBack = (e: PopStateEvent) => {
+      e.preventDefault();
+      window.history.pushState(null, '', window.location.href);
+      window.history.go(1);
+    };
+
+    // Push multiple states to make it harder to go back
+    window.history.pushState(null, '', window.location.href);
+    window.history.pushState(null, '', window.location.href);
+
+    // Listen for popstate (back button)
+    window.addEventListener('popstate', preventBack);
+
+    // Also prevent beforeunload
+    const preventUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', preventUnload);
+
+    return () => {
+      window.removeEventListener('popstate', preventBack);
+      window.removeEventListener('beforeunload', preventUnload);
+    };
+  }, []);
 
   return (
     <>
@@ -24,289 +46,61 @@ export default function Success() {
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
       </Head>
 
-      <div className="success-container">
-        {/* Background with editor preview */}
-        <div className="editor-preview">
-          <header className="preview-header">
-            <div className="header-left">
-              <img src="/icons/sweetrobo-logo.gif" alt="SweetRobo" className="header-logo" />
-              <span className="header-title">Case Bot App</span>
-            </div>
-          </header>
-
-          <div className="canvas-preview">
-            <div className="phone-case">
-              <div className="corner-marker top-left"></div>
-              <div className="corner-marker top-right"></div>
-              <div className="corner-marker bottom-left"></div>
-              <div className="corner-marker bottom-right"></div>
-            </div>
+      <div className="success-page">
+        <div className="content-wrapper">
+          <div className="checkmark-circle">
+            <svg className="checkmark" viewBox="0 0 52 52">
+              <circle className="checkmark-circle-bg" cx="26" cy="26" r="25" fill="none"/>
+              <path className="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+            </svg>
           </div>
 
-          <div className="bottom-tools-preview">
-            <div className="tool-icon">✨</div>
-            <div className="tool-icon">↻</div>
-            <div className="tool-icon">⬚</div>
-            <div className="tool-icon">🗑</div>
-          </div>
+          <h1>Thank you!</h1>
+          <p className="message">
+            Your design has been submitted successfully. Your custom print will be ready shortly.
+          </p>
 
-          <div className="submit-button-preview">Submit Image</div>
-        </div>
+          <p className="scan-message">
+            Please scan QR code to start a new session.
+          </p>
 
-        {/* Thank you modal */}
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <button className="close-button" onClick={handleNewSession}>✕</button>
-
-            <div className="checkmark-circle">
-              <svg className="checkmark" viewBox="0 0 52 52">
-                <circle className="checkmark-circle-bg" cx="26" cy="26" r="25" fill="none"/>
-                <path className="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
-              </svg>
-            </div>
-
-            <h1>Thank you!</h1>
-            <p className="message">
-              Your design has been submitted successfully. Your custom print will be ready shortly.
-            </p>
-
-            <p className="scan-message">
-              Please scan QR code to start a new session.
-            </p>
-
-            <div className="session-info">
-              <p className="session-label">Session ID</p>
-              <p className="session-id">{sessionId || 'Loading...'}</p>
-            </div>
+          <div className="session-info">
+            <p className="session-label">Session ID</p>
+            <p className="session-id">{sessionId || 'Loading...'}</p>
           </div>
         </div>
 
         <style jsx>{`
-          .success-container {
-            position: relative;
+          .success-page {
             min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           }
 
-          /* Background editor preview */
-          .editor-preview {
-            position: absolute;
-            inset: 0;
-            background: #ffffff;
-            opacity: 0.3;
-            filter: blur(2px);
-          }
-
-          .preview-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 16px;
+          .content-wrapper {
             background: white;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-          }
-
-          .header-left {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-          }
-
-          .header-logo {
-            width: 32px;
-            height: auto;
-          }
-
-          .header-title {
-            font-size: 16px;
-            font-weight: 600;
-            color: #1a1a1a;
-          }
-
-          .canvas-preview {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 40px;
-            height: 400px;
-          }
-
-          .phone-case {
-            width: 200px;
-            height: 320px;
-            background: white;
-            border-radius: 20px;
-            position: relative;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-          }
-
-          .corner-marker {
-            position: absolute;
-            width: 16px;
-            height: 16px;
-          }
-
-          .corner-marker::before,
-          .corner-marker::after {
-            content: '';
-            position: absolute;
-            background: #00BCD4;
-          }
-
-          .corner-marker.top-left {
-            top: 8px;
-            left: 8px;
-          }
-
-          .corner-marker.top-left::before {
-            width: 16px;
-            height: 2px;
-          }
-
-          .corner-marker.top-left::after {
-            width: 2px;
-            height: 16px;
-          }
-
-          .corner-marker.top-right {
-            top: 8px;
-            right: 8px;
-          }
-
-          .corner-marker.top-right::before {
-            width: 16px;
-            height: 2px;
-            right: 0;
-          }
-
-          .corner-marker.top-right::after {
-            width: 2px;
-            height: 16px;
-            right: 0;
-          }
-
-          .corner-marker.bottom-left {
-            bottom: 8px;
-            left: 8px;
-          }
-
-          .corner-marker.bottom-left::before {
-            width: 16px;
-            height: 2px;
-            bottom: 0;
-          }
-
-          .corner-marker.bottom-left::after {
-            width: 2px;
-            height: 16px;
-            bottom: 0;
-          }
-
-          .corner-marker.bottom-right {
-            bottom: 8px;
-            right: 8px;
-          }
-
-          .corner-marker.bottom-right::before {
-            width: 16px;
-            height: 2px;
-            bottom: 0;
-            right: 0;
-          }
-
-          .corner-marker.bottom-right::after {
-            width: 2px;
-            height: 16px;
-            bottom: 0;
-            right: 0;
-          }
-
-          .bottom-tools-preview {
-            display: flex;
-            justify-content: center;
-            gap: 24px;
-            padding: 16px;
-            background: white;
-          }
-
-          .tool-icon {
-            width: 36px;
-            height: 36px;
-            background: #f3f4f6;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-          }
-
-          .submit-button-preview {
-            margin: 0 20px 20px;
-            padding: 14px;
-            background: #d946ef;
-            color: white;
-            text-align: center;
-            border-radius: 10px;
-            font-weight: 600;
-          }
-
-          /* Modal overlay */
-          .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            padding: 20px;
-          }
-
-          /* Modal content */
-          .modal-content {
-            background: white;
-            border-radius: 16px;
-            padding: 32px 24px 24px;
+            border-radius: 24px;
+            padding: 48px 32px;
             width: 100%;
-            max-width: 320px;
+            max-width: 400px;
             text-align: center;
-            position: relative;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-          }
-
-          .close-button {
-            position: absolute;
-            top: 12px;
-            right: 12px;
-            width: 28px;
-            height: 28px;
-            border: none;
-            background: transparent;
-            cursor: pointer;
-            font-size: 20px;
-            color: #9ca3af;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 6px;
-            transition: all 0.2s ease;
-          }
-
-          .close-button:hover {
-            background: #f3f4f6;
-            color: #6b7280;
           }
 
           /* Checkmark animation */
           .checkmark-circle {
-            width: 72px;
-            height: 72px;
-            margin: 0 auto 20px;
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 32px;
           }
 
           .checkmark {
-            width: 72px;
-            height: 72px;
+            width: 80px;
+            height: 80px;
             border-radius: 50%;
             display: block;
             stroke-width: 2;
@@ -349,45 +143,49 @@ export default function Success() {
           }
 
           h1 {
-            font-size: 24px;
-            font-weight: 600;
+            font-size: 32px;
+            font-weight: 700;
             color: #1a1a1a;
-            margin: 0 0 12px 0;
+            margin: 0 0 16px 0;
           }
 
           .message {
-            font-size: 14px;
+            font-size: 16px;
             color: #6b7280;
-            line-height: 1.5;
-            margin: 0 0 20px 0;
+            line-height: 1.6;
+            margin: 0 0 24px 0;
           }
 
           .scan-message {
-            font-size: 13px;
+            font-size: 15px;
             color: #9ca3af;
-            margin: 0 0 20px 0;
+            margin: 0 0 32px 0;
+            font-weight: 500;
           }
 
           .session-info {
             background: #f9fafb;
-            border-radius: 8px;
-            padding: 12px;
+            border-radius: 12px;
+            padding: 16px;
+            border: 1px solid #e5e7eb;
           }
 
           .session-label {
-            font-size: 11px;
+            font-size: 12px;
             color: #9ca3af;
-            margin: 0 0 4px 0;
+            margin: 0 0 8px 0;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 1px;
+            font-weight: 600;
           }
 
           .session-id {
-            font-size: 13px;
+            font-size: 14px;
             font-family: 'Courier New', monospace;
-            color: #6b7280;
+            color: #374151;
             margin: 0;
             word-break: break-all;
+            font-weight: 600;
           }
         `}</style>
       </div>

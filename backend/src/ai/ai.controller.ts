@@ -90,22 +90,29 @@ export class AiController {
       }
     } catch (error) {
       console.error('AI Edit error:', error);
-      
+
       // Check for specific error types
+      if (error.body?.detail?.includes('balance') || error.body?.detail?.includes('Exhausted balance')) {
+        throw new HttpException(
+          'Insufficient funds. Exhausted balance. Please top up at fal.ai/dashboard/billing.',
+          HttpStatus.PAYMENT_REQUIRED,
+        );
+      }
+
       if (error.message?.includes('safety')) {
         throw new HttpException(
           'Content blocked by safety filter. Please try a different prompt.',
           HttpStatus.UNPROCESSABLE_ENTITY,
         );
       }
-      
+
       if (error.message?.includes('rate limit')) {
         throw new HttpException(
           'Rate limit exceeded. Please try again later.',
           HttpStatus.TOO_MANY_REQUESTS,
         );
       }
-      
+
       throw new HttpException(
         error.message || 'AI processing failed',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -114,15 +121,18 @@ export class AiController {
   }
 
   @Post('ai-create')
-  async aiCreate(@Body() body: { 
+  async aiCreate(@Body() body: {
     prompt: string;
     negativePrompt?: string;
     stylePreset?: string;
+    width?: number;
+    height?: number;
   }) {
     try {
       console.log('🎨 AI Create request received');
       console.log(`📝 Prompt: ${body.prompt}`);
-      
+      console.log(`📐 Dimensions: ${body.width}x${body.height}`);
+
       if (!process.env.FAL_KEY) {
         throw new HttpException(
           'AI service not configured',
@@ -137,11 +147,25 @@ export class AiController {
         );
       }
 
+      // Determine image size based on provided dimensions or default to square
+      let imageSize = "square";
+      if (body.width && body.height) {
+        const aspectRatio = body.width / body.height;
+        if (aspectRatio > 1.2) {
+          imageSize = "landscape_16_9";
+        } else if (aspectRatio < 0.8) {
+          imageSize = "portrait_16_9";
+        } else {
+          imageSize = "square";
+        }
+        console.log(`📏 Calculated aspect ratio: ${aspectRatio.toFixed(2)}, using size: ${imageSize}`);
+      }
+
       const result = await fal.subscribe('fal-ai/stable-diffusion-v3-medium', {
         input: {
           prompt: body.prompt,
           negative_prompt: body.negativePrompt || "ugly, deformed, noisy, blurry, distorted, grainy, low quality, nsfw, nude, explicit",
-          image_size: "square",
+          image_size: imageSize,
           num_inference_steps: 28,
           guidance_scale: 7.5,
           num_images: 1,
@@ -167,14 +191,22 @@ export class AiController {
       }
     } catch (error) {
       console.error('AI Create error:', error);
-      
+
+      // Check for balance issues
+      if (error.body?.detail?.includes('balance') || error.body?.detail?.includes('Exhausted balance')) {
+        throw new HttpException(
+          'Insufficient funds. Exhausted balance. Please top up at fal.ai/dashboard/billing.',
+          HttpStatus.PAYMENT_REQUIRED,
+        );
+      }
+
       if (error.message?.includes('safety')) {
         throw new HttpException(
           'Content blocked by safety filter. Please try a different prompt.',
           HttpStatus.UNPROCESSABLE_ENTITY,
         );
       }
-      
+
       throw new HttpException(
         error.message || 'AI generation failed',
         HttpStatus.INTERNAL_SERVER_ERROR,

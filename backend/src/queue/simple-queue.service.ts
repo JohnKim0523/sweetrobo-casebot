@@ -1,5 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import * as crypto from 'crypto';
+import { S3Service } from '../s3/s3.service';
+import { ChituService } from '../chitu/chitu.service';
 
 export interface PrintJobData {
   sessionId: string;
@@ -45,7 +47,12 @@ export class SimpleQueueService {
   private availableMachines: string[];
   private lastApiCall = 0;
 
-  constructor() {
+  constructor(
+    @Inject(forwardRef(() => S3Service))
+    private readonly s3Service: S3Service,
+    @Inject(forwardRef(() => ChituService))
+    private readonly chituService: ChituService,
+  ) {
     // Load available machines from environment or use defaults
     const machinesEnv = process.env.AVAILABLE_MACHINES;
     if (machinesEnv) {
@@ -223,8 +230,32 @@ export class SimpleQueueService {
     console.log(`🖨️ Processing job ${job.id} (attempt ${job.attempts}) for machine ${job.data.machineId}`);
 
     try {
-      // Simulate processing (in production, this would call Chitu API)
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Upload image to S3
+      let imageUrl = job.data.imageUrl;
+      if (!imageUrl && job.data.image) {
+        console.log(`📤 Uploading image to S3...`);
+
+        const buffer = Buffer.from(
+          job.data.image.replace(/^data:image\/\w+;base64,/, ''),
+          'base64'
+        );
+
+        const key = `designs/${job.data.sessionId}/${Date.now()}.png`;
+        imageUrl = await this.s3Service.uploadImage(buffer, key);
+        job.data.imageUrl = imageUrl;
+
+        console.log(`✅ Image uploaded: ${imageUrl}`);
+      }
+
+      // Simulate Chitu API call (commented out until credentials are ready)
+      // await this.chituService.createPrintTask({
+      //   device_id: job.data.machineId,
+      //   image_url: imageUrl,
+      //   task_name: `${job.data.phoneModel}_${job.data.sessionId}`,
+      // });
+
+      // Simulated delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Mark as completed
       job.status = 'completed';

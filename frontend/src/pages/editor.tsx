@@ -46,6 +46,7 @@ export default function Editor() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+
   // STEP 1: Fixed UI element heights (these never change)
   const CONTAINER_MAX_WIDTH = 384; // max-w-sm constraint
   const FIXED_HEADER_HEIGHT = 60; // Header at top (fixed)
@@ -89,6 +90,66 @@ export default function Editor() {
   const CONTROL_PADDING = Math.round((CANVAS_TOTAL_WIDTH - DISPLAY_WIDTH) / 2);
   const VERTICAL_PADDING = 3; // Padding for borders (ensures 2px stroke is fully visible)
 
+  // Restore design from preview if coming back from preview page
+  useEffect(() => {
+    if (router.query.restore === 'true' && canvas && fabric && !(window as any).__designRestored) {
+      const previewData = (window as any).__previewData;
+      if (previewData?.canvasState) {
+        console.log('🔄 Restoring canvas state from preview...');
+        console.log('Canvas state objects:', previewData.canvasState.objects?.length);
+
+        // Set a temporary placeholder to hide upload UI immediately
+        setUploadedImage({ temp: true });
+
+        // Small delay to ensure canvas is fully initialized
+        setTimeout(() => {
+          // Restore the entire canvas state from JSON
+          canvas.loadFromJSON(previewData.canvasState, () => {
+            console.log('✅ Canvas state restored');
+
+            // Find the uploaded image object (not the border or crosshairs)
+            const objects = canvas.getObjects();
+            console.log('Restored objects:', objects.length);
+            objects.forEach((o: any, i: number) => {
+              console.log(`Object ${i}:`, {
+                type: o.type,
+                excludeFromExport: o.excludeFromExport,
+                selectable: o.selectable,
+                width: o.width,
+                height: o.height
+              });
+            });
+
+            // Find the main uploaded image - it should be an image type that is selectable
+            const mainImage = objects.find((obj: any) =>
+              obj.type === 'image' && obj.selectable !== false
+            );
+
+            if (mainImage) {
+              console.log('Found main image, setting as uploadedImage');
+              setUploadedImage(mainImage);
+              canvas.setActiveObject(mainImage);
+            } else {
+              console.warn('No main image found in restored canvas');
+              // Fallback: just use the first image object
+              const anyImage = objects.find((obj: any) => obj.type === 'image');
+              if (anyImage) {
+                console.log('Using first image object as fallback');
+                setUploadedImage(anyImage);
+                canvas.setActiveObject(anyImage);
+              }
+            }
+
+            canvas.renderAll();
+
+            // Mark as restored to prevent re-running
+            (window as any).__designRestored = true;
+          });
+        }, 100);
+      }
+    }
+  }, [router.query.restore, canvas, fabric]);
+
   // Debug log to monitor scaling
   console.log('Dynamic Canvas Scaling:', {
     viewport: { width: viewportWidth, height: viewportHeight },
@@ -118,7 +179,12 @@ export default function Editor() {
   const [isCheckingSession, setIsCheckingSession] = useState(true); // Loading state
   const [crosshairLines, setCrosshairLines] = useState<{vertical: any, horizontal: any}>({vertical: null, horizontal: null});
   const [isSnapping, setIsSnapping] = useState(false);
-  
+
+  // Preview and Payment modal states
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+
   // AI Editing states
   const [showAIModal, setShowAIModal] = useState(false);
   const [aiModalTab, setAiModalTab] = useState<'custom' | 'text' | 'adjustments' | 'quick'>('custom'); // AI modal tabs
@@ -203,14 +269,71 @@ export default function Editor() {
     const machine = urlParams.get('machineId');
     const session = urlParams.get('session');
     const modelParam = urlParams.get('model');
-    
+    const resetParam = urlParams.get('reset');
+
+    // Dev reset - clear localStorage if reset=true parameter is present
+    if (resetParam === 'true') {
+      console.log('🔄 Resetting sessions (dev mode)');
+      localStorage.removeItem('submittedSessions');
+      if (modelParam) {
+        localStorage.removeItem(`model-session-${modelParam}`);
+      }
+      // Remove reset param and reload
+      urlParams.delete('reset');
+      const newUrl = `${window.location.pathname}?${urlParams.toString()}`;
+      window.location.replace(newUrl);
+      return;
+    }
+
     console.log('🔍 URL params:', { machine, session, model: modelParam });
     
     // Check if we're in model selection flow (no machine ID required)
     if (modelParam) {
       console.log('📱 Phone model flow - model:', modelParam);
       setMachineId('demo-' + modelParam); // Use model-based ID for demo
-      setSessionId('model-session-' + Date.now());
+
+      // Generate a unique session for this device+model combination
+      const storedSessionKey = `model-session-${modelParam}`;
+      let modelSession = localStorage.getItem(storedSessionKey);
+
+      if (!modelSession) {
+        // Generate unique session ID (not shared across users)
+        modelSession = typeof crypto !== 'undefined' && crypto.randomUUID
+          ? `model-${modelParam}-${crypto.randomUUID()}`
+          : `model-${modelParam}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        localStorage.setItem(storedSessionKey, modelSession);
+        console.log('🆕 Created new model session:', modelSession);
+      } else {
+        console.log('📱 Using existing model session:', modelSession);
+      }
+
+      setSessionId(modelSession);
+
+      // Check if this session was already submitted
+      const submittedSessions = JSON.parse(localStorage.getItem('submittedSessions') || '[]');
+      if (submittedSessions.includes(modelSession)) {
+        console.log('🔒 Model session already submitted - showing thank you page');
+        setIsSessionLocked(true);
+        setShowThankYou(true);
+        setThankYouMessage('Your design has been submitted successfully. Your custom print will be ready shortly!');
+        setIsCheckingSession(false);
+
+        // Prevent back navigation
+        window.history.pushState(null, '', window.location.href);
+        window.onpopstate = () => {
+          window.history.go(1);
+        };
+
+        // Prevent page refresh/reload
+        const preventRefresh = (e: BeforeUnloadEvent) => {
+          e.preventDefault();
+          e.returnValue = '';
+        };
+        window.addEventListener('beforeunload', preventRefresh);
+
+        return;
+      }
+
       setIsCheckingSession(false);
       return;
     }
@@ -271,6 +394,20 @@ export default function Editor() {
         setShowThankYou(true);
         setThankYouMessage('Your design has already been submitted. Your custom print will be ready shortly!');
         setIsCheckingSession(false);
+
+        // Prevent back navigation
+        window.history.pushState(null, '', window.location.href);
+        window.onpopstate = () => {
+          window.history.go(1);
+        };
+
+        // Prevent page refresh/reload
+        const preventRefresh = (e: BeforeUnloadEvent) => {
+          e.preventDefault();
+          e.returnValue = '';
+        };
+        window.addEventListener('beforeunload', preventRefresh);
+
         return;
       }
       
@@ -1454,7 +1591,9 @@ export default function Editor() {
     accept: {
       'image/*': ['.jpeg', '.jpg', '.png', '.gif']
     },
-    multiple: false
+    multiple: false,
+    noClick: true,  // Disable click-to-open so buttons inside work
+    noKeyboard: true
   });
 
   // AI Editing Functions
@@ -1759,7 +1898,9 @@ export default function Editor() {
         setMaskPrompt('');
         
         // Show appropriate alert based on error type
-        if (result.errorType === 'safety_filter' || result.error?.includes('safety filter')) {
+        if (result.error?.includes('balance') || result.error?.includes('Exhausted balance') || result.error?.includes('insufficient funds')) {
+          alert('💳 Insufficient funds. Please top up your AI credits at fal.ai/dashboard/billing to continue.');
+        } else if (result.errorType === 'safety_filter' || result.error?.includes('safety filter')) {
           alert('⚠️ The AI safety filter was triggered. Please try with a different prompt.');
         } else if (result.error?.includes('authentication') || result.error?.includes('401')) {
           alert('❌ API authentication failed. Please check your settings.');
@@ -1967,7 +2108,9 @@ export default function Editor() {
         setMaskPrompt('');
         
         // Show appropriate alert based on error type
-        if (result.errorType === 'safety_filter' || result.error?.includes('safety filter')) {
+        if (result.error?.includes('balance') || result.error?.includes('Exhausted balance') || result.error?.includes('insufficient funds')) {
+          alert('💳 Insufficient funds. Please top up your AI credits at fal.ai/dashboard/billing to continue.');
+        } else if (result.errorType === 'safety_filter' || result.error?.includes('safety filter')) {
           alert('⚠️ The AI safety filter was triggered. Please try with a different prompt.');
         } else if (result.error?.includes('authentication') || result.error?.includes('401')) {
           alert('❌ API authentication failed. Please check your settings.');
@@ -2009,18 +2152,19 @@ export default function Editor() {
           console.log('Removing old image from canvas');
           canvas.remove(uploadedImage);
         }
-        
-        // Scale and position the new image
-        const scale = Math.min(
-          (DISPLAY_WIDTH * 0.8) / fabricImage.width!,
-          (DISPLAY_HEIGHT * 0.8) / fabricImage.height!
-        );
-        fabricImage.scale(scale);
+
+        // Position the edited image - it's already at display dimensions from backend
+        // Scale to match canvas size exactly - fills canvas perfectly
+        const scaleX = DISPLAY_WIDTH / fabricImage.width!;
+        const scaleY = DISPLAY_HEIGHT / fabricImage.height!;
+
         fabricImage.set({
           left: CONTROL_PADDING + DISPLAY_WIDTH / 2,
           top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
           originX: 'center',
           originY: 'center',
+          scaleX: scaleX,
+          scaleY: scaleY,
           // Apply custom control settings
           hasBorders: false,
           borderColor: 'transparent'
@@ -2041,7 +2185,7 @@ export default function Editor() {
           canvas.renderAll();
         });
         
-        console.log('Adding new image to canvas with scale:', scale);
+        console.log('Adding new image to canvas with scaleX:', scaleX, 'scaleY:', scaleY);
         canvas.add(fabricImage);
         canvas.setActiveObject(fabricImage);
         canvas.renderAll();
@@ -2067,7 +2211,13 @@ export default function Editor() {
       setIsProcessing(false);
       setAiPrompt('');
       setFiltersTouched(false);
-      alert('❌ Failed to process image. Please try again.');
+
+      // Check if error is network/server issue
+      if (error.message?.includes('fetch') || error.message?.includes('NetworkError') || error.code === 'ECONNREFUSED') {
+        alert('⚠️ Backend server is offline. Please start the backend server and try again.');
+      } else {
+        alert('❌ Failed to process image. Please try again.');
+      }
     }
   };
   
@@ -2189,13 +2339,33 @@ export default function Editor() {
         },
         body: JSON.stringify({
           prompt: createPrompt,
+          width: DISPLAY_WIDTH,
+          height: DISPLAY_HEIGHT,
         }),
       });
       
       const result = await response.json();
-      
+
       if (!result.success) {
-        throw new Error(result.error || 'AI generation failed');
+        console.log('AI Create failed:', result.error);
+
+        // Stop processing but keep modal open so user can see their prompt
+        setIsProcessing(false);
+
+        // Show appropriate alert based on error type
+        if (result.error?.includes('balance') || result.error?.includes('Exhausted balance') || result.error?.includes('insufficient funds')) {
+          alert('💳 Insufficient funds. Please top up your AI credits at fal.ai/dashboard/billing to continue.');
+        } else if (result.error?.includes('safety filter')) {
+          alert('⚠️ The AI safety filter was triggered. Please try with a different prompt.');
+        } else if (result.error?.includes('authentication') || result.error?.includes('401')) {
+          alert('❌ API authentication failed. Please check your settings.');
+        } else if (result.error?.includes('rate limit') || result.error?.includes('429')) {
+          alert('⏱️ Rate limit exceeded. Please wait a moment and try again.');
+        } else {
+          alert('❌ ' + (result.error || 'AI generation failed. Please try again.'));
+        }
+
+        return; // Exit early without throwing error
       }
       
       console.log('Loading generated image to canvas...');
@@ -2218,23 +2388,24 @@ export default function Editor() {
         if (uploadedImage) {
           canvas.remove(uploadedImage);
         }
-        
-        // Scale and position the new image
-        const scale = Math.min(
-          (DISPLAY_WIDTH * 0.8) / fabricImage.width!,
-          (DISPLAY_HEIGHT * 0.8) / fabricImage.height!
-        );
-        fabricImage.scale(scale);
+
+        // Position the new image (already at correct canvas dimensions from backend)
+        // Scale to match canvas size exactly - fills canvas perfectly
+        const scaleX = DISPLAY_WIDTH / fabricImage.width!;
+        const scaleY = DISPLAY_HEIGHT / fabricImage.height!;
+
         fabricImage.set({
           left: CONTROL_PADDING + DISPLAY_WIDTH / 2,
           top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
           originX: 'center',
           originY: 'center',
+          scaleX: scaleX,
+          scaleY: scaleY,
           // Apply custom control settings
           hasBorders: false,
           borderColor: 'transparent'
         });
-        
+
         // Apply normal controls (L-shaped corners) to AI generated images
         if (normalControls.current) {
           (fabricImage as any).controls = normalControls.current;
@@ -2584,92 +2755,46 @@ export default function Editor() {
           backgroundColor: 'white'
         };
         
-        // Step 1: Get presigned URL from backend
-        console.log('📤 Uploading to backend...');
-        setDebugInfo(`Uploading image... Size: ${sizeInMB.toFixed(2)}MB`);
-        
-        let uploadData;
-        try {
-          // Upload to backend, which will handle S3
-          const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
-          console.log('📤 Uploading to backend:', `${backendUrl}/api/upload-design`);
-          setDebugInfo(`Uploading to: ${backendUrl}/api/upload-design`);
-          
-          const uploadResponse = await fetch(`${backendUrl}/api/chitu/print`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              image: dataURL,
-              machineId: machineId,
-              sessionId: sessionId || `session_${Date.now()}`,
-              phoneModel: phoneModel?.displayName || 'Default Phone Case',
-              phoneModelId: phoneModel?.id || 'default',
-              dimensions: {
-                widthPX: EXPORT_WIDTH,
-                heightPX: EXPORT_HEIGHT,
-                widthMM: phoneModel?.dimensions.widthMM || DEFAULT_WIDTH_MM,
-                heightMM: phoneModel?.dimensions.heightMM || DEFAULT_HEIGHT_MM
-              }
-            }),
-          });
-          
-          console.log('Upload response status:', uploadResponse.status);
-          console.log('Upload response ok:', uploadResponse.ok);
-          
-          if (!uploadResponse.ok) {
-            const errorText = await uploadResponse.text();
-            console.error('Upload error response:', errorText);
-            throw new Error(`Failed to upload to backend: ${uploadResponse.status} - ${errorText}`);
+        // Prepare preview data (no backend upload yet)
+        console.log('📋 Preparing preview...');
+        setDebugInfo(`Preparing preview...`);
+
+        // Save canvas state as JSON to restore all layers when going back
+        const canvasJSON = canvas.toJSON(['selectable', 'hasControls', 'excludeFromExport']);
+        console.log('💾 Saved canvas state with', canvas.getObjects().length, 'objects');
+
+        // Store preview data in global window object (too large for sessionStorage)
+        const previewData = {
+          designImage: dataURL,
+          canvasState: canvasJSON, // Save full canvas state for restoration
+          phoneTemplate: phoneModel?.templatePath ? `/phone-models/${phoneModel.templatePath}` : null,
+          phoneName: phoneModel?.displayName || 'Custom Phone Case',
+          submissionData: {
+            image: dataURL,
+            machineId: machineId,
+            sessionId: sessionId || `session_${Date.now()}`,
+            phoneModel: phoneModel?.displayName || 'Default Phone Case',
+            phoneModelId: phoneModel?.id || 'default',
+            dimensions: {
+              widthPX: EXPORT_WIDTH,
+              heightPX: EXPORT_HEIGHT,
+              widthMM: phoneModel?.dimensions.widthMM || DEFAULT_WIDTH_MM,
+              heightMM: phoneModel?.dimensions.heightMM || DEFAULT_HEIGHT_MM
+            }
           }
-          
-          uploadData = await uploadResponse.json();
-          console.log('✅ Upload successful:', uploadData);
-          console.log('Image URL:', uploadData.imageUrl);
-        } catch (error: any) {
-          console.error('Failed to upload:', error);
-          console.error('Error details:', error.stack);
-          setDebugInfo(`Upload Error: ${error.message}`);
-          
-          // Check if it's a duplicate submission error
-          if (error.message?.includes('Duplicate') || uploadData?.error?.includes('Duplicate')) {
-            alert('Please wait a moment before submitting again.');
-          } else {
-            alert(`Failed to prepare upload: ${error.message}`);
-          }
-          
-          setIsUploading(false);
-          return;
-        }
-        
-        // Backend now handles S3 upload AND job creation/printer notification
-        console.log('✅ Backend handled S3 upload and job creation');
-        console.log('✅ Job created with ID:', uploadData.jobId);
-        console.log('📍 Queue position:', uploadData.queuePosition);
-        setDebugInfo(`Success! Queue position: ${uploadData.queuePosition || 1}`);
-        setIsUploading(false); // Ensure we stop the loading state
-        
-        // Mark session as submitted in localStorage
-        if (sessionId) {
-          const submittedSessions = JSON.parse(localStorage.getItem('submittedSessions') || '[]');
-          if (!submittedSessions.includes(sessionId)) {
-            submittedSessions.push(sessionId);
-            localStorage.setItem('submittedSessions', JSON.stringify(submittedSessions));
-            console.log('📝 Marked session as submitted:', sessionId);
-          }
-        }
-        
-        // Success! Show thank you page and lock session
-        setIsSessionLocked(true);
-        setThankYouMessage('Your design has been submitted successfully. Your custom print will be ready shortly!');
-        setShowThankYou(true);
-        
-        console.log('✅ Thank you page should now be showing');
-        
-        // Prevent back navigation
-        window.history.pushState(null, '', window.location.href);
-        window.onpopstate = () => {
-          window.history.go(1);
         };
+
+        // Store preview image for modal
+        setPreviewImage(dataURL);
+
+        // Store submission data for payment completion
+        (window as any).__submissionData = previewData.submissionData;
+
+        console.log('✅ Showing preview modal...');
+        setIsUploading(false);
+
+        // Show preview modal instead of navigating
+        setShowPreviewModal(true);
       } catch (error) {
         console.error('Error submitting design:', error);
         alert('Failed to submit design');
@@ -2729,30 +2854,90 @@ export default function Editor() {
             }
           `}} />
         </Head>
-        <div className="h-screen text-white flex flex-col items-center justify-center p-6">
-          <div className="max-w-md text-center">
-            <div className="glass-panel p-8 floating-element">
-              <div className="text-6xl mb-6 pulse-glow" style={{color: thankYouMessage.includes('expired') || thankYouMessage.includes('Invalid') ? 'var(--neon-pink)' : 'var(--neon-green)'}}>
-                {thankYouMessage.includes('expired') || thankYouMessage.includes('Invalid') ? '⏰' : '✨'}
-              </div>
-              <h1 className="text-3xl font-bold mb-4" style={{background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text'}}>
-                {thankYouMessage.includes('expired') || thankYouMessage.includes('Invalid') ? 'Session Status' : 'Mission Complete!'}
-              </h1>
-              <p className="text-xl mb-6" style={{color: 'var(--foreground)'}}>{thankYouMessage}</p>
-              
-              {sessionId && (
-                <div className="glass-panel p-4 mb-6 border" style={{borderColor: 'var(--neon-cyan)'}}>
-                  <p className="text-sm mb-2" style={{color: 'var(--neon-cyan)'}}>Session ID:</p>
-                  <p className="text-xs font-mono" style={{color: 'var(--foreground-muted)'}}>{sessionId}</p>
-                </div>
-              )}
-              
-              <p className="text-sm" style={{color: 'var(--foreground-muted)'}}>
-                Scan QR code to initiate new session
-              </p>
+        <div className="min-h-screen bg-white flex items-center justify-center p-5">
+          <div className="max-w-md w-full text-center">
+            {/* Animated Checkmark */}
+            <div className="checkmark-wrapper mb-8">
+              <svg className="checkmark" viewBox="0 0 52 52" width="100" height="100">
+                <circle className="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+                <path className="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+              </svg>
             </div>
+
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">Thank you!</h1>
+
+            <p className="text-base text-gray-600 mb-8 leading-relaxed">
+              {thankYouMessage}
+            </p>
+
+            <p className="text-sm text-gray-500 mb-6">
+              Please scan QR code to start a new session.
+            </p>
+
+            {sessionId && (
+              <div className="bg-gray-100 rounded-xl p-4">
+                <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-semibold">Session ID</p>
+                <p className="text-sm font-mono text-gray-700 break-all">{sessionId}</p>
+              </div>
+            )}
           </div>
         </div>
+
+        <style jsx>{`
+          .checkmark-wrapper {
+            display: flex;
+            justify-content: center;
+          }
+
+          .checkmark {
+            border-radius: 50%;
+            display: block;
+            stroke-width: 2;
+            stroke: #fff;
+            stroke-miterlimit: 10;
+            animation: fill .4s ease-in-out .4s forwards, scale .3s ease-in-out .9s both;
+          }
+
+          .checkmark-circle {
+            stroke-dasharray: 166;
+            stroke-dashoffset: 166;
+            stroke-width: 2;
+            stroke-miterlimit: 10;
+            stroke: #d946ef;
+            fill: #d946ef;
+            animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+          }
+
+          .checkmark-check {
+            transform-origin: 50% 50%;
+            stroke-dasharray: 48;
+            stroke-dashoffset: 48;
+            stroke: white;
+            stroke-width: 3;
+            animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards;
+          }
+
+          @keyframes stroke {
+            100% {
+              stroke-dashoffset: 0;
+            }
+          }
+
+          @keyframes scale {
+            0%, 100% {
+              transform: none;
+            }
+            50% {
+              transform: scale3d(1.1, 1.1, 1);
+            }
+          }
+
+          @keyframes fill {
+            100% {
+              box-shadow: inset 0px 0px 0px 30px #d946ef;
+            }
+          }
+        `}</style>
       </>
       );
     }
@@ -2815,7 +3000,13 @@ export default function Editor() {
 
                   {/* Upload Section - Expands to fill available space */}
                   <div className="flex-1 flex items-center justify-center mb-4">
-                    <div {...getRootProps()} className="w-full h-full max-h-[40vh] min-h-[200px] border-2 border-dashed border-purple-300 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer active:border-purple-400 active:bg-purple-50 transition-all bg-white">
+                    <div {...getRootProps()} className="w-full h-full max-h-[40vh] min-h-[200px] border-2 border-dashed border-purple-300 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer active:border-purple-400 active:bg-purple-50 transition-all bg-white"
+                      onClick={() => {
+                        // Manually trigger file input when upload area is clicked
+                        const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+                        if (input) input.click();
+                      }}
+                    >
                       <input {...getInputProps()} />
                       <div className="w-12 h-12 mx-auto mb-2 rounded-full flex items-center justify-center relative" style={{ background: 'linear-gradient(135deg, #a78bfa, #ec4899)', padding: '2px' }}>
                         <div className="w-full h-full bg-white rounded-full flex items-center justify-center">
@@ -2837,7 +3028,7 @@ export default function Editor() {
                   </div>
 
                   {/* AI Generate Section - Fixed at bottom with white card */}
-                  <div className="bg-white rounded-2xl p-4 shadow-lg space-y-2.5">
+                  <div className="bg-white rounded-2xl p-4 shadow-lg space-y-2.5" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                         <span className="text-white text-xs">✨</span>
@@ -2851,7 +3042,8 @@ export default function Editor() {
                       placeholder="Describe your image..."
                       value={createPrompt}
                       onChange={(e) => setCreatePrompt(e.target.value)}
-                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-purple-500 text-sm"
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-purple-500 text-sm text-gray-900"
                     />
 
                     <button
@@ -2866,27 +3058,27 @@ export default function Editor() {
                     <div className="pt-2">
                       <p className="text-xs text-gray-500 mb-1.5">Quick prompts:</p>
                       <div className="grid grid-cols-3 gap-1.5">
-                        <button onClick={() => setCreatePrompt('Sunset landscape')} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); console.log('Setting prompt to: Sunset landscape'); setCreatePrompt('Sunset landscape'); }} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
                           <span className="text-lg mb-0.5">🌅</span>
                           <span className="text-[10px] text-gray-600">Sunset</span>
                         </button>
-                        <button onClick={() => setCreatePrompt('Cartoon Cat')} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); console.log('Setting prompt to: Cartoon Cat'); setCreatePrompt('Cartoon Cat'); }} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
                           <span className="text-lg mb-0.5">🐱</span>
                           <span className="text-[10px] text-gray-600">Cartoon Cat</span>
                         </button>
-                        <button onClick={() => setCreatePrompt('Abstract Art')} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); console.log('Setting prompt to: Abstract Art'); setCreatePrompt('Abstract Art'); }} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
                           <span className="text-lg mb-0.5">🎨</span>
                           <span className="text-[10px] text-gray-600">Abstract Art</span>
                         </button>
-                        <button onClick={() => setCreatePrompt('Space Galaxy')} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); console.log('Setting prompt to: Space Galaxy'); setCreatePrompt('Space Galaxy'); }} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
                           <span className="text-lg mb-0.5">🌌</span>
                           <span className="text-[10px] text-gray-600">Space/Galaxy</span>
                         </button>
-                        <button onClick={() => setCreatePrompt('Cherry Blossom')} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); console.log('Setting prompt to: Cherry Blossom'); setCreatePrompt('Cherry Blossom'); }} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
                           <span className="text-lg mb-0.5">🌸</span>
                           <span className="text-[10px] text-gray-600">Cherry Blossom</span>
                         </button>
-                        <button onClick={() => setCreatePrompt('Retro Synthwave')} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); console.log('Setting prompt to: Retro Synthwave'); setCreatePrompt('Retro Synthwave'); }} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
                           <span className="text-lg mb-0.5">🌆</span>
                           <span className="text-[10px] text-gray-600">Retro Synthwave</span>
                         </button>
@@ -4506,6 +4698,309 @@ export default function Editor() {
               >
                 No, Keep It
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Modal */}
+      {showPreviewModal && previewImage && (
+        <div className="fixed inset-0 bg-white z-50 flex flex-col">
+          {/* Preview Container - Scrollable content */}
+          <div className="flex-1 overflow-y-auto pb-32 px-4 pt-8">
+            <div className="max-w-md mx-auto">
+              {/* Phone Model Preview */}
+              <div className="relative mx-auto mb-6" style={{ maxWidth: '280px', maxHeight: '60vh' }}>
+                <div className="relative">
+                  {/* Design Image (background) */}
+                  <img
+                    src={previewImage}
+                    alt="Your design"
+                    className="w-full h-auto object-contain"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      zIndex: 1,
+                      maxHeight: '60vh',
+                    }}
+                  />
+
+                  {/* Phone Case Template (foreground) */}
+                  {phoneModel?.templatePath && (
+                    <img
+                      src={`/phone-models/${phoneModel.templatePath}`}
+                      alt={phoneModel.displayName}
+                      className="w-full h-auto relative object-contain"
+                      style={{ zIndex: 2, maxHeight: '60vh' }}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Phone Model Name */}
+              <h2 className="text-center text-xl font-semibold text-gray-800 mb-2">
+                {phoneModel?.displayName}
+              </h2>
+              <p className="text-center text-gray-600 text-sm mb-4">
+                Your custom phone case design
+              </p>
+            </div>
+          </div>
+
+          {/* Fixed Bottom Buttons */}
+          <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg">
+            <div className="max-w-md mx-auto space-y-3">
+              <button
+                onClick={() => {
+                  setShowPreviewModal(false);
+                  setShowPaymentModal(true);
+                }}
+                className="w-full bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-semibold py-4 px-6 rounded-lg transition shadow-md"
+              >
+                Proceed with Payment
+              </button>
+              <button
+                onClick={() => {
+                  setShowPreviewModal(false);
+                  setPreviewImage(null);
+                  setIsUploading(false);
+                  setDebugInfo('');
+                }}
+                className="w-full bg-gray-200 hover:bg-gray-300 active:bg-gray-400 text-gray-800 font-semibold py-4 px-6 rounded-lg transition"
+              >
+                Back to Edit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl my-8 max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="border-b border-gray-200 p-4 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    setShowPaymentModal(false);
+                    setShowPreviewModal(true);
+                  }}
+                  className="text-gray-600 hover:text-gray-800 text-2xl"
+                  disabled={isUploading}
+                >
+                  ←
+                </button>
+                <h2 className="text-lg font-bold text-gray-900">Complete Payment</h2>
+              </div>
+            </div>
+
+            {/* Modal Content - Scrollable */}
+            <div className="p-4 space-y-4 overflow-y-auto flex-1">
+              {/* Order Summary */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Order Summary</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">AI Photo Enhancement</span>
+                    <span className="text-gray-900">$4.99</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Premium Sticker Pack</span>
+                    <span className="text-gray-900">$2.99</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Text Overlay Features</span>
+                    <span className="text-gray-900">$1.99</span>
+                  </div>
+                  <div className="border-t border-gray-200 pt-2 mt-2"></div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">Subtotal</span>
+                    <span className="text-gray-900">$9.97</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">Tax</span>
+                    <span className="text-gray-900">$0.80</span>
+                  </div>
+                  <div className="border-t border-gray-200 pt-2 mt-2"></div>
+                  <div className="flex justify-between font-bold text-base">
+                    <span className="text-gray-900">Total</span>
+                    <span className="text-purple-600">$10.77</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment Method */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Payment Method</h3>
+                <div className="space-y-2">
+                  {/* Credit/Debit Card */}
+                  <div className="border-2 border-purple-500 rounded-lg p-3 flex items-center gap-3 bg-purple-50">
+                    <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center text-white">
+                      ✓
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-semibold text-gray-900 text-sm">Credit/Debit Card</div>
+                      <div className="text-xs text-gray-600">Visa, Mastercard, Amex</div>
+                    </div>
+                  </div>
+
+                  {/* PayPal */}
+                  <div className="border border-gray-300 rounded-lg p-3 flex items-center gap-3 opacity-60">
+                    <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center">
+                      <span className="text-white text-xs font-bold">PP</span>
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-semibold text-gray-900 text-sm">PayPal</div>
+                      <div className="text-xs text-gray-600">Login to your PayPal account</div>
+                    </div>
+                  </div>
+
+                  {/* Apple Pay */}
+                  <div className="border border-gray-300 rounded-lg p-3 flex items-center gap-3 opacity-60">
+                    <div className="w-8 h-8 bg-black rounded flex items-center justify-center">
+                      <span className="text-white text-xs font-bold">🍎</span>
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-semibold text-gray-900 text-sm">Apple Pay</div>
+                      <div className="text-xs text-gray-600">Use Apple Pay to pay</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card Details Form */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Card Number</label>
+                  <input
+                    type="text"
+                    placeholder="1234 5678 9012 3456"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    disabled={isUploading}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Expiry Date</label>
+                    <input
+                      type="text"
+                      placeholder="MM/YY"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      disabled={isUploading}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">CVC</label>
+                    <input
+                      type="text"
+                      placeholder="123"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      disabled={isUploading}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Cardholder Name</label>
+                  <input
+                    type="text"
+                    placeholder="John Doe"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    disabled={isUploading}
+                  />
+                </div>
+              </div>
+
+              {/* Security Notice */}
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs">
+                <div className="font-semibold text-green-800 mb-1">Secure Payment</div>
+                <div className="text-green-700">Your payment information is encrypted and secure</div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="space-y-2 pt-2">
+                <button
+                  onClick={async () => {
+                    if (!previewImage) return;
+
+                    setIsUploading(true);
+
+                    try {
+                      // Get submission data from window
+                      const submissionData = (window as any).__submissionData;
+
+                      // Submit to backend (S3 upload + print job)
+                      const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
+                      const response = await fetch(`${backendUrl}/api/chitu/print`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(submissionData),
+                      });
+
+                      const result = await response.json();
+
+                      if (result.success) {
+                        // Clear data
+                        delete (window as any).__submissionData;
+                        setShowPaymentModal(false);
+                        setPreviewImage(null);
+
+                        // Mark session as submitted in localStorage
+                        if (sessionId) {
+                          const submittedSessions = JSON.parse(localStorage.getItem('submittedSessions') || '[]');
+                          submittedSessions.push(sessionId);
+                          localStorage.setItem('submittedSessions', JSON.stringify(submittedSessions));
+                        }
+
+                        // Show thank you page within editor (no navigation)
+                        setIsSessionLocked(true);
+                        setThankYouMessage('Your design has been submitted successfully. Your custom print will be ready shortly!');
+                        setShowThankYou(true);
+
+                        // Prevent back navigation
+                        window.history.pushState(null, '', window.location.href);
+                        window.onpopstate = () => {
+                          window.history.go(1);
+                        };
+
+                        // Prevent page refresh/reload
+                        const preventRefresh = (e: BeforeUnloadEvent) => {
+                          e.preventDefault();
+                          e.returnValue = '';
+                        };
+                        window.addEventListener('beforeunload', preventRefresh);
+                      } else {
+                        alert('Submission failed: ' + (result.error || 'Unknown error'));
+                        setIsUploading(false);
+                      }
+                    } catch (error: any) {
+                      console.error('Submission error:', error);
+                      alert('Failed to submit design: ' + error.message);
+                      setIsUploading(false);
+                    }
+                  }}
+                  disabled={isUploading}
+                  className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold py-3 px-6 rounded-lg transition"
+                >
+                  {isUploading ? 'Processing...' : 'Complete Payment'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowPaymentModal(false);
+                    setShowPreviewModal(true);
+                  }}
+                  disabled={isUploading}
+                  className="w-full text-center text-gray-600 hover:text-gray-800 py-2 text-sm"
+                >
+                  ✕ Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>

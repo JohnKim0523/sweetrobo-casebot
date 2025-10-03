@@ -23,7 +23,7 @@ export class S3Service {
       Key: key,
       Body: buffer,
       ContentType: 'image/png',
-      ACL: 'public-read',
+      // ACL removed - bucket has ACLs disabled
     };
 
     const result = await this.s3.upload(params).promise();

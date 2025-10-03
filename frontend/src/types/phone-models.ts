@@ -10,6 +10,7 @@ export interface PhoneModel {
     heightPX: number;   // Canvas height in pixels for design
   };
   image?: string;        // Preview image of the phone
+  templatePath?: string; // Path to phone case template PNG (for preview overlay)
   available: boolean;
 }
 
@@ -40,11 +41,12 @@ export const PHONE_MODELS: PhoneModel[] = [
     displayName: 'iPhone 16 Pro',
     dimensions: {
       widthMM: 77.6,   // Actual iPhone 16 Pro width
-      heightMM: 163.0, // Actual iPhone 16 Pro height  
+      heightMM: 163.0, // Actual iPhone 16 Pro height
       widthPX: Math.round(77.6 * MM_TO_PX),   // ~916px
       heightPX: Math.round(163.0 * MM_TO_PX), // ~1925px
     },
     image: '/images/phones/iphone-16-pro.png',
+    templatePath: 'iPhone-16.png',
     available: true,
   },
   {

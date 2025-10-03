@@ -56,24 +56,44 @@ export default function AdminDashboard() {
     }
   };
 
+  // Download image from S3
+  const downloadImage = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err: any) {
+      alert(`Failed to download: ${err.message}`);
+    }
+  };
+
   // Delete image from S3 via backend
   const deleteImage = async (key: string) => {
     if (!confirm(`Delete ${key}?`)) return;
-    
+
     try {
       setDeleting(key);
       const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
       const response = await fetch(`${backendUrl}/api/admin/s3-images`, {
         method: 'DELETE',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${adminToken}`
         },
         body: JSON.stringify({ key }),
       });
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         setImages(images.filter(img => img.key !== key));
       } else {
@@ -237,11 +257,11 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {images.map((image) => (
                   <div key={image.key} className="bg-gray-700 rounded overflow-hidden">
-                    <div className="aspect-w-1 aspect-h-1 bg-gray-600">
-                      <img 
-                        src={image.url} 
+                    <div className="bg-gray-600 flex items-center justify-center p-4" style={{ minHeight: '200px' }}>
+                      <img
+                        src={image.url}
                         alt={image.key}
-                        className="w-full h-48 object-cover"
+                        className="max-w-full max-h-64 object-contain"
                         loading="lazy"
                       />
                     </div>
@@ -255,13 +275,21 @@ export default function AdminDashboard() {
                       <p className="text-xs text-gray-500">
                         {formatDate(image.lastModified)}
                       </p>
-                      <button
-                        onClick={() => deleteImage(image.key)}
-                        disabled={deleting === image.key}
-                        className="mt-2 w-full px-3 py-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 rounded text-sm"
-                      >
-                        {deleting === image.key ? 'Deleting...' : '🗑️ Delete'}
-                      </button>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          onClick={() => downloadImage(image.url, image.key.split('/').pop() || 'design.png')}
+                          className="flex-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+                        >
+                          ⬇️ Download
+                        </button>
+                        <button
+                          onClick={() => deleteImage(image.key)}
+                          disabled={deleting === image.key}
+                          className="flex-1 px-3 py-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 rounded text-sm"
+                        >
+                          {deleting === image.key ? 'Deleting...' : '🗑️ Delete'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
