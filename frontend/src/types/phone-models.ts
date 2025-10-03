@@ -32,6 +32,7 @@ export const PHONE_MODELS: PhoneModel[] = [
       heightPX: Math.round(146.6 * MM_TO_PX), // ~1731px
     },
     image: '/images/phones/iphone-15-pro.png',
+    templatePath: 'iPhone 15Pro-FG.webp',
     available: true,
   },
   {
