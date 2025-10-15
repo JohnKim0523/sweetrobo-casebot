@@ -5,37 +5,29 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { S3Service } from '../s3/s3.service';
-import * as fal from '@fal-ai/serverless-client';
+import { vertexAIService } from '../services/vertexAI.service';
 
 @Controller('api')
 export class AiController {
-  constructor(private readonly s3Service: S3Service) {
-    // Initialize FAL client with API key from environment
-    if (process.env.FAL_KEY) {
-      fal.config({
-        credentials: process.env.FAL_KEY,
-      });
-    }
-  }
-
+  /**
+   * AI Edit endpoint - Edit images using Gemini 2.5 Flash Image
+   * POST /api/ai-edit
+   */
   @Post('ai-edit')
-  async aiEdit(@Body() body: { 
-    image: string; 
+  async aiEdit(@Body() body: {
+    image: string;
     prompt: string;
     mask?: string;
+    userId?: string;
+    width?: number;
+    height?: number;
   }) {
     try {
-      console.log('🎨 AI Edit request received');
+      console.log('📥 AI Edit request received (Vertex AI)');
       console.log(`📝 Prompt: ${body.prompt}`);
       console.log(`🎭 Has mask: ${!!body.mask}`);
-      
-      if (!process.env.FAL_KEY) {
-        throw new HttpException(
-          'AI service not configured',
-          HttpStatus.SERVICE_UNAVAILABLE,
-        );
-      }
+      console.log(`📐 Target dimensions: ${body.width || 'auto'}x${body.height || 'auto'}`);
+      console.log(`👤 User ID: ${body.userId || 'anonymous'}`);
 
       if (!body.image || !body.prompt) {
         throw new HttpException(
@@ -44,82 +36,46 @@ export class AiController {
         );
       }
 
-      // Prepare the request based on whether we have a mask
-      let result;
-      
-      if (body.mask) {
-        // Inpainting with mask using Flux Fill Pro
-        console.log('🎭 Using Flux Fill Pro for inpainting with mask');
-        result = await fal.subscribe('fal-ai/flux-pro/v1.1/fill', {
-          input: {
-            image_url: body.image,
-            mask_url: body.mask,
-            prompt: body.prompt,
-            guidance_scale: 30,
-            num_inference_steps: 50,
-            seed: Math.floor(Math.random() * 1000000),
-            safety_tolerance: 2,
-          },
-        });
-      } else {
-        // Image-to-image without mask using Flux Redux Pro
-        console.log('🖼️ Using Flux Redux Pro for image-to-image transformation');
-        result = await fal.subscribe('fal-ai/flux-pro/v1.1/redux', {
-          input: {
-            prompt: body.prompt,
-            image_url: body.image,
-            guidance_scale: 3.5,
-            num_inference_steps: 50,
-            seed: Math.floor(Math.random() * 1000000),
-            safety_tolerance: 2,
-          },
-        });
+      // Call Vertex AI service for image editing
+      const result = await vertexAIService.editImage({
+        imageUrl: body.image,
+        prompt: body.prompt,
+        userId: body.userId || 'anonymous',
+        width: body.width,
+        height: body.height,
+      });
+
+      if (!result.success) {
+        console.error('❌ Vertex AI edit failed:', result.error);
+        throw new HttpException(
+          result.error || 'AI edit failed',
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
       }
 
-      const typedResult = result as any;
-      if (typedResult.images && typedResult.images.length > 0) {
-        console.log('✅ AI edit successful');
-        return {
-          success: true,
-          imageUrl: typedResult.images[0].url,
-          width: typedResult.images[0].width,
-          height: typedResult.images[0].height,
-        };
-      } else {
-        throw new Error('No image generated');
-      }
+      console.log('✅ AI edit successful (Vertex AI)');
+      return {
+        success: true,
+        imageUrl: result.editedImageUrl,
+      };
     } catch (error) {
-      console.error('AI Edit error:', error);
+      console.error('💥 AI Edit error:', error);
 
-      // Check for specific error types
-      if (error.body?.detail?.includes('balance') || error.body?.detail?.includes('Exhausted balance')) {
-        throw new HttpException(
-          'Insufficient funds. Exhausted balance. Please top up at fal.ai/dashboard/billing.',
-          HttpStatus.PAYMENT_REQUIRED,
-        );
-      }
-
-      if (error.message?.includes('safety')) {
-        throw new HttpException(
-          'Content blocked by safety filter. Please try a different prompt.',
-          HttpStatus.UNPROCESSABLE_ENTITY,
-        );
-      }
-
-      if (error.message?.includes('rate limit')) {
-        throw new HttpException(
-          'Rate limit exceeded. Please try again later.',
-          HttpStatus.TOO_MANY_REQUESTS,
-        );
+      if (error instanceof HttpException) {
+        throw error;
       }
 
       throw new HttpException(
-        error.message || 'AI processing failed',
+        error instanceof Error ? error.message : 'AI processing failed',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
+  /**
+   * AI Create endpoint - Generate images from text using Imagen 3
+   * POST /api/ai-create
+   */
   @Post('ai-create')
   async aiCreate(@Body() body: {
     prompt: string;
@@ -127,18 +83,13 @@ export class AiController {
     stylePreset?: string;
     width?: number;
     height?: number;
+    userId?: string;
   }) {
     try {
-      console.log('🎨 AI Create request received');
+      console.log('📥 AI Create request received (Imagen 3)');
       console.log(`📝 Prompt: ${body.prompt}`);
-      console.log(`📐 Dimensions: ${body.width}x${body.height}`);
-
-      if (!process.env.FAL_KEY) {
-        throw new HttpException(
-          'AI service not configured',
-          HttpStatus.SERVICE_UNAVAILABLE,
-        );
-      }
+      console.log(`📐 Dimensions: ${body.width || 1024}x${body.height || 1024}`);
+      console.log(`👤 User ID: ${body.userId || 'anonymous'}`);
 
       if (!body.prompt) {
         throw new HttpException(
@@ -147,68 +98,37 @@ export class AiController {
         );
       }
 
-      // Determine image size based on provided dimensions or default to square
-      let imageSize = "square";
-      if (body.width && body.height) {
-        const aspectRatio = body.width / body.height;
-        if (aspectRatio > 1.2) {
-          imageSize = "landscape_16_9";
-        } else if (aspectRatio < 0.8) {
-          imageSize = "portrait_16_9";
-        } else {
-          imageSize = "square";
-        }
-        console.log(`📏 Calculated aspect ratio: ${aspectRatio.toFixed(2)}, using size: ${imageSize}`);
-      }
-
-      const result = await fal.subscribe('fal-ai/stable-diffusion-v3-medium', {
-        input: {
-          prompt: body.prompt,
-          negative_prompt: body.negativePrompt || "ugly, deformed, noisy, blurry, distorted, grainy, low quality, nsfw, nude, explicit",
-          image_size: imageSize,
-          num_inference_steps: 28,
-          guidance_scale: 7.5,
-          num_images: 1,
-          seed: Math.floor(Math.random() * 1000000),
-        },
+      // Call Vertex AI service for image generation using Imagen 3
+      const result = await vertexAIService.generateImage({
+        prompt: body.prompt,
+        negativePrompt: body.negativePrompt,
+        width: body.width,
+        height: body.height,
+        userId: body.userId || 'anonymous',
       });
 
-      const typedResult = result as any;
-      if (typedResult.images && typedResult.images.length > 0) {
-        console.log('✅ AI creation successful');
-        
-        // Optionally save to S3
-        const imageUrl = typedResult.images[0].url;
-        
-        return {
-          success: true,
-          imageUrl,
-          width: typedResult.images[0].width,
-          height: typedResult.images[0].height,
-        };
-      } else {
-        throw new Error('No image generated');
+      if (!result.success) {
+        console.error('❌ Imagen 3 generation failed:', result.error);
+        throw new HttpException(
+          result.error || 'AI generation failed',
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
       }
+
+      console.log('✅ AI generation successful (Imagen 3)');
+      return {
+        success: true,
+        imageUrl: result.generatedImageUrl,
+      };
     } catch (error) {
-      console.error('AI Create error:', error);
+      console.error('💥 AI Create error:', error);
 
-      // Check for balance issues
-      if (error.body?.detail?.includes('balance') || error.body?.detail?.includes('Exhausted balance')) {
-        throw new HttpException(
-          'Insufficient funds. Exhausted balance. Please top up at fal.ai/dashboard/billing.',
-          HttpStatus.PAYMENT_REQUIRED,
-        );
-      }
-
-      if (error.message?.includes('safety')) {
-        throw new HttpException(
-          'Content blocked by safety filter. Please try a different prompt.',
-          HttpStatus.UNPROCESSABLE_ENTITY,
-        );
+      if (error instanceof HttpException) {
+        throw error;
       }
 
       throw new HttpException(
-        error.message || 'AI generation failed',
+        error instanceof Error ? error.message : 'AI generation failed',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

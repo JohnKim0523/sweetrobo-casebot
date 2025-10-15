@@ -1,9 +1,77 @@
 # Lambda functions (deployed separately to AWS)
 cleanup-lambda.js
 
-# Environment variables
+# Environment variables (real credentials - NEVER commit these!)
 .env
 .env.local
 .env.production
+.env.development
 backend/.env
 frontend/.env.local
+
+# Allow .env.example files (templates with no real credentials)
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+
+# Google Cloud credentials (NEVER commit these!)
+vertex-ai-key.json
+backend/vertex-ai-key.json
+*-key.json
+*.json.key
+service-account-key.json
+google-credentials.json
+
+# AWS credentials
+.aws/
+credentials
+
+# API keys and secrets
+*.pem
+*.key
+*.cert
+*.p12
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Test/Debug files (may contain sensitive data)
+create-overlay.html
+overlay-test.js
+test-*.html
+debug-*.js
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs (may contain sensitive info)
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Temporary files
+*.tmp
+.cache/

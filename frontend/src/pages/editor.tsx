@@ -27,6 +27,7 @@ export default function Editor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvas, setCanvas] = useState<any>(null);
   const [uploadedImage, setUploadedImage] = useState<any>(null);
+  const [originalImageFile, setOriginalImageFile] = useState<File | null>(null); // Store original file for AI edits
   const [fabric, setFabric] = useState<any>(null);
 
   // Dynamic viewport detection with state
@@ -1500,6 +1501,10 @@ export default function Editor() {
   const onDrop = (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0 && canvas && fabric) {
       const file = acceptedFiles[0];
+
+      // Store the original file for high-quality AI edits
+      setOriginalImageFile(file);
+
       const reader = new FileReader();
 
       reader.onload = (e) => {
@@ -1848,22 +1853,80 @@ export default function Editor() {
           return false;
         });
         maskPaths.forEach((path: any) => path.set({ visible: false }));
-        
-        // Export the image without mask overlays
-        imageData = canvas.toDataURL({
-          format: 'png',
-          left: CONTROL_PADDING,
-          top: VERTICAL_PADDING,
-          width: DISPLAY_WIDTH,
-          height: DISPLAY_HEIGHT,
-          multiplier: 1,  // Keep at display size for correct mask alignment
-        });
-        
+
+        // Calculate multiplier to export at EXPORT size (high resolution)
+        const exportMultiplier = EXPORT_WIDTH / DISPLAY_WIDTH;
+
+        // Create a temporary canvas to crop only the visible portion of the uploaded image
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = EXPORT_WIDTH;
+        tempCanvas.height = EXPORT_HEIGHT;
+        const tempCtx = tempCanvas.getContext('2d')!;
+
+        if (uploadedImage) {
+          // Get the uploaded image element
+          const imgElement = uploadedImage.getElement();
+
+          // Calculate the visible bounds in canvas coordinates
+          const canvasLeft = CONTROL_PADDING;
+          const canvasTop = VERTICAL_PADDING;
+          const canvasRight = canvasLeft + DISPLAY_WIDTH;
+          const canvasBottom = canvasTop + DISPLAY_HEIGHT;
+
+          // Get image position and scale
+          const imgLeft = uploadedImage.left || 0;
+          const imgTop = uploadedImage.top || 0;
+          const imgScaleX = uploadedImage.scaleX || 1;
+          const imgScaleY = uploadedImage.scaleY || 1;
+          const imgWidth = (uploadedImage.width || 0) * imgScaleX;
+          const imgHeight = (uploadedImage.height || 0) * imgScaleY;
+
+          // Calculate crop rectangle (intersection of image and canvas bounds)
+          const cropLeft = Math.max(canvasLeft, imgLeft);
+          const cropTop = Math.max(canvasTop, imgTop);
+          const cropRight = Math.min(canvasRight, imgLeft + imgWidth);
+          const cropBottom = Math.min(canvasBottom, imgTop + imgHeight);
+
+          // Calculate source coordinates in the original image
+          const srcX = (cropLeft - imgLeft) / imgScaleX;
+          const srcY = (cropTop - imgTop) / imgScaleY;
+          const srcWidth = (cropRight - cropLeft) / imgScaleX;
+          const srcHeight = (cropBottom - cropTop) / imgScaleY;
+
+          console.log('🔍 AI Edit Crop Debug:');
+          console.log('  Canvas bounds:', canvasLeft, canvasTop, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+          console.log('  Image position:', imgLeft, imgTop);
+          console.log('  Image scaled size:', imgWidth, 'x', imgHeight);
+          console.log('  Image scale:', imgScaleX, imgScaleY);
+          console.log('  Crop rect:', cropLeft, cropTop, cropRight - cropLeft, cropBottom - cropTop);
+          console.log('  Source crop from original:', srcX, srcY, srcWidth, srcHeight);
+          console.log('  Exporting to:', EXPORT_WIDTH, 'x', EXPORT_HEIGHT);
+
+          // Draw the cropped portion to temp canvas at export size
+          tempCtx.drawImage(
+            imgElement,
+            srcX, srcY, srcWidth, srcHeight,  // Source crop
+            0, 0, EXPORT_WIDTH, EXPORT_HEIGHT  // Destination (full export size)
+          );
+
+          imageData = tempCanvas.toDataURL('image/png');
+          console.log('✅ Exported cropped visible portion at export size:', EXPORT_WIDTH, 'x', EXPORT_HEIGHT);
+        } else {
+          // Fallback: export entire canvas if no uploaded image
+          imageData = canvas.toDataURL({
+            format: 'png',
+            left: CONTROL_PADDING,
+            top: VERTICAL_PADDING,
+            width: DISPLAY_WIDTH,
+            height: DISPLAY_HEIGHT,
+            multiplier: exportMultiplier,
+          });
+          console.log('Exported full canvas at export size:', EXPORT_WIDTH, 'x', EXPORT_HEIGHT);
+        }
+
         // Show the mask paths again
         maskPaths.forEach((path: any) => path.set({ visible: true }));
         canvas.renderAll();
-        
-        console.log('Exported image for mask edit at display size:', DISPLAY_WIDTH, 'x', DISPLAY_HEIGHT);
       }
       
       console.log('Sending mask edit with prompt:', maskPrompt);
@@ -1880,6 +1943,8 @@ export default function Editor() {
           image: imageData,
           prompt: maskPrompt,
           mask: currentMask,  // Include the mask
+          width: EXPORT_WIDTH,  // Send actual phone case dimensions
+          height: EXPORT_HEIGHT,
         }),
       });
       
@@ -1899,17 +1964,23 @@ export default function Editor() {
         
         // Show appropriate alert based on error type
         if (result.error?.includes('balance') || result.error?.includes('Exhausted balance') || result.error?.includes('insufficient funds')) {
-          alert('💳 Insufficient funds. Please top up your AI credits at fal.ai/dashboard/billing to continue.');
-        } else if (result.errorType === 'safety_filter' || result.error?.includes('safety filter')) {
+          alert('💳 Insufficient funds. Please top up your AI credits to continue.');
+        } else if (result.errorType === 'safety_filter' || result.error?.includes('safety filter') || result.error?.includes('safety filters')) {
           alert('⚠️ The AI safety filter was triggered. Please try with a different prompt.');
-        } else if (result.error?.includes('authentication') || result.error?.includes('401')) {
-          alert('❌ API authentication failed. Please check your settings.');
-        } else if (result.error?.includes('rate limit') || result.error?.includes('429')) {
-          alert('⏱️ Rate limit exceeded. Please wait a moment and try again.');
+        } else if (result.error?.includes('authentication') || result.error?.includes('401') || result.error?.includes('not configured')) {
+          alert('❌ API authentication failed. Service may not be configured properly.');
+        } else if (result.error?.includes('rate limit') || result.error?.includes('Rate limit exceeded') || result.error?.includes('429')) {
+          alert('⏱️ Rate limit exceeded. You\'ve reached your hourly limit. Please wait a moment and try again.');
+        } else if (result.error?.includes('timeout') || result.error?.includes('Request timeout')) {
+          alert('⏰ Request timed out. The AI service took too long to respond. Please try again.');
+        } else if (result.error?.includes('quota') || result.error?.includes('Quota exceeded')) {
+          alert('📊 API quota exceeded. Please try again later or contact support.');
         } else if (result.error?.includes('422') || result.error?.includes('Invalid input')) {
           alert('🖼️ Invalid image format. Please try with a different image.');
+        } else if (result.error?.includes('No candidates') || result.error?.includes('No edited image')) {
+          alert('🤖 The AI couldn\'t process this edit. This could be due to safety filters or the complexity of the request. Please try a simpler edit.');
         } else {
-          alert('❌ ' + (result.error || 'AI processing failed. Please try again.'));
+          alert('❌ AI Edit Failed: ' + (result.error || 'Please try again or contact support if the issue persists.'));
         }
         
         return; // Exit early without throwing error
@@ -1920,8 +1991,11 @@ export default function Editor() {
       imgElement.crossOrigin = 'anonymous';
       
       imgElement.onload = function() {
-        console.log('Mask edited image loaded, dimensions:', imgElement.width, 'x', imgElement.height);
-        
+        console.log('🔍 AI Edit Result Debug:');
+        console.log('  Received image dimensions:', imgElement.width, 'x', imgElement.height);
+        console.log('  Expected EXPORT dimensions:', EXPORT_WIDTH, 'x', EXPORT_HEIGHT);
+        console.log('  DISPLAY dimensions:', DISPLAY_WIDTH, 'x', DISPLAY_HEIGHT);
+
         // Clear the mask drawings IMMEDIATELY before doing anything else
         clearMaskDrawing();
         
@@ -1932,20 +2006,26 @@ export default function Editor() {
         
         // Replace image
         const fabricImage = new fabric.Image(imgElement);
-        
+
         if (uploadedImage) {
           canvas.remove(uploadedImage);
         }
-        
-        // The returned image is already at display size (250x462.5)
-        // Position it centered on the canvas like the regular AI edit
+
+        // The returned image is at EXPORT size (e.g., 1181x2185)
+        // We need to scale it down to DISPLAY size for the canvas
+        const scaleToDisplay = DISPLAY_WIDTH / imgElement.width;
+
+        console.log('  Calculated scale to display:', scaleToDisplay);
+        console.log('  Final display size will be:', imgElement.width * scaleToDisplay, 'x', imgElement.height * scaleToDisplay);
+
+        // Position it centered on the canvas and scale to display size
         fabricImage.set({
           left: CONTROL_PADDING + DISPLAY_WIDTH / 2,
           top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
           originX: 'center',
           originY: 'center',
-          scaleX: 1,  // No scaling needed - already at display size
-          scaleY: 1,  // No scaling needed - already at display size
+          scaleX: scaleToDisplay,  // Scale down from export size to display size
+          scaleY: scaleToDisplay,  // Scale down from export size to display size
           // Apply custom control settings
           hasBorders: false,
           borderColor: 'transparent'
@@ -2021,75 +2101,57 @@ export default function Editor() {
         console.log('Saved image state to history with position:', uploadedImage.left, uploadedImage.top);
       }
       
-      // Get ONLY the uploaded image itself, not based on canvas bounds
+      // Export the FULL uploaded image (not cropped) for AI Edit
+      // This preserves the entire image context so Gemini can edit it properly
       let imageData = '';
-      
-      if (uploadedImage) {
-        // Export the image object directly to avoid black margins
-        // This gets the actual image content regardless of position/scale
-        const maxDimension = 2048; // Increased from 1024 to 2048 for higher quality
-        
-        // Get the original image dimensions (before scaling)
-        const originalWidth = uploadedImage.width!;
-        const originalHeight = uploadedImage.height!;
-        
-        // Calculate export multiplier based on original dimensions
-        let exportMultiplier = 1;
-        
-        // Only scale down if image is larger than max, otherwise keep original or scale up
-        if (originalWidth > maxDimension || originalHeight > maxDimension) {
-          exportMultiplier = maxDimension / Math.max(originalWidth, originalHeight);
-          console.log('Image larger than 2048px, scaling to fit:', exportMultiplier);
-        } else if (originalWidth < 1024 && originalHeight < 1024) {
-          // Scale up small images to at least 1024px for better AI processing
-          exportMultiplier = 1024 / Math.max(originalWidth, originalHeight);
-          console.log('Small image detected, scaling up by:', exportMultiplier);
-        }
-        
-        // Export as PNG for lossless quality (better than JPEG compression)
-        // PNG preserves all details without compression artifacts
+
+      // Use the original file if available (best quality - no canvas conversion)
+      if (originalImageFile) {
+        console.log('🔍 AI Edit Export (using original file):');
+        console.log('  Original file:', originalImageFile.name, originalImageFile.size, 'bytes');
+
+        // Convert the original file directly to base64 - NO CANVAS CONVERSION
+        // This preserves 100% of the original image quality
+        const fileReader = new FileReader();
+        imageData = await new Promise<string>((resolve, reject) => {
+          fileReader.onload = (e) => {
+            if (e.target?.result) {
+              resolve(e.target.result as string);
+            } else {
+              reject(new Error('Failed to read file'));
+            }
+          };
+          fileReader.onerror = reject;
+          fileReader.readAsDataURL(originalImageFile);
+        });
+
+        console.log('✅ Using original file (zero quality loss)');
+      } else if (uploadedImage) {
+        // Fallback: Export from canvas (will have some quality loss)
+        console.log('⚠️ No original file, using canvas export (some quality loss)');
+        console.log('  Canvas image dimensions:', uploadedImage.width, 'x', uploadedImage.height);
+
         imageData = uploadedImage.toDataURL({
-          format: 'png',  // Changed from 'jpeg' to 'png' for lossless quality
-          quality: 1.0,    // Maximum quality
-          multiplier: exportMultiplier,
+          format: 'png',
+          quality: 1.0,
+          multiplier: 1,
         });
-        
-        console.log('Exporting actual image, original dimensions:', originalWidth, 'x', originalHeight);
-        console.log('Export dimensions:', originalWidth * exportMultiplier, 'x', originalHeight * exportMultiplier);
-        console.log('Image data size:', imageData.length, 'bytes');
-        console.log('Image format:', imageData.substring(0, 30));
       } else {
-        // Fallback to full canvas if no specific image
-        const maxDimension = 2048;
-        let exportMultiplier = 2; // Start with 2x for better quality
-        
-        if (DISPLAY_WIDTH * exportMultiplier > maxDimension || DISPLAY_HEIGHT * exportMultiplier > maxDimension) {
-          const scale = maxDimension / Math.max(DISPLAY_WIDTH, DISPLAY_HEIGHT);
-          exportMultiplier = scale;
-        }
-        
-        imageData = canvas.toDataURL({
-          format: 'png',  // PNG for lossless quality
-          quality: 1.0,   // Maximum quality
-          left: CONTROL_PADDING,
-          top: VERTICAL_PADDING,
-          width: DISPLAY_WIDTH,
-          height: DISPLAY_HEIGHT,
-          multiplier: exportMultiplier,
-        });
+        console.warn('No uploaded image found, cannot perform AI edit');
+        return;
       }
       
-      // Call backend AI edit API
+      // Call Vertex AI image edit API
       const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
-      const response = await fetch(`${backendUrl}/api/ai-edit`, {
+      const response = await fetch(`${backendUrl}/api/vertex-ai/edit-image`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          image: imageData,
+          imageUrl: imageData,  // Vertex AI uses imageUrl instead of image
           prompt: aiPrompt,
-          // No mask for regular AI Edit
+          userId: 'editor-user', // Optional: track usage per user
         }),
       });
       
@@ -2109,62 +2171,93 @@ export default function Editor() {
         
         // Show appropriate alert based on error type
         if (result.error?.includes('balance') || result.error?.includes('Exhausted balance') || result.error?.includes('insufficient funds')) {
-          alert('💳 Insufficient funds. Please top up your AI credits at fal.ai/dashboard/billing to continue.');
-        } else if (result.errorType === 'safety_filter' || result.error?.includes('safety filter')) {
+          alert('💳 Insufficient funds. Please top up your AI credits to continue.');
+        } else if (result.errorType === 'safety_filter' || result.error?.includes('safety filter') || result.error?.includes('safety filters')) {
           alert('⚠️ The AI safety filter was triggered. Please try with a different prompt.');
-        } else if (result.error?.includes('authentication') || result.error?.includes('401')) {
-          alert('❌ API authentication failed. Please check your settings.');
-        } else if (result.error?.includes('rate limit') || result.error?.includes('429')) {
-          alert('⏱️ Rate limit exceeded. Please wait a moment and try again.');
+        } else if (result.error?.includes('authentication') || result.error?.includes('401') || result.error?.includes('not configured')) {
+          alert('❌ API authentication failed. Service may not be configured properly.');
+        } else if (result.error?.includes('rate limit') || result.error?.includes('Rate limit exceeded') || result.error?.includes('429')) {
+          alert('⏱️ Rate limit exceeded. You\'ve reached your hourly limit. Please wait a moment and try again.');
+        } else if (result.error?.includes('timeout') || result.error?.includes('Request timeout')) {
+          alert('⏰ Request timed out. The AI service took too long to respond. Please try again.');
+        } else if (result.error?.includes('quota') || result.error?.includes('Quota exceeded')) {
+          alert('📊 API quota exceeded. Please try again later or contact support.');
         } else if (result.error?.includes('422') || result.error?.includes('Invalid input')) {
           alert('🖼️ Invalid image format. Please try with a different image.');
+        } else if (result.error?.includes('No candidates') || result.error?.includes('No edited image')) {
+          alert('🤖 The AI couldn\'t process this edit. This could be due to safety filters or the complexity of the request. Please try a simpler edit.');
         } else {
-          alert('❌ ' + (result.error || 'AI processing failed. Please try again.'));
+          alert('❌ AI Edit Failed: ' + (result.error || 'Please try again or contact support if the issue persists.'));
         }
         
         return; // Exit early without throwing error
       }
       
       // Load the edited image back to canvas
+      const editedImageUrl = result.editedImageUrl || result.imageUrl; // Support both response formats
       console.log('Loading edited image to canvas...');
-      console.log('Image data type:', typeof result.imageUrl);
-      console.log('Image data preview:', result.imageUrl.substring(0, 100));
-      
+      console.log('Image data type:', typeof editedImageUrl);
+      console.log('Image data preview:', editedImageUrl.substring(0, 100));
+
       // Create a new Image element first to ensure it loads
       const imgElement = new Image();
       imgElement.crossOrigin = 'anonymous';
-      
+
       imgElement.onload = function() {
-        console.log('Image element loaded, dimensions:', imgElement.width, 'x', imgElement.height);
-        
+        console.log('🔍 AI Edit Result:');
+        console.log('  Received image dimensions:', imgElement.width, 'x', imgElement.height);
+
         // IMMEDIATELY close modal so user can see the result
         setShowAIModal(false);
         setAiModalTab('custom');
         setIsProcessing(false);
         setAiPrompt('');
         setFiltersTouched(false);
-        
+
         // Create fabric image from the loaded element
         const fabricImage = new fabric.Image(imgElement);
-        
-        // Remove current image
+
+        // Preserve the original image's position and scale
+        let targetLeft = CONTROL_PADDING + DISPLAY_WIDTH / 2;
+        let targetTop = VERTICAL_PADDING + DISPLAY_HEIGHT / 2;
+        let targetScaleX = 1;
+        let targetScaleY = 1;
+        let targetAngle = 0;
+
         if (uploadedImage) {
-          console.log('Removing old image from canvas');
+          // Save the original position and rotation
+          targetLeft = uploadedImage.left || targetLeft;
+          targetTop = uploadedImage.top || targetTop;
+          targetAngle = uploadedImage.angle || 0;
+
+          // Calculate the DISPLAYED size of the original image on canvas
+          const oldDisplayWidth = (uploadedImage.width || 1) * (uploadedImage.scaleX || 1);
+          const oldDisplayHeight = (uploadedImage.height || 1) * (uploadedImage.scaleY || 1);
+
+          // Calculate scale needed to match that same display size
+          // This ensures the edited image appears at the same size, regardless of resolution changes
+          targetScaleX = oldDisplayWidth / (fabricImage.width || 1);
+          targetScaleY = oldDisplayHeight / (fabricImage.height || 1);
+
+          console.log('  Preserving original position:', targetLeft, targetTop);
+          console.log('  Original display size:', oldDisplayWidth, 'x', oldDisplayHeight);
+          console.log('  New image size:', fabricImage.width, 'x', fabricImage.height);
+          console.log('  Calculated scale to match display size:', targetScaleX, targetScaleY);
+          console.log('  Preserving original angle:', targetAngle);
+
+          // Remove old image
           canvas.remove(uploadedImage);
         }
 
-        // Position the edited image - it's already at display dimensions from backend
-        // Scale to match canvas size exactly - fills canvas perfectly
-        const scaleX = DISPLAY_WIDTH / fabricImage.width!;
-        const scaleY = DISPLAY_HEIGHT / fabricImage.height!;
-
+        // Place edited image at the same position/scale as original
         fabricImage.set({
-          left: CONTROL_PADDING + DISPLAY_WIDTH / 2,
-          top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
+          left: targetLeft,
+          top: targetTop,
           originX: 'center',
           originY: 'center',
-          scaleX: scaleX,
-          scaleY: scaleY,
+          scaleX: targetScaleX,
+          scaleY: targetScaleY,
+          angle: targetAngle,
           // Apply custom control settings
           hasBorders: false,
           borderColor: 'transparent'
@@ -2185,7 +2278,7 @@ export default function Editor() {
           canvas.renderAll();
         });
         
-        console.log('Adding new image to canvas with scaleX:', scaleX, 'scaleY:', scaleY);
+        console.log('  Adding edited image to canvas');
         canvas.add(fabricImage);
         canvas.setActiveObject(fabricImage);
         canvas.renderAll();
@@ -2199,9 +2292,9 @@ export default function Editor() {
         setAiError('Failed to load edited image');
         setIsProcessing(false);
       };
-      
+
       // Set the source to trigger loading
-      imgElement.src = result.imageUrl;
+      imgElement.src = editedImageUrl;
       
     } catch (error: any) {
       console.error('AI Edit Error:', error);
@@ -2339,8 +2432,8 @@ export default function Editor() {
         },
         body: JSON.stringify({
           prompt: createPrompt,
-          width: DISPLAY_WIDTH,
-          height: DISPLAY_HEIGHT,
+          width: EXPORT_WIDTH,  // Use actual phone case dimensions, not display dimensions
+          height: EXPORT_HEIGHT,
         }),
       });
       
@@ -2353,16 +2446,22 @@ export default function Editor() {
         setIsProcessing(false);
 
         // Show appropriate alert based on error type
-        if (result.error?.includes('balance') || result.error?.includes('Exhausted balance') || result.error?.includes('insufficient funds')) {
-          alert('💳 Insufficient funds. Please top up your AI credits at fal.ai/dashboard/billing to continue.');
-        } else if (result.error?.includes('safety filter')) {
+        if (result.error?.includes('not available') || result.error?.includes('NOT_IMPLEMENTED')) {
+          alert('ℹ️ ' + (result.error || 'This feature is not available. Please use AI Edit with an existing image instead.'));
+        } else if (result.error?.includes('balance') || result.error?.includes('Exhausted balance') || result.error?.includes('insufficient funds')) {
+          alert('💳 Insufficient funds. Please top up your AI credits to continue.');
+        } else if (result.error?.includes('safety filter') || result.error?.includes('safety filters')) {
           alert('⚠️ The AI safety filter was triggered. Please try with a different prompt.');
-        } else if (result.error?.includes('authentication') || result.error?.includes('401')) {
-          alert('❌ API authentication failed. Please check your settings.');
-        } else if (result.error?.includes('rate limit') || result.error?.includes('429')) {
-          alert('⏱️ Rate limit exceeded. Please wait a moment and try again.');
+        } else if (result.error?.includes('authentication') || result.error?.includes('401') || result.error?.includes('not configured')) {
+          alert('❌ API authentication failed. Service may not be configured properly.');
+        } else if (result.error?.includes('rate limit') || result.error?.includes('Rate limit exceeded') || result.error?.includes('429')) {
+          alert('⏱️ Rate limit exceeded. You\'ve reached your hourly limit. Please wait a moment and try again.');
+        } else if (result.error?.includes('timeout') || result.error?.includes('Request timeout')) {
+          alert('⏰ Request timed out. The AI service took too long to respond. Please try again.');
+        } else if (result.error?.includes('No candidates') || result.error?.includes('No edited image')) {
+          alert('🤖 The AI couldn\'t process this request. This could be due to safety filters or the complexity of the request. Please try a simpler prompt.');
         } else {
-          alert('❌ ' + (result.error || 'AI generation failed. Please try again.'));
+          alert('❌ AI Generation Failed: ' + (result.error || 'Please try again or contact support if the issue persists.'));
         }
 
         return; // Exit early without throwing error
@@ -2631,35 +2730,232 @@ export default function Editor() {
         if (crosshairLines.horizontal) crosshairLines.horizontal.visible = false;
         
         // Also hide the border rect
-        const borderRect = canvas.getObjects().find((obj: any) => 
+        const borderRect = canvas.getObjects().find((obj: any) =>
           obj.type === 'rect' && obj.stroke === '#333' && obj.fill === 'white'
         );
         const originalBorderVisible = borderRect?.visible;
         if (borderRect) borderRect.visible = false;
-        
+
         // Export the canvas directly
         canvas.renderAll();
-        
+
         // Export at exact dimensions needed for printing
         // Calculate multiplier to reach exact export dimensions
         const exportMultiplier = EXPORT_WIDTH / DISPLAY_WIDTH;
-        
+
         console.log(`📐 Exporting for ${phoneModel?.displayName || 'default'} model`);
         console.log(`Display: ${DISPLAY_WIDTH}x${DISPLAY_HEIGHT}px, Export: ${EXPORT_WIDTH}x${EXPORT_HEIGHT}px`);
         console.log(`Export multiplier: ${exportMultiplier}x`);
-        
-        const dataURL = canvas.toDataURL({
+
+        // First, export the canvas design (rectangular, no rounded corners)
+        const designDataURL = canvas.toDataURL({
           format: 'png',
-          quality: 1.0, // Maximum PNG quality
+          quality: 1.0,
           left: CONTROL_PADDING,
           top: VERTICAL_PADDING,
           width: DISPLAY_WIDTH,
           height: DISPLAY_HEIGHT,
-          multiplier: exportMultiplier, // Scale to exact print dimensions
+          multiplier: exportMultiplier,
           enableRetinaScaling: false,
           withoutTransform: false,
           withoutShadow: true
         });
+
+        // If phone model has a template, use it as a mask to clip the design
+        let dataURL = designDataURL;
+        if (phoneModel?.templatePath) {
+          console.log('🎭 Applying phone template mask:', phoneModel.templatePath);
+
+          // Load the phone template as a mask
+          const maskImage = new Image();
+          maskImage.crossOrigin = 'anonymous';
+
+          // Wait for mask to load
+          await new Promise<void>((resolve, reject) => {
+            maskImage.onload = () => {
+              console.log('✅ Mask loaded:', maskImage.width, 'x', maskImage.height);
+
+              // Use phone model dimensions (not mask dimensions) to keep file size reasonable
+              // Mask is 2697x5385 (8.4MB PNG), but phone model is 834x1731 (~1-2MB PNG)
+              const finalWidth = phoneModel.dimensions.widthPX;
+              const finalHeight = phoneModel.dimensions.heightPX;
+              console.log('🎯 Using phone model dimensions for final output:', finalWidth, 'x', finalHeight);
+
+              // Create a temporary canvas for compositing at mask resolution
+              const tempCanvas = document.createElement('canvas');
+              tempCanvas.width = finalWidth;
+              tempCanvas.height = finalHeight;
+              const ctx = tempCanvas.getContext('2d')!;
+
+              // Load the design image
+              const designImage = new Image();
+              designImage.onload = () => {
+                console.log('✅ Design loaded:', designImage.width, 'x', designImage.height);
+
+                // The mask has: opaque areas (borders/camera) and transparent center (printable)
+                // But transparent areas exist both INSIDE and OUTSIDE the phone case
+                // Solution: Scan from edges, mark transparent pixels as exterior until hitting opaque border
+
+                // Step 1: Create a modified mask with exterior filled
+                const modifiedMask = document.createElement('canvas');
+                modifiedMask.width = finalWidth;
+                modifiedMask.height = finalHeight;
+                const modCtx = modifiedMask.getContext('2d')!;
+
+                // Draw the original mask
+                modCtx.drawImage(maskImage, 0, 0, finalWidth, finalHeight);
+
+                // Get pixel data
+                const imageData = modCtx.getImageData(0, 0, finalWidth, finalHeight);
+                const pixels = imageData.data;
+
+                console.log('🔍 Scanning edges to mark exterior regions...');
+
+                // Need to scan deeper - phone buttons/edges might be scattered
+                // Look for consistent opaque region (multiple consecutive opaque pixels)
+                const minOpaqueCount = 15; // Need 15 consecutive opaque pixels to be sure it's the border
+                const edgeMargin = 5; // Always mark first 5 pixels from each edge as exterior
+
+                // Scan from top
+                for (let x = 0; x < finalWidth; x++) {
+                  let opaqueCount = 0;
+                  for (let y = 0; y < finalHeight; y++) {
+                    const i = (y * finalWidth + x) * 4;
+                    const alpha = pixels[i + 3];
+
+                    // Always mark edge margin pixels
+                    if (y < edgeMargin) {
+                      pixels[i] = 255;
+                      pixels[i + 1] = 255;
+                      pixels[i + 2] = 255;
+                      pixels[i + 3] = 255;
+                      continue;
+                    }
+
+                    if (alpha > 200) {
+                      opaqueCount++;
+                      if (opaqueCount >= minOpaqueCount) break; // Hit solid border
+                    } else {
+                      opaqueCount = 0; // Reset if we hit transparent again
+                      pixels[i] = 255;
+                      pixels[i + 1] = 255;
+                      pixels[i + 2] = 255;
+                      pixels[i + 3] = 255;
+                    }
+                  }
+                }
+
+                // Scan from bottom
+                for (let x = 0; x < finalWidth; x++) {
+                  let opaqueCount = 0;
+                  for (let y = finalHeight - 1; y >= 0; y--) {
+                    const i = (y * finalWidth + x) * 4;
+                    const alpha = pixels[i + 3];
+
+                    if (y >= finalHeight - edgeMargin) {
+                      pixels[i] = 255;
+                      pixels[i + 1] = 255;
+                      pixels[i + 2] = 255;
+                      pixels[i + 3] = 255;
+                      continue;
+                    }
+
+                    if (alpha > 200) {
+                      opaqueCount++;
+                      if (opaqueCount >= minOpaqueCount) break;
+                    } else {
+                      opaqueCount = 0;
+                      pixels[i] = 255;
+                      pixels[i + 1] = 255;
+                      pixels[i + 2] = 255;
+                      pixels[i + 3] = 255;
+                    }
+                  }
+                }
+
+                // Scan from left
+                for (let y = 0; y < finalHeight; y++) {
+                  let opaqueCount = 0;
+                  for (let x = 0; x < finalWidth; x++) {
+                    const i = (y * finalWidth + x) * 4;
+                    const alpha = pixels[i + 3];
+
+                    if (x < edgeMargin) {
+                      pixels[i] = 255;
+                      pixels[i + 1] = 255;
+                      pixels[i + 2] = 255;
+                      pixels[i + 3] = 255;
+                      continue;
+                    }
+
+                    if (alpha > 200) {
+                      opaqueCount++;
+                      if (opaqueCount >= minOpaqueCount) break;
+                    } else {
+                      opaqueCount = 0;
+                      pixels[i] = 255;
+                      pixels[i + 1] = 255;
+                      pixels[i + 2] = 255;
+                      pixels[i + 3] = 255;
+                    }
+                  }
+                }
+
+                // Scan from right
+                for (let y = 0; y < finalHeight; y++) {
+                  let opaqueCount = 0;
+                  for (let x = finalWidth - 1; x >= 0; x--) {
+                    const i = (y * finalWidth + x) * 4;
+                    const alpha = pixels[i + 3];
+
+                    if (x >= finalWidth - edgeMargin) {
+                      pixels[i] = 255;
+                      pixels[i + 1] = 255;
+                      pixels[i + 2] = 255;
+                      pixels[i + 3] = 255;
+                      continue;
+                    }
+
+                    if (alpha > 200) {
+                      opaqueCount++;
+                      if (opaqueCount >= minOpaqueCount) break;
+                    } else {
+                      opaqueCount = 0;
+                      pixels[i] = 255;
+                      pixels[i + 1] = 255;
+                      pixels[i + 2] = 255;
+                      pixels[i + 3] = 255;
+                    }
+                  }
+                }
+
+                modCtx.putImageData(imageData, 0, 0);
+                console.log('✅ Filled exterior regions from all edges');
+
+                // Step 2: Draw design at FULL resolution
+                ctx.drawImage(designImage, 0, 0, finalWidth, finalHeight);
+
+                // Step 3: Remove design where modified mask is opaque (borders/camera/exterior)
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.drawImage(modifiedMask, 0, 0);
+
+                console.log('✅ Applied mask to keep only interior design');
+
+                // Export as PNG to preserve transparency
+                dataURL = tempCanvas.toDataURL('image/png');
+                console.log('✅ Masked design created at', finalWidth, 'x', finalHeight, 'as PNG with transparency');
+                resolve();
+              };
+              designImage.onerror = reject;
+              designImage.src = designDataURL;
+            };
+            maskImage.onerror = () => {
+              console.warn('⚠️ Failed to load mask, using unmasked design');
+              resolve(); // Continue without mask if it fails to load
+            };
+            maskImage.src = `/phone-models/${phoneModel.templatePath}`;
+          });
+        }
         
         // Check size and warn if too large
         const sizeInBytes = dataURL.length * 0.75; // Approximate size in bytes
@@ -2764,13 +3060,15 @@ export default function Editor() {
         console.log('💾 Saved canvas state with', canvas.getObjects().length, 'objects');
 
         // Store preview data in global window object (too large for sessionStorage)
+        // IMPORTANT: Use the masked dataURL for both preview and submission
+        // This ensures preview matches what gets printed
         const previewData = {
-          designImage: dataURL,
+          designImage: dataURL, // This is now the MASKED image (with camera/borders cut out)
           canvasState: canvasJSON, // Save full canvas state for restoration
           phoneTemplate: phoneModel?.templatePath ? `/phone-models/${phoneModel.templatePath}` : null,
           phoneName: phoneModel?.displayName || 'Custom Phone Case',
           submissionData: {
-            image: dataURL,
+            image: dataURL, // Send the MASKED image to printer
             machineId: machineId,
             sessionId: sessionId || `session_${Date.now()}`,
             phoneModel: phoneModel?.displayName || 'Default Phone Case',

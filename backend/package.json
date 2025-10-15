@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.878.0",
-    "@fal-ai/serverless-client": "^0.15.0",
+    "@google-cloud/vertexai": "^1.10.0",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/bull": "^11.0.3",
     "@nestjs/common": "^11.0.1",
@@ -40,6 +40,7 @@
     "mqtt": "^5.14.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "sharp": "^0.34.4",
     "socket.io": "^4.8.1",
     "uuid": "^11.1.0",
     "ws": "^8.18.3"
