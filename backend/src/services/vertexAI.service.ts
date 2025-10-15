@@ -43,10 +43,10 @@ class VertexAIService {
   private readonly RATE_LIMIT_WINDOW = 60 * 60 * 1000; // 1 hour in ms
 
   // Retry configuration
-  private readonly MAX_RETRIES = 3;
-  private readonly INITIAL_RETRY_DELAY = 1000; // 1 second
-  private readonly MAX_RETRY_DELAY = 10000; // 10 seconds
-  private readonly REQUEST_TIMEOUT = 30000; // 30 seconds
+  private readonly MAX_RETRIES = 5;  // Increased to 5 retries with improved prompts
+  private readonly INITIAL_RETRY_DELAY = 500; // 0.5 seconds (reduced for faster retries)
+  private readonly MAX_RETRY_DELAY = 5000; // 5 seconds (reduced max delay)
+  private readonly REQUEST_TIMEOUT = 40000; // 40 seconds (increased for complex edits)
 
   // Cost tracking
   private readonly COST_PER_EDIT = 0.039; // $0.039 per edit (Gemini Flash Image)
@@ -173,6 +173,13 @@ class VertexAIService {
       return true; // Server errors - retry
     }
 
+    // CRITICAL: Retry when Gemini returns text instead of image
+    // This happens randomly and retrying with a different prompt usually fixes it
+    if (error.message?.includes('No edited image returned') ||
+        error.message?.includes('No generated image returned')) {
+      return true;
+    }
+
     return false;
   }
 
@@ -255,11 +262,18 @@ class VertexAIService {
       console.log(`   Prompt: ${request.prompt}`);
       console.log(`   Rate limit: ${rateLimit.remaining} requests remaining`);
 
-      // Wrap the entire API call in retry and timeout logic
-      const result = await this.retryWithBackoff(async () => {
-        // Get the generative model
+      // Wrap the entire API call AND response parsing in retry logic
+      let retryAttempt = 0;
+      const editedImageBase64 = await this.retryWithBackoff(async () => {
+        // Get the generative model with explicit system instruction for editing
         const generativeModel = this.vertexAI!.getGenerativeModel({
           model: this.editModel,
+          systemInstruction: {
+            role: 'system',
+            parts: [{
+              text: 'You are an image editing AI. When given an image and editing instructions, you must ALWAYS return an edited image. NEVER return text descriptions, explanations, or analyses. Your only output should be the modified image data. Do not use vision or description mode - only editing mode.'
+            }]
+          },
         });
 
         // Fetch image from URL with timeout
@@ -275,9 +289,59 @@ class VertexAIService {
         const imageBuffer = await imageResponse.arrayBuffer();
         const imageBase64 = Buffer.from(imageBuffer).toString('base64');
 
-        // Prepare the request with explicit editing instruction
-        // For Gemini 2.5 Flash Image editing, be explicit about the task
-        const editPrompt = `Edit this image: ${request.prompt}`;
+        // Prepare the request with MAXIMUM explicit editing instruction
+        // For Gemini 2.5 Flash Image editing, be EXTREMELY clear about the task
+        // Key strategies to force image output:
+        // 1. Use imperative commands
+        // 2. Explicitly state "DO NOT describe" and "DO NOT explain"
+        // 3. State the expected output format
+        // 4. Vary slightly on retries for robustness
+        const editPrompts = [
+          `CRITICAL: This is an IMAGE EDITING task. DO NOT describe or analyze the image. DO NOT return text explanations.
+
+TASK: Edit and modify this image according to the following instruction:
+${request.prompt}
+
+REQUIRED OUTPUT: Return the edited image as image data. Do not include any text, descriptions, or explanations.`,
+
+          `IMAGE EDITING MODE ONLY - NO TEXT OUTPUT ALLOWED
+
+Your task is to edit the provided image with this modification:
+${request.prompt}
+
+IMPORTANT:
+- Return ONLY the edited image
+- DO NOT describe what you see
+- DO NOT explain the changes
+- Output format: Image file only`,
+
+          `[IMAGE MODIFICATION REQUEST]
+
+Apply the following edit to the image:
+${request.prompt}
+
+OUTPUT REQUIREMENTS:
+✓ Return edited image data
+✗ Do NOT return text descriptions
+✗ Do NOT analyze or explain
+✗ Do NOT use vision mode`,
+
+          `INSTRUCTION: Perform image editing operation.
+
+Edit request: ${request.prompt}
+
+STRICT REQUIREMENTS:
+1. Output type: Image only (no text)
+2. Do not describe the image
+3. Do not explain your changes
+4. Return the modified image file`,
+
+          `Edit the image: ${request.prompt}
+
+CRITICAL: Your response must be an edited image, not text. Do not activate vision/description capabilities. Editing mode only.`,
+        ];
+        const editPrompt = editPrompts[retryAttempt % editPrompts.length];
+        retryAttempt++;
 
         const requestContent = {
           contents: [
@@ -296,74 +360,84 @@ class VertexAIService {
               ],
             },
           ],
+          // Generation config to reduce hallucination and encourage image output
+          generationConfig: {
+            temperature: 0.4,  // Lower temperature = more focused, less creative = more likely to follow instructions
+            topP: 0.8,         // Slightly constrained sampling
+            topK: 40,          // Limit token choices
+            maxOutputTokens: 8192,  // Allow space for large image output
+          },
         };
 
         // Generate content with Gemini 2.5 Flash Image (with timeout)
-        return await this.executeWithTimeout(
+        const result = await this.executeWithTimeout(
           generativeModel.generateContent(requestContent),
           this.REQUEST_TIMEOUT,
         );
-      });
 
-      const response = result.response;
+        const response = result.response;
 
-      // Debug: Log the entire response structure
-      console.log('🔍 Full API Response:', JSON.stringify({
-        hasCandidates: !!response.candidates,
-        candidatesLength: response.candidates?.length,
-        promptFeedback: response.promptFeedback,
-      }, null, 2));
+        // Debug: Log the entire response structure
+        console.log('🔍 Full API Response:', JSON.stringify({
+          hasCandidates: !!response.candidates,
+          candidatesLength: response.candidates?.length,
+          promptFeedback: response.promptFeedback,
+        }, null, 2));
 
-      // Extract edited image from response
-      const candidates = response.candidates;
-      if (!candidates || candidates.length === 0) {
-        console.error('❌ No candidates in response. Prompt may have been blocked.');
-        console.error('Prompt feedback:', response.promptFeedback);
-        throw new Error('No candidates returned from Gemini. This could be due to safety filters or the model not supporting this type of edit.');
-      }
-
-      const candidate = candidates[0];
-      console.log('🔍 Candidate structure:', JSON.stringify({
-        hasContent: !!candidate.content,
-        hasParts: !!candidate.content?.parts,
-        partsLength: candidate.content?.parts?.length,
-        finishReason: candidate.finishReason,
-        safetyRatings: candidate.safetyRatings,
-      }, null, 2));
-
-      const parts = candidate.content?.parts;
-
-      if (!parts || parts.length === 0) {
-        throw new Error('No parts in candidate response');
-      }
-
-      // Debug: Log each part type
-      console.log('🔍 Parts breakdown:');
-      parts.forEach((part, index) => {
-        console.log(`  Part ${index}:`, {
-          hasText: !!part.text,
-          hasInlineData: !!part.inlineData,
-          inlineDataMimeType: part.inlineData?.mimeType,
-          inlineDataLength: part.inlineData?.data?.length,
-        });
-      });
-
-      // Look for image data in response
-      let editedImageBase64: string | undefined;
-      for (const part of parts) {
-        if (part.inlineData) {
-          editedImageBase64 = part.inlineData.data;
-          console.log(`✅ Found image data: ${editedImageBase64.length} characters`);
-          break;
+        // Extract edited image from response
+        const candidates = response.candidates;
+        if (!candidates || candidates.length === 0) {
+          console.error('❌ No candidates in response. Prompt may have been blocked.');
+          console.error('Prompt feedback:', response.promptFeedback);
+          throw new Error('No candidates returned from Gemini. This could be due to safety filters or the model not supporting this type of edit.');
         }
-      }
 
-      if (!editedImageBase64) {
-        // If no image returned, Gemini might have returned text explanation
-        const textResponse = parts.map(p => p.text).join('');
-        console.log('📝 Gemini response (text only):', textResponse);
-        throw new Error('No edited image returned from Gemini 2.5 Flash Image. The model may have interpreted this as a vision task instead of an image editing task, or safety filters blocked the edit.');
-      }
+        const candidate = candidates[0];
+        console.log('🔍 Candidate structure:', JSON.stringify({
+          hasContent: !!candidate.content,
+          hasParts: !!candidate.content?.parts,
+          partsLength: candidate.content?.parts?.length,
+          finishReason: candidate.finishReason,
+          safetyRatings: candidate.safetyRatings,
+        }, null, 2));
+
+        const parts = candidate.content?.parts;
+
+        if (!parts || parts.length === 0) {
+          throw new Error('No parts in candidate response');
+        }
+
+        // Debug: Log each part type
+        console.log('🔍 Parts breakdown:');
+        parts.forEach((part, index) => {
+          console.log(`  Part ${index}:`, {
+            hasText: !!part.text,
+            hasInlineData: !!part.inlineData,
+            inlineDataMimeType: part.inlineData?.mimeType,
+            inlineDataLength: part.inlineData?.data?.length,
+          });
+        });
+
+        // Look for image data in response
+        let foundImageBase64: string | undefined;
+        for (const part of parts) {
+          if (part.inlineData) {
+            foundImageBase64 = part.inlineData.data;
+            console.log(`✅ Found image data: ${foundImageBase64.length} characters`);
+            break;
+          }
+        }
+
+        if (!foundImageBase64) {
+          // If no image returned, Gemini might have returned text explanation
+          const textResponse = parts.map(p => p.text).join('');
+          console.log('📝 Gemini response (text only):', textResponse);
+          throw new Error('No edited image returned from Gemini 2.5 Flash Image. The model may have interpreted this as a vision task instead of an image editing task, or safety filters blocked the edit.');
+        }
+
+        // Return the image data (this will be retried if it fails)
+        return foundImageBase64;
+      });
 
       // For edits, we don't resize - frontend sends the image at the correct size already
       // Gemini processes it and returns it at approximately the same dimensions

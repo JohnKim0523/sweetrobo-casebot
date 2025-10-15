@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useDropzone } from 'react-dropzone';
@@ -231,6 +231,10 @@ export default function Editor() {
   const [editHistory, setEditHistory] = useState<string[]>([]);
   const [cropHistory, setCropHistory] = useState<string[]>([]);
   const [drawingMode, setDrawingMode] = useState<boolean>(false);
+
+  // Comprehensive undo system - stores full canvas state
+  const [canvasHistory, setCanvasHistory] = useState<string[]>([]);
+  const isRestoringState = useRef(false); // Prevent saving during restore (using ref to avoid triggering re-renders)
   const [drawnMask, setDrawnMask] = useState<string | null>(null);
   const [isManipulating, setIsManipulating] = useState<boolean>(false);
   const [isCropMode, setIsCropMode] = useState<boolean>(false);
@@ -421,6 +425,50 @@ export default function Editor() {
   // Define control sets at component level to avoid scope issues
   const normalControls = useRef<any>(null);
   const cropControls = useRef<any>(null);
+
+  // Save current canvas state to history
+  const saveCanvasState = useCallback(() => {
+    if (!canvas || isRestoringState.current || !uploadedImage) {
+      if (isRestoringState.current) {
+        console.log('🚫 State save blocked - restoration in progress');
+      }
+      return; // Don't save during undo/restore
+    }
+
+    try {
+      // Save a snapshot of the main image's transformation AND image source
+      // We need the source to restore after AI edits replace the image
+      const imageSrc = (uploadedImage as any).getSrc ? (uploadedImage as any).getSrc() : (uploadedImage as any)._element?.src;
+
+      const mainImageState = {
+        src: imageSrc, // Store image source for AI edit undo
+        left: uploadedImage.left,
+        top: uploadedImage.top,
+        scaleX: uploadedImage.scaleX,
+        scaleY: uploadedImage.scaleY,
+        angle: uploadedImage.angle,
+        flipX: uploadedImage.flipX,
+        flipY: uploadedImage.flipY,
+        opacity: uploadedImage.opacity,
+        originX: uploadedImage.originX,
+        originY: uploadedImage.originY,
+        filters: uploadedImage.filters ? [...uploadedImage.filters] : [],
+        backgroundColor: canvasBackgroundColor // Store background color for undo
+      };
+
+      const stateString = JSON.stringify(mainImageState);
+
+      setCanvasHistory(prev => {
+        // Limit history to last 20 states to prevent memory issues
+        const newHistory = [...prev, stateString];
+        const limited = newHistory.slice(-20);
+        console.log('💾 Canvas state saved, history length:', limited.length);
+        return limited;
+      });
+    } catch (error) {
+      console.error('Failed to save canvas state:', error);
+    }
+  }, [canvas, uploadedImage, canvasBackgroundColor]); // isRestoringState is now a ref, doesn't need to be in dependencies
 
   useEffect(() => {
     // Only initialize canvas when all conditions are met
@@ -1344,13 +1392,57 @@ export default function Editor() {
         resetDragBounds();
         // Don't reset snap state here - let the object:moving handler manage it based on position
       });
-      
+
       setCanvas(fabricCanvas);
 
       return () => {
         fabricCanvas.dispose();
       };
   }, [fabric, isCheckingSession, isSessionLocked, showThankYou]); // Removed isCropMode to prevent re-initialization
+
+  // Separate useEffect to add undo event listeners after canvas is ready
+  useEffect(() => {
+    if (!canvas || !saveCanvasState) return;
+
+    const handleModified = () => {
+      setTimeout(() => saveCanvasState(), 100);
+    };
+
+    const handleAdded = (e: any) => {
+      const obj = e.target;
+      if (!obj || obj.excludeFromExport) return;
+
+      // Don't save state on initial image upload - only on subsequent additions
+      // Check if this is the first user-added object (the uploaded image)
+      const userObjects = canvas.getObjects().filter((o: any) =>
+        !o.excludeFromExport && o.selectable !== false
+      );
+
+      // Only save if there's more than just the main image (stickers, text, etc.)
+      if (userObjects.length > 1) {
+        setTimeout(() => saveCanvasState(), 100);
+      }
+    };
+
+    const handleRemoved = (e: any) => {
+      const obj = e.target;
+      if (!obj || obj.excludeFromExport) return;
+      setTimeout(() => saveCanvasState(), 100);
+    };
+
+    canvas.on('object:modified', handleModified);
+    canvas.on('object:added', handleAdded);
+    canvas.on('object:removed', handleRemoved);
+
+    console.log('✅ Undo event listeners attached to canvas');
+
+    return () => {
+      canvas.off('object:modified', handleModified);
+      canvas.off('object:added', handleAdded);
+      canvas.off('object:removed', handleRemoved);
+      console.log('🧹 Undo event listeners cleaned up');
+    };
+  }, [canvas, saveCanvasState]);
 
   // Add pinch-to-zoom gesture support for mobile
   useEffect(() => {
@@ -1582,6 +1674,30 @@ export default function Editor() {
             canvas.setActiveObject(fabricImage);
             canvas.renderAll();
             setUploadedImage(fabricImage);
+
+            // Save initial state after image is uploaded so undo appears on first edit
+            setTimeout(() => {
+              if (fabricImage) {
+                const imageSrc = (fabricImage as any).getSrc ? (fabricImage as any).getSrc() : (fabricImage as any)._element?.src;
+                const initialState = {
+                  src: imageSrc,
+                  left: fabricImage.left,
+                  top: fabricImage.top,
+                  scaleX: fabricImage.scaleX,
+                  scaleY: fabricImage.scaleY,
+                  angle: fabricImage.angle,
+                  flipX: fabricImage.flipX,
+                  flipY: fabricImage.flipY,
+                  opacity: fabricImage.opacity,
+                  originX: fabricImage.originX,
+                  originY: fabricImage.originY,
+                  filters: fabricImage.filters ? [...fabricImage.filters] : [],
+                  backgroundColor: canvasBackgroundColor
+                };
+                setCanvasHistory([JSON.stringify(initialState)]);
+                console.log('📸 Initial state saved after upload');
+              }
+            }, 100);
           };
           imgElement.src = e.target.result as string;
         }
@@ -1978,7 +2094,7 @@ export default function Editor() {
         } else if (result.error?.includes('422') || result.error?.includes('Invalid input')) {
           alert('🖼️ Invalid image format. Please try with a different image.');
         } else if (result.error?.includes('No candidates') || result.error?.includes('No edited image')) {
-          alert('🤖 The AI couldn\'t process this edit. This could be due to safety filters or the complexity of the request. Please try a simpler edit.');
+          alert('🤖 The AI couldn\'t process this edit after multiple attempts. This could be due to:\n\n• Safety filters blocking the content\n• The edit being too complex\n• Temporary AI service issues\n\nPlease try:\n• Using a simpler, more specific prompt\n• Waiting a moment and trying again\n• Using a different image');
         } else {
           alert('❌ AI Edit Failed: ' + (result.error || 'Please try again or contact support if the issue persists.'));
         }
@@ -2185,7 +2301,7 @@ export default function Editor() {
         } else if (result.error?.includes('422') || result.error?.includes('Invalid input')) {
           alert('🖼️ Invalid image format. Please try with a different image.');
         } else if (result.error?.includes('No candidates') || result.error?.includes('No edited image')) {
-          alert('🤖 The AI couldn\'t process this edit. This could be due to safety filters or the complexity of the request. Please try a simpler edit.');
+          alert('🤖 The AI couldn\'t process this edit after multiple attempts. This could be due to:\n\n• Safety filters blocking the content\n• The edit being too complex\n• Temporary AI service issues\n\nPlease try:\n• Using a simpler, more specific prompt\n• Waiting a moment and trying again\n• Using a different image');
         } else {
           alert('❌ AI Edit Failed: ' + (result.error || 'Please try again or contact support if the issue persists.'));
         }
@@ -2245,6 +2361,9 @@ export default function Editor() {
           console.log('  Calculated scale to match display size:', targetScaleX, targetScaleY);
           console.log('  Preserving original angle:', targetAngle);
 
+          // Block automatic state saves during image replacement
+          isRestoringState.current = true;
+
           // Remove old image
           canvas.remove(uploadedImage);
         }
@@ -2262,12 +2381,12 @@ export default function Editor() {
           hasBorders: false,
           borderColor: 'transparent'
         });
-        
+
         // Apply the custom controls (L-shaped corners and rotation icon)
         if (normalControls.current) {
           (fabricImage as any).controls = normalControls.current;
         }
-        
+
         // Add crop mode toggle functionality for AI edited images
         fabricImage.on('selected', () => {
           if (isCropMode && cropControls.current) {
@@ -2277,13 +2396,46 @@ export default function Editor() {
           }
           canvas.renderAll();
         });
-        
+
         console.log('  Adding edited image to canvas');
         canvas.add(fabricImage);
         canvas.setActiveObject(fabricImage);
         canvas.renderAll();
         setUploadedImage(fabricImage);
-        
+
+        // Save state after AI edit completes (new image added)
+        // Keep isRestoringState=true during this to block automatic event-driven saves
+        setTimeout(() => {
+          if (fabricImage) {
+            const imageSrc = (fabricImage as any).getSrc ? (fabricImage as any).getSrc() : (fabricImage as any)._element?.src;
+            const newState = {
+              src: imageSrc,
+              left: fabricImage.left,
+              top: fabricImage.top,
+              scaleX: fabricImage.scaleX,
+              scaleY: fabricImage.scaleY,
+              angle: fabricImage.angle,
+              flipX: fabricImage.flipX,
+              flipY: fabricImage.flipY,
+              opacity: fabricImage.opacity,
+              originX: fabricImage.originX,
+              originY: fabricImage.originY,
+              filters: fabricImage.filters ? [...fabricImage.filters] : [],
+              backgroundColor: canvasBackgroundColor
+            };
+            setCanvasHistory(prev => {
+              const newHistory = [...prev, JSON.stringify(newState)];
+              return newHistory.slice(-20);
+            });
+            console.log('📸 State saved after AI edit');
+
+            // Wait additional time to ensure event listener timeouts (100ms) have passed
+            setTimeout(() => {
+              isRestoringState.current = false;
+            }, 50);
+          }
+        }, 100);
+
         console.log('Image successfully added to canvas');
       };
       
@@ -2365,6 +2517,9 @@ export default function Editor() {
     uploadedImage.filters = filters;
     uploadedImage.applyFilters();
     canvas.renderAll();
+
+    // Save state after filters are applied (filters don't trigger object:modified)
+    setTimeout(() => saveCanvasState(), 100);
   };
 
   const resetFilters = () => {
@@ -2761,8 +2916,13 @@ export default function Editor() {
           withoutShadow: true
         });
 
-        // If phone model has a template, use it as a mask to clip the design
+        // SKIP MASKING: Send rectangular design as-is (no cutouts applied)
+        // Confirmation page will still show phone template overlay for preview
         let dataURL = designDataURL;
+        console.log('📦 Skipping mask application - sending rectangular design');
+
+        // MASKING DISABLED - Comment out entire masking block
+        /*
         if (phoneModel?.templatePath) {
           console.log('🎭 Applying phone template mask:', phoneModel.templatePath);
 
@@ -2956,6 +3116,7 @@ export default function Editor() {
             maskImage.src = `/phone-models/${phoneModel.templatePath}`;
           });
         }
+        */
         
         // Check size and warn if too large
         const sizeInBytes = dataURL.length * 0.75; // Approximate size in bytes
@@ -3060,15 +3221,15 @@ export default function Editor() {
         console.log('💾 Saved canvas state with', canvas.getObjects().length, 'objects');
 
         // Store preview data in global window object (too large for sessionStorage)
-        // IMPORTANT: Use the masked dataURL for both preview and submission
-        // This ensures preview matches what gets printed
+        // NOTE: Masking is currently DISABLED - sending rectangular design image
+        // Confirmation page will composite this with phone template for preview only
         const previewData = {
-          designImage: dataURL, // This is now the MASKED image (with camera/borders cut out)
+          designImage: dataURL, // Rectangular canvas design (NO cutouts applied)
           canvasState: canvasJSON, // Save full canvas state for restoration
           phoneTemplate: phoneModel?.templatePath ? `/phone-models/${phoneModel.templatePath}` : null,
           phoneName: phoneModel?.displayName || 'Custom Phone Case',
           submissionData: {
-            image: dataURL, // Send the MASKED image to printer
+            image: dataURL, // Send rectangular design image to printer (NO masking)
             machineId: machineId,
             sessionId: sessionId || `session_${Date.now()}`,
             phoneModel: phoneModel?.displayName || 'Default Phone Case',
@@ -3266,9 +3427,144 @@ export default function Editor() {
             {/* Top Header - Fixed height section */}
             {uploadedImage && (
               <div className="flex-shrink-0 px-4 py-2">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 relative">
                   <img src="/icons/sweetrobo-logo.gif" alt="SweetRobo" className="w-16 h-16 object-contain" />
                   <h1 className="text-base font-bold text-gray-900">Case Bot App</h1>
+
+                  {/* Undo Button - Top right corner at header level */}
+                  {canvasHistory.length >= 2 && (
+                    <button
+                      onClick={() => {
+                        if (canvasHistory.length < 2 || !canvas || !uploadedImage || !fabric) return;
+
+                        isRestoringState.current = true;
+
+                        // Get the PREVIOUS state (second to last in history)
+                        // Current state is at index [length-1], previous is at [length-2]
+                        const previousState = canvasHistory[canvasHistory.length - 2];
+
+                        // Remove the last state (current state) from history
+                        setCanvasHistory(prev => prev.slice(0, -1));
+
+                        try {
+                          const savedState = JSON.parse(previousState);
+                          const currentSrc = (uploadedImage as any).getSrc ? (uploadedImage as any).getSrc() : (uploadedImage as any)._element?.src;
+
+                          console.log('🔄 Restoring image transformation state');
+
+                          // Check if we need to reload the image (AI edit undo)
+                          if (savedState.src && savedState.src !== currentSrc) {
+                            console.log('🔄 Image source changed, reloading previous image...');
+
+                            // Remove current image (isRestoringState already true, blocks auto-saves)
+                            canvas.remove(uploadedImage);
+
+                            // Load the previous image
+                            const imgElement = new Image();
+                            imgElement.onload = function() {
+                              const fabricImage = new fabric.Image(imgElement, {
+                                left: savedState.left,
+                                top: savedState.top,
+                                scaleX: savedState.scaleX,
+                                scaleY: savedState.scaleY,
+                                angle: savedState.angle,
+                                flipX: savedState.flipX,
+                                flipY: savedState.flipY,
+                                opacity: savedState.opacity,
+                                originX: savedState.originX || 'center',
+                                originY: savedState.originY || 'center',
+                                selectable: true,
+                                evented: true,
+                                hasControls: true,
+                                hasBorders: false
+                              });
+
+                              // Apply saved filters
+                              if (savedState.filters && savedState.filters.length > 0) {
+                                fabricImage.filters = savedState.filters;
+                                fabricImage.applyFilters();
+                              }
+
+                              // Restore background color if it exists
+                              if (savedState.backgroundColor !== undefined) {
+                                setCanvasBackgroundColor(savedState.backgroundColor);
+                                canvas.backgroundColor = savedState.backgroundColor;
+                              }
+
+                              // Apply custom controls
+                              if (normalControls.current) {
+                                (fabricImage as any).controls = normalControls.current;
+                              }
+
+                              // Add image back (still in restoring state to block auto-saves)
+                              canvas.add(fabricImage);
+                              canvas.setActiveObject(fabricImage);
+                              canvas.renderAll();
+
+                              // Update the uploaded image reference
+                              setUploadedImage(fabricImage);
+
+                              // Delay longer than event listener timeouts (100ms) to prevent auto-saves
+                              setTimeout(() => {
+                                isRestoringState.current = false;
+                                console.log('✅ Undo successful, restored previous image');
+                              }, 150);
+                            };
+                            imgElement.src = savedState.src;
+                          } else {
+                            // Just restore transformations (no image change)
+                            uploadedImage.set({
+                              left: savedState.left,
+                              top: savedState.top,
+                              scaleX: savedState.scaleX,
+                              scaleY: savedState.scaleY,
+                              angle: savedState.angle,
+                              flipX: savedState.flipX,
+                              flipY: savedState.flipY,
+                              opacity: savedState.opacity
+                            });
+
+                            // Restore filters if they exist
+                            if (savedState.filters && savedState.filters.length > 0) {
+                              uploadedImage.filters = savedState.filters;
+                              uploadedImage.applyFilters();
+                            } else {
+                              uploadedImage.filters = [];
+                              uploadedImage.applyFilters();
+                            }
+
+                            // Restore background color if it exists
+                            if (savedState.backgroundColor !== undefined) {
+                              setCanvasBackgroundColor(savedState.backgroundColor);
+                              canvas.backgroundColor = savedState.backgroundColor;
+                            }
+
+                            // Update control coordinates to match new position/transformation
+                            uploadedImage.setCoords();
+
+                            canvas.setActiveObject(uploadedImage);
+                            canvas.renderAll();
+
+                            // Delay longer than event listener timeouts (100ms) to prevent auto-saves
+                            setTimeout(() => {
+                              isRestoringState.current = false;
+                              console.log('✅ Undo successful, restored to previous state');
+                            }, 150);
+                          }
+                        } catch (error) {
+                          console.error('Failed to undo:', error);
+                          isRestoringState.current = false;
+                        }
+                      }}
+                      className="absolute top-1/2 -translate-y-1/2 right-0 bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg shadow-lg transition-all transform active:scale-95 flex items-center gap-1 text-sm font-semibold z-10"
+                      style={{ touchAction: 'manipulation' }}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                      </svg>
+                      Undo
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -3388,7 +3684,7 @@ export default function Editor() {
             )}
 
             {/* Canvas Section - No centering, attached to header */}
-            <div className="flex-shrink-0">
+            <div className="flex-shrink-0 relative">
               <canvas ref={canvasRef} className="no-select" />
             </div>
 
@@ -3768,6 +4064,9 @@ export default function Editor() {
                           }
                           uploadedImage.applyFilters();
                           canvas.renderAll();
+
+                          // Save state after black & white filter is toggled
+                          setTimeout(() => saveCanvasState(), 100);
                         }}
                         className={`flex items-center gap-2 px-3 py-2 border rounded-lg transition text-sm ${
                           isBlackAndWhite
