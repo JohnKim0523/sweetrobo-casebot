@@ -430,8 +430,12 @@ class VertexAIService {
         });
 
         // Build the prompt (include negative prompt if provided)
-        // Prepend "Generate an image:" to clearly indicate we want generation, not editing
-        let fullPrompt = `Generate an image: ${request.prompt}`;
+        // Include dimensions in the prompt to guide Imagen to generate correct aspect ratio
+        const dimensionText = request.width && request.height
+          ? `${request.width}x${request.height}px`
+          : '1024x1024px';
+
+        let fullPrompt = `Generate an image at ${dimensionText}: ${request.prompt}`;
         if (request.negativePrompt) {
           fullPrompt += `\n\nAvoid: ${request.negativePrompt}`;
         }
