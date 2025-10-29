@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Apple iPhones
+echo "Downloading Apple iPhone thumbnails..."
+curl -o "iphone16promax.png" "https://print-oss.gzchitu.cn/iphone/16promax.png"
+curl -o "iphone16pro.png" "https://print-oss.gzchitu.cn/iphone/iphone16pro.png"
+curl -o "iphone16plus.png" "https://print-oss.gzchitu.cn/iphone/iphone16plus.png"
+curl -o "iphone16.png" "https://print-oss.gzchitu.cn/iphone/iphone16.png"
+curl -o "iphone15promax.png" "https://print-oss.gzchitu.cn/iphone/iphone15promax.png"
+curl -o "iphone15pro.png" "https://print-oss.gzchitu.cn/iphone/iphone15pro.png"
+curl -o "iphone15plus.png" "https://print-oss.gzchitu.cn/iphone/iphone15plus.png"
+curl -o "iphone15.png" "https://print-oss.gzchitu.cn/iphone/iphone15.png"
+curl -o "iphone14promax.png" "https://print-oss.gzchitu.cn/iphone/iphone14promax.png"
+curl -o "iphone14pro.png" "https://print-oss.gzchitu.cn/iphone/iphone14pro.png"
+curl -o "iphone14plus.png" "https://print-oss.gzchitu.cn/iphone/iphone14plus.png"
+curl -o "iphone14.png" "https://print-oss.gzchitu.cn/iphone/iphone14.png"
+curl -o "iphone13promax.png" "https://print-oss.gzchitu.cn/iphone/iphone13promax.png"
+curl -o "iphone13pro.png" "https://print-oss.gzchitu.cn/iphone/iphone13pro.png"
+curl -o "iphone13.png" "https://print-oss.gzchitu.cn/iphone/iphone13.png"
+curl -o "iphone13mini.png" "https://print-oss.gzchitu.cn/iphone/iphone13mini.png"
+curl -o "iphone12promax.png" "https://print-oss.gzchitu.cn/iphone/iphone12promax.png"
+curl -o "iphone12pro.png" "https://print-oss.gzchitu.cn/iphone/iphone12pro.png"
+curl -o "iphone12.png" "https://print-oss.gzchitu.cn/iphone/iphone12.png"
+curl -o "iphone12mini.png" "https://print-oss.gzchitu.cn/iphone/iphone12mini.png"
+curl -o "iphone11.png" "https://print-oss.gzchitu.cn/798c1202505151455177778.png"
+
+# Samsung
+echo "Downloading Samsung thumbnails..."
+curl -o "samsung-s25ultra.png" "https://print-oss.gzchitu.cn/02b9d202412190923393639.png"
+curl -o "samsung-a06.png" "https://print-oss.gzchitu.cn/85c4a202412190925306776.png"
+curl -o "samsung-a16-5g.png" "https://print-oss.gzchitu.cn/a5fe020241219092743756.png"
+
+echo ""
+echo "✅ Download complete!"
+echo "Downloaded $(ls -1 *.png 2>/dev/null | wc -l) thumbnail files"

@@ -8,12 +8,38 @@ interface S3Image {
   lastModified: string;
 }
 
+interface QueueJob {
+  id: string;
+  status: 'waiting' | 'processing' | 'completed' | 'failed';
+  phoneModel: string;
+  phoneModelId: string;
+  productId?: string;
+  machineId: string;
+  sessionId: string;
+  dimensions: {
+    widthPX: number;
+    heightPX: number;
+    widthMM: number;
+    heightMM: number;
+  };
+  image: string; // Base64 masked image
+  imageUrl?: string; // S3 URL if uploaded
+  priority: number;
+  queuePosition: number;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+  attempts: number;
+}
+
 export default function AdminDashboard() {
   const [images, setImages] = useState<S3Image[]>([]);
+  const [queueJobs, setQueueJobs] = useState<QueueJob[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingJobs, setLoadingJobs] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [currentQueue, setCurrentQueue] = useState<any[]>([]);
   const [adminToken, setAdminToken] = useState<string>('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
@@ -23,7 +49,7 @@ export default function AdminDashboard() {
       setError('Please enter admin token');
       return;
     }
-    
+
     try {
       setLoading(true);
       setError(null);
@@ -33,16 +59,16 @@ export default function AdminDashboard() {
           'Authorization': `Bearer ${adminToken}`
         }
       });
-      
+
       if (response.status === 401) {
         setIsAuthenticated(false);
         setError('Invalid admin token');
         setImages([]);
         return;
       }
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         setImages(data.images);
         setIsAuthenticated(true);
@@ -53,6 +79,24 @@ export default function AdminDashboard() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Load queue jobs from backend
+  const loadQueueJobs = async () => {
+    try {
+      setLoadingJobs(true);
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const response = await fetch(`${backendUrl}/api/chitu/queue/jobs?limit=50`);
+      const data = await response.json();
+
+      if (data.success) {
+        setQueueJobs(data.jobs);
+      }
+    } catch (err: any) {
+      console.error('Failed to load queue jobs:', err);
+    } finally {
+      setLoadingJobs(false);
     }
   };
 
@@ -117,9 +161,10 @@ export default function AdminDashboard() {
   }, []);
   
   useEffect(() => {
-    // Load images when token changes
+    // Load images and queue jobs when token changes
     if (adminToken) {
       loadImages();
+      loadQueueJobs();
     }
   }, [adminToken]);
 
@@ -139,15 +184,18 @@ export default function AdminDashboard() {
         <title>Admin Dashboard - S3 Manager</title>
       </Head>
       
-      <div className="min-h-screen bg-gray-900 text-white p-4">
-        <div className="max-w-7xl mx-auto">
+      <div className="admin-page min-h-screen bg-gray-900 text-white">
+        <div className="max-w-7xl mx-auto p-4">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-3xl font-bold">Admin Dashboard</h1>
             <div className="flex items-center gap-4">
               {isAuthenticated && (
                 <>
                   <button
-                    onClick={loadImages}
+                    onClick={() => {
+                      loadImages();
+                      loadQueueJobs();
+                    }}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
                   >
                     🔄 Refresh
@@ -211,25 +259,104 @@ export default function AdminDashboard() {
           {/* Show content only when authenticated */}
           {isAuthenticated && (
             <>
-          {/* Current Queue */}
-          {currentQueue.length > 0 && (
-            <div className="mb-6 p-4 bg-gray-800 rounded">
-              <h2 className="text-xl font-bold mb-3">📋 Current Queue ({currentQueue.length})</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                {currentQueue.map((job) => (
-                  <div key={job.id} className="p-2 bg-gray-700 rounded flex justify-between">
-                    <span>#{job.queuePosition}</span>
-                    <span className={`px-2 rounded text-xs ${
-                      job.status === 'printing' ? 'bg-yellow-600' : 
-                      job.status === 'completed' ? 'bg-green-600' : 'bg-gray-600'
-                    }`}>
-                      {job.status}
-                    </span>
+          {/* Queue Jobs with Masked Images */}
+          <div className="mb-6 bg-gray-800 rounded p-4">
+            <h2 className="text-xl font-bold mb-4">
+              🖨️ Print Queue Jobs ({queueJobs.length})
+            </h2>
+            <p className="text-sm text-gray-400 mb-4">
+              These are the exact masked images that will be/were sent to the printer
+            </p>
+
+            {loadingJobs && (
+              <div className="text-center py-8">Loading queue jobs...</div>
+            )}
+
+            {!loadingJobs && queueJobs.length === 0 && (
+              <div className="text-center py-8 text-gray-400">
+                No jobs in queue. Submit a design to see it here!
+              </div>
+            )}
+
+            {queueJobs.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {queueJobs.map((job) => (
+                  <div key={job.id} className="bg-gray-700 rounded overflow-hidden">
+                    {/* Masked Image Preview */}
+                    <div className="bg-gray-900 flex items-center justify-center p-4" style={{ minHeight: '250px' }}>
+                      <img
+                        src={job.image}
+                        alt={`${job.phoneModel} - ${job.id}`}
+                        className="max-w-full max-h-64 object-contain"
+                        style={{
+                          imageRendering: 'pixelated',
+                          background: 'repeating-conic-gradient(#444 0% 25%, #555 0% 50%) 50% / 20px 20px'
+                        }}
+                      />
+                    </div>
+
+                    {/* Job Details */}
+                    <div className="p-3">
+                      {/* Status Badge */}
+                      <div className="mb-2">
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${
+                          job.status === 'waiting' ? 'bg-blue-600' :
+                          job.status === 'processing' ? 'bg-yellow-600' :
+                          job.status === 'completed' ? 'bg-green-600' :
+                          'bg-red-600'
+                        }`}>
+                          {job.status.toUpperCase()}
+                          {job.status === 'waiting' && job.queuePosition > 0 && ` - Position ${job.queuePosition}`}
+                        </span>
+                      </div>
+
+                      {/* Phone Model */}
+                      <p className="text-sm font-bold mb-1">
+                        📱 {job.phoneModel}
+                      </p>
+
+                      {/* Product ID */}
+                      {job.productId && (
+                        <p className="text-xs text-gray-400 mb-1 truncate" title={job.productId}>
+                          🆔 {job.productId.substring(0, 12)}...
+                        </p>
+                      )}
+
+                      {/* Dimensions */}
+                      <p className="text-xs text-gray-400 mb-1">
+                        📏 {job.dimensions.widthPX} × {job.dimensions.heightPX} px
+                      </p>
+                      <p className="text-xs text-gray-400 mb-1">
+                        📐 {job.dimensions.widthMM} × {job.dimensions.heightMM} mm
+                      </p>
+
+                      {/* Machine ID */}
+                      <p className="text-xs text-gray-400 mb-1">
+                        🖨️ {job.machineId}
+                      </p>
+
+                      {/* Timestamp */}
+                      <p className="text-xs text-gray-500 mb-2">
+                        🕐 {formatDate(job.createdAt)}
+                      </p>
+
+                      {/* Error Message */}
+                      {job.error && (
+                        <p className="text-xs text-red-400 bg-red-900/30 p-2 rounded mb-2">
+                          ❌ {job.error}
+                        </p>
+                      )}
+
+                      {/* Job ID */}
+                      <p className="text-xs text-gray-500 truncate" title={job.id}>
+                        Job: {job.id}
+                      </p>
+                    </div>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* S3 Images */}
           <div className="bg-gray-800 rounded p-4">
@@ -298,20 +425,26 @@ export default function AdminDashboard() {
           </div>
 
           {/* Stats */}
-          <div className="mt-6 grid grid-cols-3 gap-4">
+          <div className="mt-6 grid grid-cols-4 gap-4">
+            <div className="bg-gray-800 p-4 rounded text-center">
+              <div className="text-2xl font-bold">{queueJobs.length}</div>
+              <div className="text-gray-400">Queue Jobs</div>
+            </div>
+            <div className="bg-gray-800 p-4 rounded text-center">
+              <div className="text-2xl font-bold">
+                {queueJobs.filter(j => j.status === 'waiting').length}
+              </div>
+              <div className="text-gray-400">Waiting</div>
+            </div>
             <div className="bg-gray-800 p-4 rounded text-center">
               <div className="text-2xl font-bold">{images.length}</div>
-              <div className="text-gray-400">Total Images</div>
+              <div className="text-gray-400">S3 Images</div>
             </div>
             <div className="bg-gray-800 p-4 rounded text-center">
               <div className="text-2xl font-bold">
                 {formatFileSize(images.reduce((acc, img) => acc + img.size, 0))}
               </div>
               <div className="text-gray-400">Total Size</div>
-            </div>
-            <div className="bg-gray-800 p-4 rounded text-center">
-              <div className="text-2xl font-bold">{currentQueue.length}</div>
-              <div className="text-gray-400">Queue Size</div>
             </div>
           </div>
             </>

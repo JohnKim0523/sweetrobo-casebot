@@ -81,3 +81,34 @@ export interface MachineStatus {
   current_order?: string;
   progress?: number;
 }
+
+// Product catalog types
+export interface ProductCatalogRequest {
+  device_id: string;  // Encrypted device ID
+  type: 'default' | 'diy';  // 'diy' for phone cases
+  status: 0 | 1;  // 1 = active, 0 = inactive
+  page: number;
+  limit: number;
+}
+
+export interface PhoneModel {
+  name_cn: string;
+  name_en: string;
+  show_img: string;  // Preview image URL
+  print_img: string;  // Template image URL with exact dimensions
+  price: string;
+  product_id: string;  // Use this when creating orders
+  stock: number;
+}
+
+export interface ProductBrand {
+  id: string;
+  name_cn: string;
+  name_en: string;
+  modelList: PhoneModel[];
+}
+
+export interface ProductCatalogResponse {
+  count: number;
+  list: ProductBrand[];
+}

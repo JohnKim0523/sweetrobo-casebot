@@ -76,6 +76,18 @@ body {
   -webkit-text-size-adjust: none;
 }
 
+/* Allow scrolling on admin page */
+body:has(.admin-page) {
+  overflow: auto !important;
+  height: auto !important;
+}
+
+/* Allow scrolling on model selection page */
+body:has(.model-selection-page) {
+  overflow: auto !important;
+  height: auto !important;
+}
+
 /* Disabled grid background for clean look */
 body::before {
   display: none;

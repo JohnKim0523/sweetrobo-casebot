@@ -10,6 +10,7 @@ export interface PrintJobData {
   imageUrl?: string;
   phoneModel: string;
   phoneModelId: string;
+  productId?: string;  // NEW: Chitu product_id for this phone model
   dimensions: {
     widthPX: number;
     heightPX: number;
@@ -377,5 +378,40 @@ export class SimpleQueueService {
     }
 
     return { success: false, error: 'Failed to cancel job' };
+  }
+
+  /**
+   * Get all jobs with image data (for admin dashboard)
+   * Returns most recent jobs first, with image previews
+   */
+  getAllJobs(limit: number = 50) {
+    // Sort by creation date, most recent first
+    const sortedJobs = [...this.queue].sort((a, b) =>
+      b.createdAt.getTime() - a.createdAt.getTime()
+    );
+
+    // Limit results
+    const limitedJobs = sortedJobs.slice(0, limit);
+
+    // Map to admin-friendly format
+    return limitedJobs.map(job => ({
+      id: job.id,
+      status: job.status,
+      phoneModel: job.data.phoneModel,
+      phoneModelId: job.data.phoneModelId,
+      productId: job.data.productId,
+      machineId: job.data.machineId,
+      sessionId: job.data.sessionId,
+      dimensions: job.data.dimensions,
+      image: job.data.image, // Base64 masked image (what goes to printer)
+      imageUrl: job.data.imageUrl, // S3 URL if uploaded
+      priority: job.priority,
+      queuePosition: job.status === 'waiting' ? this.getQueuePosition(job.id) : 0,
+      createdAt: job.createdAt,
+      startedAt: job.startedAt,
+      completedAt: job.completedAt,
+      error: job.error,
+      attempts: job.attempts,
+    }));
   }
 }

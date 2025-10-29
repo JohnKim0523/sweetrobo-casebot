@@ -107,11 +107,12 @@ class VertexAIService {
       const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
       const imageBuffer = Buffer.from(base64Data, 'base64');
 
-      // Resize image to fill target dimensions (crop if needed to avoid white bars)
+      // Resize image to target dimensions maintaining aspect ratio
+      // Use 'cover' to fill the area completely while maintaining aspect ratio (minimal crop)
       const resizedBuffer = await sharp(imageBuffer)
         .resize(targetWidth, targetHeight, {
-          fit: 'cover',  // Fill entire area, crop if needed (no white bars)
-          position: 'center',  // Center the image when cropping
+          fit: 'cover',  // Maintain aspect ratio, crop minimally if needed
+          position: 'center',  // Center the content when cropping
         })
         .png()
         .toBuffer();
@@ -504,12 +505,13 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
         });
 
         // Build the prompt (include negative prompt if provided)
-        // Include dimensions in the prompt to guide Imagen to generate correct aspect ratio
-        const dimensionText = request.width && request.height
-          ? `${request.width}x${request.height}px`
-          : '1024x1024px';
+        // Prepend "Generate an image:" to clearly indicate we want generation, not editing
+        // Add orientation guidance based on aspect ratio
+        const aspectRatio = request.width && request.height ? request.width / request.height : 1;
+        const orientationHint = aspectRatio < 0.8 ? ' in vertical portrait orientation' :
+                               aspectRatio > 1.2 ? ' in horizontal landscape orientation' : '';
 
-        let fullPrompt = `Generate an image at ${dimensionText}: ${request.prompt}`;
+        let fullPrompt = `Generate an image${orientationHint}: ${request.prompt}`;
         if (request.negativePrompt) {
           fullPrompt += `\n\nAvoid: ${request.negativePrompt}`;
         }

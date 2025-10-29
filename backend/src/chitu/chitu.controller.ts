@@ -82,6 +82,36 @@ export class ChituController {
   }
 
   /**
+   * Get product catalog (phone models) for a machine
+   * Query params: type=diy|default, status=0|1, page=1, limit=100
+   */
+  @Get('products/:deviceCode')
+  async getProductCatalog(
+    @Param('deviceCode') deviceCode: string,
+    @Query('type') type?: 'default' | 'diy',
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    try {
+      const catalog = await this.chituService.getProductCatalogByCode(
+        deviceCode,
+        type || 'diy',
+        status === '0' ? 0 : 1,
+        parseInt(page || '1', 10),
+        parseInt(limit || '100', 10),
+      );
+      return {
+        success: true,
+        count: catalog.count,
+        brands: catalog.list,
+      };
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  /**
    * Submit design to print (replacement for old flow)
    */
   @Post('print')
@@ -90,6 +120,7 @@ export class ChituController {
     machineId?: string;
     phoneModel?: string;
     phoneModelId?: string;
+    productId?: string;  // NEW: Chitu product_id from phone model
     sessionId?: string;
     dimensions?: any;
     userId?: string;
@@ -99,6 +130,7 @@ export class ChituController {
       console.log('\n🖨️ === NEW PRINT JOB REQUEST ===');
       console.log(`📱 Session: ${body.sessionId}`);
       console.log(`📱 Model: ${body.phoneModel}`);
+      console.log(`📦 Product ID: ${body.productId || 'not provided'}`);
       console.log(`🎯 Machine: ${body.machineId || 'auto-assign'}`);
 
       // Add to queue with duplicate prevention and load balancing
@@ -108,9 +140,10 @@ export class ChituController {
         image: body.image,
         phoneModel: body.phoneModel || 'Default',
         phoneModelId: body.phoneModelId || 'default',
+        productId: body.productId,  // NEW: Pass product_id to queue
         dimensions: body.dimensions || {
-          widthPX: 834,
-          heightPX: 1731,
+          widthPX: 711,   // Updated default to iPhone 15 Pro actual dimensions
+          heightPX: 1471, // Updated default to iPhone 15 Pro actual dimensions
           widthMM: 70.6,
           heightMM: 146.6,
         },
@@ -159,6 +192,21 @@ export class ChituController {
     return {
       success: true,
       stats,
+    };
+  }
+
+  /**
+   * Get all queue jobs with images (for admin dashboard)
+   */
+  @Get('queue/jobs')
+  async getAllJobs(@Query('limit') limit?: string) {
+    const jobs = this.queueService.getAllJobs(
+      limit ? parseInt(limit, 10) : 50
+    );
+    return {
+      success: true,
+      count: jobs.length,
+      jobs,
     };
   }
 

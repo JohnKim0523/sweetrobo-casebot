@@ -100,6 +100,42 @@
 }
 ```
 
+### GET `/api/chitu/products/:deviceCode`
+**Purpose**: Get product catalog (phone models) for a machine
+**Parameters**:
+- `deviceCode`: Machine code (e.g., "CT0700026")
+**Query Params**:
+- `type`: "diy" (phone cases) or "default" (pre-made designs)
+- `status`: 1 (active) or 0 (inactive)
+- `page`: Page number (default: 1)
+- `limit`: Items per page (default: 100)
+**Response**:
+```json
+{
+  "success": true,
+  "count": 99,
+  "brands": [
+    {
+      "id": "B1NfXaFCwjTWFg9n/hfnXw==",
+      "name_cn": "苹果",
+      "name_en": "Apple",
+      "modelList": [
+        {
+          "name_cn": "iPhone 15 Pro",
+          "name_en": "iPhone 15 Pro",
+          "show_img": "https://print-oss.gzchitu.cn/iphone/iphone15pro.png",
+          "print_img": "https://print-oss.gzchitu.cn/iphone/iphone15pro-print.png",
+          "price": "0.00",
+          "product_id": "VNr7tjfBrF7P4iJ45I3pPA==",
+          "stock": 0
+        }
+      ]
+    }
+  ]
+}
+```
+**Note**: The `print_img` URL contains the template with exact dimensions to use for your designs.
+
 ### POST `/api/chitu/print`
 **Purpose**: Submit print job to queue
 **Body**:

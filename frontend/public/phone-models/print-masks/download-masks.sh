@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Apple iPhones
+echo "Downloading Apple iPhone masks..."
+curl -o "iphone16promax-print.png" "https://print-oss.gzchitu.cn/iphone/16promax-print.png"
+curl -o "iphone16pro-print.png" "https://print-oss.gzchitu.cn/iphone/iphone16pro-print.png"
+curl -o "iphone16plus-print.png" "https://print-oss.gzchitu.cn/iphone/iphone16plus-print.png"
+curl -o "iphone16-print.png" "https://print-oss.gzchitu.cn/iphone/iphone16-print.png"
+curl -o "iphone15promax-print.png" "https://print-oss.gzchitu.cn/iphone/iphone15promax-print.png"
+echo "iphone15pro-print.png already exists, skipping..."
+curl -o "iphone15plus-print.png" "https://print-oss.gzchitu.cn/iphone/iphone15plus-print.png"
+curl -o "iphone15-print.png" "https://print-oss.gzchitu.cn/iphone/iphone15-print.png"
+curl -o "iphone14promax-print.png" "https://print-oss.gzchitu.cn/iphone/iphone14promax-print.png"
+curl -o "iphone14pro-print.png" "https://print-oss.gzchitu.cn/iphone/iphone14pro-print.png"
+curl -o "iphone14plus-print.png" "https://print-oss.gzchitu.cn/iphone/iphone14plus-print.png"
+curl -o "iphone14-print.png" "https://print-oss.gzchitu.cn/iphone/iphone14-print.png"
+curl -o "iphone13promax-print.png" "https://print-oss.gzchitu.cn/iphone/iphone13promax-print.png"
+curl -o "iphone13pro-print.png" "https://print-oss.gzchitu.cn/iphone/iphone13pro-print.png"
+curl -o "iphone13-print.png" "https://print-oss.gzchitu.cn/iphone/iphone13-print.png"
+curl -o "iphone13mini-print.png" "https://print-oss.gzchitu.cn/iphone/iphone13mini-print.png"
+curl -o "iphone12promax-print.png" "https://print-oss.gzchitu.cn/iphone/iphone12promax-print.png"
+curl -o "iphone12pro-print.png" "https://print-oss.gzchitu.cn/iphone/iphone12pro-print.png"
+curl -o "iphone12-print.png" "https://print-oss.gzchitu.cn/iphone/iphone12-print.png"
+curl -o "iphone12mini-print.png" "https://print-oss.gzchitu.cn/iphone/iphone12mini-print.png"
+curl -o "iphone11-print.png" "https://print-oss.gzchitu.cn/032e7202505151455341309.png"
+
+# Samsung
+echo "Downloading Samsung masks..."
+curl -o "samsung-s25ultra-print.png" "https://print-oss.gzchitu.cn/a232f202412190923587483.png"
+curl -o "samsung-a06-print.png" "https://print-oss.gzchitu.cn/db3d1202412190925517914.png"
+curl -o "samsung-a16-5g-print.png" "https://print-oss.gzchitu.cn/79d99202412190928072825.png"
+
+echo ""
+echo "✅ Download complete!"
+echo "Downloaded $(ls -1 *.png 2>/dev/null | wc -l) mask files"

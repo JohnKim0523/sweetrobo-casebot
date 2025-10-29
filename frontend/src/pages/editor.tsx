@@ -2916,30 +2916,25 @@ export default function Editor() {
           withoutShadow: true
         });
 
-        // SKIP MASKING: Send rectangular design as-is (no cutouts applied)
-        // Confirmation page will still show phone template overlay for preview
+        // APPLY MASKING: Composite design with print mask to create camera cutouts
         let dataURL = designDataURL;
-        console.log('📦 Skipping mask application - sending rectangular design');
 
-        // MASKING DISABLED - Comment out entire masking block
-        /*
-        if (phoneModel?.templatePath) {
-          console.log('🎭 Applying phone template mask:', phoneModel.templatePath);
+        if (phoneModel?.printMaskPath) {
+          console.log('🎭 Applying print mask:', phoneModel.printMaskPath);
 
-          // Load the phone template as a mask
+          // Load the print mask (BLACK = design area, WHITE/TRANSPARENT = cutouts)
           const maskImage = new Image();
           maskImage.crossOrigin = 'anonymous';
 
           // Wait for mask to load
           await new Promise<void>((resolve, reject) => {
             maskImage.onload = () => {
-              console.log('✅ Mask loaded:', maskImage.width, 'x', maskImage.height);
+              console.log('✅ Print mask loaded:', maskImage.width, 'x', maskImage.height);
 
-              // Use phone model dimensions (not mask dimensions) to keep file size reasonable
-              // Mask is 2697x5385 (8.4MB PNG), but phone model is 834x1731 (~1-2MB PNG)
+              // Use exact phone model dimensions from Chitu template
               const finalWidth = phoneModel.dimensions.widthPX;
               const finalHeight = phoneModel.dimensions.heightPX;
-              console.log('🎯 Using phone model dimensions for final output:', finalWidth, 'x', finalHeight);
+              console.log('🎯 Compositing at:', finalWidth, 'x', finalHeight);
 
               // Create a temporary canvas for compositing at mask resolution
               const tempCanvas = document.createElement('canvas');
@@ -2952,171 +2947,33 @@ export default function Editor() {
               designImage.onload = () => {
                 console.log('✅ Design loaded:', designImage.width, 'x', designImage.height);
 
-                // The mask has: opaque areas (borders/camera) and transparent center (printable)
-                // But transparent areas exist both INSIDE and OUTSIDE the phone case
-                // Solution: Scan from edges, mark transparent pixels as exterior until hitting opaque border
-
-                // Step 1: Create a modified mask with exterior filled
-                const modifiedMask = document.createElement('canvas');
-                modifiedMask.width = finalWidth;
-                modifiedMask.height = finalHeight;
-                const modCtx = modifiedMask.getContext('2d')!;
-
-                // Draw the original mask
-                modCtx.drawImage(maskImage, 0, 0, finalWidth, finalHeight);
-
-                // Get pixel data
-                const imageData = modCtx.getImageData(0, 0, finalWidth, finalHeight);
-                const pixels = imageData.data;
-
-                console.log('🔍 Scanning edges to mark exterior regions...');
-
-                // Need to scan deeper - phone buttons/edges might be scattered
-                // Look for consistent opaque region (multiple consecutive opaque pixels)
-                const minOpaqueCount = 15; // Need 15 consecutive opaque pixels to be sure it's the border
-                const edgeMargin = 5; // Always mark first 5 pixels from each edge as exterior
-
-                // Scan from top
-                for (let x = 0; x < finalWidth; x++) {
-                  let opaqueCount = 0;
-                  for (let y = 0; y < finalHeight; y++) {
-                    const i = (y * finalWidth + x) * 4;
-                    const alpha = pixels[i + 3];
-
-                    // Always mark edge margin pixels
-                    if (y < edgeMargin) {
-                      pixels[i] = 255;
-                      pixels[i + 1] = 255;
-                      pixels[i + 2] = 255;
-                      pixels[i + 3] = 255;
-                      continue;
-                    }
-
-                    if (alpha > 200) {
-                      opaqueCount++;
-                      if (opaqueCount >= minOpaqueCount) break; // Hit solid border
-                    } else {
-                      opaqueCount = 0; // Reset if we hit transparent again
-                      pixels[i] = 255;
-                      pixels[i + 1] = 255;
-                      pixels[i + 2] = 255;
-                      pixels[i + 3] = 255;
-                    }
-                  }
-                }
-
-                // Scan from bottom
-                for (let x = 0; x < finalWidth; x++) {
-                  let opaqueCount = 0;
-                  for (let y = finalHeight - 1; y >= 0; y--) {
-                    const i = (y * finalWidth + x) * 4;
-                    const alpha = pixels[i + 3];
-
-                    if (y >= finalHeight - edgeMargin) {
-                      pixels[i] = 255;
-                      pixels[i + 1] = 255;
-                      pixels[i + 2] = 255;
-                      pixels[i + 3] = 255;
-                      continue;
-                    }
-
-                    if (alpha > 200) {
-                      opaqueCount++;
-                      if (opaqueCount >= minOpaqueCount) break;
-                    } else {
-                      opaqueCount = 0;
-                      pixels[i] = 255;
-                      pixels[i + 1] = 255;
-                      pixels[i + 2] = 255;
-                      pixels[i + 3] = 255;
-                    }
-                  }
-                }
-
-                // Scan from left
-                for (let y = 0; y < finalHeight; y++) {
-                  let opaqueCount = 0;
-                  for (let x = 0; x < finalWidth; x++) {
-                    const i = (y * finalWidth + x) * 4;
-                    const alpha = pixels[i + 3];
-
-                    if (x < edgeMargin) {
-                      pixels[i] = 255;
-                      pixels[i + 1] = 255;
-                      pixels[i + 2] = 255;
-                      pixels[i + 3] = 255;
-                      continue;
-                    }
-
-                    if (alpha > 200) {
-                      opaqueCount++;
-                      if (opaqueCount >= minOpaqueCount) break;
-                    } else {
-                      opaqueCount = 0;
-                      pixels[i] = 255;
-                      pixels[i + 1] = 255;
-                      pixels[i + 2] = 255;
-                      pixels[i + 3] = 255;
-                    }
-                  }
-                }
-
-                // Scan from right
-                for (let y = 0; y < finalHeight; y++) {
-                  let opaqueCount = 0;
-                  for (let x = finalWidth - 1; x >= 0; x--) {
-                    const i = (y * finalWidth + x) * 4;
-                    const alpha = pixels[i + 3];
-
-                    if (x >= finalWidth - edgeMargin) {
-                      pixels[i] = 255;
-                      pixels[i + 1] = 255;
-                      pixels[i + 2] = 255;
-                      pixels[i + 3] = 255;
-                      continue;
-                    }
-
-                    if (alpha > 200) {
-                      opaqueCount++;
-                      if (opaqueCount >= minOpaqueCount) break;
-                    } else {
-                      opaqueCount = 0;
-                      pixels[i] = 255;
-                      pixels[i + 1] = 255;
-                      pixels[i + 2] = 255;
-                      pixels[i + 3] = 255;
-                    }
-                  }
-                }
-
-                modCtx.putImageData(imageData, 0, 0);
-                console.log('✅ Filled exterior regions from all edges');
-
-                // Step 2: Draw design at FULL resolution
+                // Chitu print mask format: BLACK = design area, WHITE = camera cutouts (transparent)
+                // Step 1: Draw user's design first
                 ctx.drawImage(designImage, 0, 0, finalWidth, finalHeight);
+                console.log('✅ Drew design at full resolution');
 
-                // Step 3: Remove design where modified mask is opaque (borders/camera/exterior)
-                ctx.globalCompositeOperation = 'destination-out';
-                ctx.drawImage(modifiedMask, 0, 0);
-
-                console.log('✅ Applied mask to keep only interior design');
+                // Step 2: Apply mask using its existing alpha channel
+                // Transparent areas in mask = camera cutouts (stay transparent)
+                // Opaque (black) areas in mask = phone case shape (show design)
+                ctx.globalCompositeOperation = 'destination-in';
+                ctx.drawImage(maskImage, 0, 0, finalWidth, finalHeight);
+                console.log('✅ Applied mask - camera cutouts created');
 
                 // Export as PNG to preserve transparency
                 dataURL = tempCanvas.toDataURL('image/png');
-                console.log('✅ Masked design created at', finalWidth, 'x', finalHeight, 'as PNG with transparency');
+                console.log('✅ Final masked image:', finalWidth, 'x', finalHeight, 'PNG with transparency');
                 resolve();
               };
               designImage.onerror = reject;
               designImage.src = designDataURL;
             };
             maskImage.onerror = () => {
-              console.warn('⚠️ Failed to load mask, using unmasked design');
+              console.warn('⚠️ Failed to load print mask, using unmasked design');
               resolve(); // Continue without mask if it fails to load
             };
-            maskImage.src = `/phone-models/${phoneModel.templatePath}`;
+            maskImage.src = phoneModel.printMaskPath;
           });
         }
-        */
         
         // Check size and warn if too large
         const sizeInBytes = dataURL.length * 0.75; // Approximate size in bytes
@@ -3221,19 +3078,20 @@ export default function Editor() {
         console.log('💾 Saved canvas state with', canvas.getObjects().length, 'objects');
 
         // Store preview data in global window object (too large for sessionStorage)
-        // NOTE: Masking is currently DISABLED - sending rectangular design image
-        // Confirmation page will composite this with phone template for preview only
+        // NOTE: Masking is NOW ENABLED - design has camera cutouts applied
+        // Preview data for confirmation page
         const previewData = {
-          designImage: dataURL, // Rectangular canvas design (NO cutouts applied)
+          designImage: dataURL, // Masked design WITH camera cutouts applied
           canvasState: canvasJSON, // Save full canvas state for restoration
-          phoneTemplate: phoneModel?.templatePath ? `/phone-models/${phoneModel.templatePath}` : null,
+          phoneTemplate: phoneModel?.thumbnailPath || null, // WebP thumbnail for UI preview
           phoneName: phoneModel?.displayName || 'Custom Phone Case',
           submissionData: {
-            image: dataURL, // Send rectangular design image to printer (NO masking)
+            image: dataURL, // Send masked design to printer (WITH camera cutouts)
             machineId: machineId,
             sessionId: sessionId || `session_${Date.now()}`,
             phoneModel: phoneModel?.displayName || 'Default Phone Case',
             phoneModelId: phoneModel?.id || 'default',
+            productId: phoneModel?.chituProductId, // Chitu product_id for this phone model
             dimensions: {
               widthPX: EXPORT_WIDTH,
               heightPX: EXPORT_HEIGHT,
@@ -5308,31 +5166,13 @@ export default function Editor() {
             <div className="max-w-md mx-auto">
               {/* Phone Model Preview */}
               <div className="relative mx-auto mb-6" style={{ maxWidth: '280px', maxHeight: '60vh' }}>
-                <div className="relative">
-                  {/* Design Image (background) */}
-                  <img
-                    src={previewImage}
-                    alt="Your design"
-                    className="w-full h-auto object-contain"
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      zIndex: 1,
-                      maxHeight: '60vh',
-                    }}
-                  />
-
-                  {/* Phone Case Template (foreground) */}
-                  {phoneModel?.templatePath && (
-                    <img
-                      src={`/phone-models/${phoneModel.templatePath}`}
-                      alt={phoneModel.displayName}
-                      className="w-full h-auto relative object-contain"
-                      style={{ zIndex: 2, maxHeight: '60vh' }}
-                    />
-                  )}
-                </div>
+                {/* Design Image - Clean display without platform effect */}
+                <img
+                  src={previewImage}
+                  alt="Your design"
+                  className="w-full h-auto object-contain"
+                  style={{ maxHeight: '60vh', borderRadius: '48px' }}
+                />
               </div>
 
               {/* Phone Model Name */}

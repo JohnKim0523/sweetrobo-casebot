@@ -9,6 +9,8 @@ import {
   MachineDetails,
   CreateOrderRequest,
   CreateOrderResponse,
+  ProductCatalogRequest,
+  ProductCatalogResponse,
 } from './chitu.types';
 
 @Injectable()
@@ -257,6 +259,61 @@ export class ChituService {
 
     // Default for other machine types
     return 50;
+  }
+
+  /**
+   * Get product catalog (phone models) for a machine
+   * Required fields: appid, device_id, type, status, page, limit
+   * For phone case machines, use type='diy' to get the brand/model structure
+   */
+  async getProductCatalog(request: ProductCatalogRequest): Promise<ProductCatalogResponse> {
+    console.log(`\n📦 Getting product catalog for device`);
+    console.log(`📱 Device ID: ${request.device_id}`);
+    console.log(`🔧 Type: ${request.type}`);
+
+    const response = await this.request<ProductCatalogResponse>(
+      '/api/openApi/machineProductList',
+      {
+        device_id: request.device_id,
+        type: request.type,
+        status: request.status,
+        page: request.page,
+        limit: request.limit,
+      },
+    );
+
+    const data = response.data;
+
+    if (data && data.list) {
+      console.log(`✅ Found ${data.count} total products`);
+      console.log(`📋 Brands: ${data.list.length}`);
+
+      data.list.forEach(brand => {
+        console.log(`  - ${brand.name_en} (${brand.name_cn}): ${brand.modelList.length} models`);
+      });
+    }
+
+    return data || { count: 0, list: [] };
+  }
+
+  /**
+   * Helper to get product catalog by device_code (converts to device_id)
+   */
+  async getProductCatalogByCode(
+    deviceCode: string,
+    type: 'default' | 'diy' = 'diy',
+    status: 0 | 1 = 1,
+    page: number = 1,
+    limit: number = 100,
+  ): Promise<ProductCatalogResponse> {
+    const deviceId = await this.getDeviceIdFromCode(deviceCode);
+    return this.getProductCatalog({
+      device_id: deviceId,
+      type,
+      status,
+      page,
+      limit,
+    });
   }
 
   /**
