@@ -29,16 +29,21 @@ import { DatabaseModule } from './database/database.module';
     }]),
     EventEmitterModule.forRoot(),
     // Redis/Bull Queue - ENABLED for multi-instance deployment
-    BullModule.forRoot({
-      redis: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379'),
-        password: process.env.REDIS_PASSWORD || undefined,
-        // Railway/Render Redis URL support
-        ...(process.env.REDIS_URL && { url: process.env.REDIS_URL }),
-      },
-    }),
-    DatabaseModule,
+    // Skips Redis if not configured (local dev without Redis)
+    ...(process.env.REDIS_URL || process.env.REDIS_HOST
+      ? [
+          BullModule.forRoot({
+            redis: {
+              host: process.env.REDIS_HOST || 'localhost',
+              port: parseInt(process.env.REDIS_PORT || '6379'),
+              password: process.env.REDIS_PASSWORD || undefined,
+              // Railway/Render Redis URL support
+              ...(process.env.REDIS_URL && { url: process.env.REDIS_URL }),
+            },
+          }),
+        ]
+      : []),
+    DatabaseModule.forRoot(),
     ChituModule,
     AiModule,
     AdminModule,
