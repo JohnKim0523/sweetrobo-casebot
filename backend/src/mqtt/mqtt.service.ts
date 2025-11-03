@@ -9,6 +9,13 @@ interface MachineStatusMessage {
   isNormal?: boolean;
   machineId?: string;
   result?: boolean;
+  orderId?: string;
+  orderNo?: string;
+  status?: 'pending' | 'paid' | 'printing' | 'completed' | 'failed';
+  payStatus?: 'unpaid' | 'paid' | 'refunded';
+  payType?: string;
+  amount?: number;
+  timestamp?: number;
 }
 
 @Injectable()
@@ -180,6 +187,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         case 'cleanNozzle':
           this.handleCleanNozzleResponse(message);
           break;
+        case 'orderStatus':
+          this.handleOrderStatus(message);
+          break;
         default:
           console.log('📦 Unknown message type:', message.msgType);
       }
@@ -203,6 +213,45 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   private handleCleanNozzleResponse(message: MachineStatusMessage) {
     console.log(`🧹 Clean nozzle result for ${message.machineId}: ${message.result ? 'Success' : 'Failed'}`);
+  }
+
+  private handleOrderStatus(message: MachineStatusMessage) {
+    console.log(`💳 Order status update for machine ${message.machineId}:`);
+    console.log(`   Order ID: ${message.orderId}`);
+    console.log(`   Order No: ${message.orderNo}`);
+    console.log(`   Status: ${message.status}`);
+    console.log(`   Payment Status: ${message.payStatus}`);
+    console.log(`   Payment Type: ${message.payType}`);
+    console.log(`   Amount: ${message.amount}`);
+
+    // Create detailed order update
+    const orderUpdate = {
+      orderId: message.orderId,
+      orderNo: message.orderNo,
+      machineId: message.machineId,
+      status: message.status,
+      payStatus: message.payStatus,
+      payType: message.payType,
+      amount: message.amount,
+      timestamp: message.timestamp ? new Date(message.timestamp) : new Date(),
+    };
+
+    // Emit event for WebSocket broadcast to frontend
+    this.eventEmitter.emit('order.status', orderUpdate);
+
+    // Log payment completion
+    if (message.payStatus === 'paid') {
+      console.log(`✅ Payment confirmed for order ${message.orderNo} - ${message.payType}`);
+    }
+
+    // Log printing status
+    if (message.status === 'printing') {
+      console.log(`🖨️ Order ${message.orderNo} is now printing`);
+    } else if (message.status === 'completed') {
+      console.log(`✅ Order ${message.orderNo} completed successfully`);
+    } else if (message.status === 'failed') {
+      console.log(`❌ Order ${message.orderNo} failed`);
+    }
   }
 
   // Method to request machine info
@@ -229,6 +278,27 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         console.log('📤 Sent machine info request for:', machineId);
       }
     });
+  }
+
+  // TEST METHOD: Simulate payment confirmation (for testing without physical machine)
+  simulatePaymentConfirmation(machineId: string, orderNo: string, amount: number = 25.99) {
+    console.log(`🧪 TEST: Simulating payment confirmation for order ${orderNo}`);
+
+    const testOrderStatus = {
+      orderId: `test_${orderNo}`,
+      orderNo: orderNo,
+      machineId: machineId,
+      status: 'paid',
+      payStatus: 'paid',
+      payType: 'test_simulation',
+      amount: amount,
+      timestamp: new Date(),
+    };
+
+    // Emit the same event that MQTT would emit
+    this.eventEmitter.emit('order.status', testOrderStatus);
+
+    console.log(`✅ TEST: Payment confirmation broadcasted`);
   }
 
   // Method to send clean nozzle command

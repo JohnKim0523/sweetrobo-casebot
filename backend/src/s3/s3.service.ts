@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as AWS from 'aws-sdk';
+import * as sharp from 'sharp';
 
 @Injectable()
 export class S3Service {
@@ -13,16 +14,34 @@ export class S3Service {
       region: process.env.AWS_REGION || 'us-east-1',
     });
     this.bucketName = process.env.AWS_BUCKET_NAME || 'sweetrobo-phonecase-designs';
-    
+
     console.log('🔐 S3 Service initialized (backup storage only)');
   }
 
-  async uploadImage(buffer: Buffer, key: string): Promise<string> {
+  async uploadImage(buffer: Buffer, key: string, convertToTif: boolean = false): Promise<string> {
+    let finalBuffer = buffer;
+    let contentType = 'image/png';
+    let finalKey = key;
+
+    // Convert to TIF if requested (for Chitu printer compatibility)
+    if (convertToTif) {
+      console.log('🔄 Converting image to TIF format for Chitu printer...');
+      finalBuffer = await sharp(buffer)
+        .tiff({
+          compression: 'lzw', // LZW compression for smaller file size
+          quality: 100,       // Maximum quality
+        })
+        .toBuffer();
+      contentType = 'image/tiff';
+      finalKey = key.replace(/\.(png|jpg|jpeg)$/i, '.tif');
+      console.log('✅ Converted to TIF format');
+    }
+
     const params = {
       Bucket: this.bucketName,
-      Key: key,
-      Body: buffer,
-      ContentType: 'image/png',
+      Key: finalKey,
+      Body: finalBuffer,
+      ContentType: contentType,
       // ACL removed - bucket has ACLs disabled
     };
 

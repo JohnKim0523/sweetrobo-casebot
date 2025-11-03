@@ -11,6 +11,7 @@ import {
 import { ChituService } from './chitu.service';
 import { S3Service } from '../s3/s3.service';
 import { SimpleQueueService } from '../queue/simple-queue.service';
+import { MqttService } from '../mqtt/mqtt.service';
 
 @Controller('api/chitu')
 export class ChituController {
@@ -18,6 +19,7 @@ export class ChituController {
     private readonly chituService: ChituService,
     private readonly s3Service: S3Service,
     private readonly queueService: SimpleQueueService,
+    private readonly mqttService: MqttService,
   ) {}
 
   /**
@@ -277,6 +279,7 @@ export class ChituController {
 
   /**
    * Upload QR code to machine
+   * Body: { machineId: "CT0700026", url: "https://yourapp.com/editor?machine=CT0700026" }
    */
   @Post('qr-code')
   async uploadQRCode(@Body() body: {
@@ -284,14 +287,58 @@ export class ChituController {
     url: string;
   }) {
     try {
-      // TODO: Implement uploadQRCode method
-      const result = { success: false, message: 'Not implemented' };
+      console.log('\n📱 === UPLOAD QR CODE REQUEST ===');
+      console.log(`Machine: ${body.machineId}`);
+      console.log(`URL: ${body.url}`);
+
+      const result = await this.chituService.uploadQRCodeByCode(
+        body.machineId,
+        body.url,
+      );
+
+      console.log(`✅ QR code upload result:`, result);
+
       return {
-        success: true,
-        message: 'QR code uploaded successfully',
-        data: result,
+        success: result.success,
+        message: result.message,
       };
     } catch (error) {
+      console.error('❌ QR code upload failed:', error.message);
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  /**
+   * TEST ENDPOINT: Simulate payment confirmation
+   * Body: { machineId: "CT0700026", jobId: "job_123", amount: 25.99 }
+   * This simulates what would happen when a user pays at the physical machine
+   */
+  @Post('test/payment')
+  async simulatePayment(@Body() body: {
+    machineId: string;
+    jobId: string;
+    amount?: number;
+  }) {
+    try {
+      console.log('\n🧪 === TEST PAYMENT SIMULATION ===');
+      console.log(`Machine: ${body.machineId}`);
+      console.log(`Job ID: ${body.jobId}`);
+      console.log(`Amount: $${body.amount || 25.99}`);
+
+      this.mqttService.simulatePaymentConfirmation(
+        body.machineId,
+        body.jobId,
+        body.amount || 25.99,
+      );
+
+      return {
+        success: true,
+        message: 'Payment simulation triggered. Check frontend for page transition.',
+        machineId: body.machineId,
+        jobId: body.jobId,
+      };
+    } catch (error) {
+      console.error('❌ Payment simulation failed:', error.message);
       throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
     }
   }

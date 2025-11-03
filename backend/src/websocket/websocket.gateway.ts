@@ -79,9 +79,28 @@ export class WebsocketGateway implements OnGatewayConnection, OnGatewayDisconnec
   @OnEvent('payment.update')
   handlePaymentUpdate(data: any) {
     console.log('💳 Broadcasting payment update:', data);
-    
+
     // Broadcast payment updates
     this.server.emit('payment:update', data);
+  }
+
+  // Listen for MQTT order status updates (payment + printing status)
+  @OnEvent('order.status')
+  handleOrderStatus(data: any) {
+    console.log('📦 Broadcasting order status:', data);
+
+    // Broadcast to clients watching this specific order
+    if (data.orderNo) {
+      this.server.to(`order:${data.orderNo}`).emit('order:status', data);
+    }
+
+    // Broadcast to clients watching this machine
+    if (data.machineId) {
+      this.server.to(`machine:${data.machineId}`).emit('order:status', data);
+    }
+
+    // Also broadcast to admin dashboard
+    this.server.emit('admin:order:status', data);
   }
 
   // Send print progress updates

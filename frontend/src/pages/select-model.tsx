@@ -1,5 +1,5 @@
 // Phone model selection page
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { PHONE_MODELS, PhoneModel, getModelsByBrand, getBrands } from '../types/phone-models';
@@ -10,14 +10,57 @@ export default function SelectModel() {
   const brands = getBrands();
   const currentModels = getModelsByBrand(selectedBrand);
 
+  // CRITICAL: Clear tab-session associations when user arrives at model selection
+  // This prevents multi-user conflicts where User B would see User A's locked session
+  // NOTE: We do NOT clear session-locked or page-state keys - those remain active
+  // until they expire naturally (30 seconds after payment)
+  useEffect(() => {
+    console.log('🧹 Model selection page loaded - clearing tab-session associations');
+
+    const machineId = router.query.machineId as string;
+
+    // Clear all tab-session keys for this machine (production mode)
+    // This breaks the association between machine+model and a session ID
+    if (machineId) {
+      Object.keys(sessionStorage).forEach(key => {
+        if (key.startsWith(`tab-session-${machineId}-`)) {
+          console.log(`🗑️ Clearing session association: ${key}`);
+          sessionStorage.removeItem(key);
+        }
+      });
+    }
+
+    // Clear all demo-tab-session keys (demo mode)
+    Object.keys(sessionStorage).forEach(key => {
+      if (key.startsWith('demo-tab-session-')) {
+        console.log(`🗑️ Clearing demo session association: ${key}`);
+        sessionStorage.removeItem(key);
+      }
+    });
+
+    // IMPORTANT: We do NOT clear session-locked or page-state keys here
+    // Those locks remain active and can be accessed via their direct URLs
+    // until the 30-second timeout expires after payment
+
+    console.log('✅ Session association cleanup complete - ready for new user');
+    console.log('🔒 Active session locks remain intact and accessible via their URLs');
+  }, [router.query.machineId]);
+
   const handleModelSelect = (model: PhoneModel) => {
     if (!model.available) return;
-    
+
     // Store selected model in sessionStorage
     sessionStorage.setItem('selectedPhoneModel', model.id);
-    
-    // Navigate to upload page with model parameter
-    router.push(`/editor?model=${model.id}`);
+
+    // Check if machineId was passed (from QR code flow)
+    const machineId = router.query.machineId as string;
+
+    // Navigate to editor with model and preserve machineId if present
+    if (machineId) {
+      router.push(`/editor?machineId=${machineId}&model=${model.id}`);
+    } else {
+      router.push(`/editor?model=${model.id}`);
+    }
   };
 
   return (

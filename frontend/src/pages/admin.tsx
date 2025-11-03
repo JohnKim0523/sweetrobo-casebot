@@ -39,6 +39,7 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [loadingJobs, setLoadingJobs] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [deletingJob, setDeletingJob] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adminToken, setAdminToken] = useState<string>('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -147,6 +148,89 @@ export default function AdminDashboard() {
       alert(`Error: ${err.message}`);
     } finally {
       setDeleting(null);
+    }
+  };
+
+  // Delete/Cancel queue job
+  const deleteQueueJob = async (jobId: string, sessionId: string) => {
+    if (!confirm(`Delete/Cancel job ${jobId}?`)) return;
+
+    try {
+      setDeletingJob(jobId);
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const response = await fetch(`${backendUrl}/api/chitu/queue/cancel/${jobId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sessionId }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Remove job from list
+        setQueueJobs(queueJobs.filter(job => job.id !== jobId));
+        alert('Job deleted successfully');
+      } else {
+        alert(`Failed to delete job: ${data.error || 'Unknown error'}`);
+      }
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setDeletingJob(null);
+    }
+  };
+
+  // Delete all queue jobs
+  const deleteAllQueueJobs = async () => {
+    if (queueJobs.length === 0) {
+      alert('No jobs to delete');
+      return;
+    }
+
+    if (!confirm(`Delete ALL ${queueJobs.length} jobs? This cannot be undone!`)) return;
+
+    try {
+      setDeletingJob('all');
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+      let successCount = 0;
+      let failCount = 0;
+
+      // Delete each job sequentially
+      for (const job of queueJobs) {
+        try {
+          const response = await fetch(`${backendUrl}/api/chitu/queue/cancel/${job.id}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ sessionId: job.sessionId }),
+          });
+
+          const data = await response.json();
+          if (data.success) {
+            successCount++;
+          } else {
+            failCount++;
+          }
+        } catch (err) {
+          failCount++;
+        }
+      }
+
+      // Clear the list
+      setQueueJobs([]);
+
+      alert(`Deleted ${successCount} jobs successfully${failCount > 0 ? `, ${failCount} failed` : ''}`);
+
+      // Refresh to get updated list
+      loadQueueJobs();
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setDeletingJob(null);
     }
   };
 
@@ -261,9 +345,20 @@ export default function AdminDashboard() {
             <>
           {/* Queue Jobs with Masked Images */}
           <div className="mb-6 bg-gray-800 rounded p-4">
-            <h2 className="text-xl font-bold mb-4">
-              🖨️ Print Queue Jobs ({queueJobs.length})
-            </h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">
+                🖨️ Print Queue Jobs ({queueJobs.length})
+              </h2>
+              {queueJobs.length > 0 && (
+                <button
+                  onClick={deleteAllQueueJobs}
+                  disabled={deletingJob === 'all'}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 rounded text-sm font-medium"
+                >
+                  {deletingJob === 'all' ? 'Deleting All...' : '🗑️ Delete All'}
+                </button>
+              )}
+            </div>
             <p className="text-sm text-gray-400 mb-4">
               These are the exact masked images that will be/were sent to the printer
             </p>
@@ -348,9 +443,18 @@ export default function AdminDashboard() {
                       )}
 
                       {/* Job ID */}
-                      <p className="text-xs text-gray-500 truncate" title={job.id}>
+                      <p className="text-xs text-gray-500 truncate mb-2" title={job.id}>
                         Job: {job.id}
                       </p>
+
+                      {/* Delete Button */}
+                      <button
+                        onClick={() => deleteQueueJob(job.id, job.sessionId)}
+                        disabled={deletingJob === job.id}
+                        className="w-full px-3 py-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 rounded text-sm"
+                      >
+                        {deletingJob === job.id ? 'Deleting...' : '🗑️ Delete Job'}
+                      </button>
                     </div>
                   </div>
                 ))}

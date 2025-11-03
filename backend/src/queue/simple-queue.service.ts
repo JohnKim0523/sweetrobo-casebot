@@ -11,6 +11,7 @@ export interface PrintJobData {
   phoneModel: string;
   phoneModelId: string;
   productId?: string;  // NEW: Chitu product_id for this phone model
+  chituOrderId?: string;  // Chitu order ID after order creation
   dimensions: {
     widthPX: number;
     heightPX: number;
@@ -231,7 +232,7 @@ export class SimpleQueueService {
     console.log(`🖨️ Processing job ${job.id} (attempt ${job.attempts}) for machine ${job.data.machineId}`);
 
     try {
-      // Upload image to S3
+      // Upload image to S3 (converted to TIF for Chitu printer)
       let imageUrl = job.data.imageUrl;
       if (!imageUrl && job.data.image) {
         console.log(`📤 Uploading image to S3...`);
@@ -241,22 +242,34 @@ export class SimpleQueueService {
           'base64'
         );
 
-        const key = `designs/${job.data.sessionId}/${Date.now()}.png`;
-        imageUrl = await this.s3Service.uploadImage(buffer, key);
+        const key = `designs/${job.data.sessionId}/${Date.now()}.tif`;
+        imageUrl = await this.s3Service.uploadImage(buffer, key, true); // Convert to TIF
         job.data.imageUrl = imageUrl;
 
-        console.log(`✅ Image uploaded: ${imageUrl}`);
+        console.log(`✅ Image uploaded as TIF: ${imageUrl}`);
       }
 
-      // Simulate Chitu API call (commented out until credentials are ready)
-      // await this.chituService.createPrintTask({
-      //   device_id: job.data.machineId,
-      //   image_url: imageUrl,
-      //   task_name: `${job.data.phoneModel}_${job.data.sessionId}`,
-      // });
+      // Create Chitu order (if machineId and productId are available)
+      if (job.data.machineId && job.data.productId && imageUrl) {
+        console.log(`📦 Creating Chitu order...`);
+        const orderResult = await this.chituService.createOrderByCode({
+          deviceCode: job.data.machineId,
+          productId: job.data.productId,
+          imageUrl: imageUrl,
+          orderNo: job.id,
+          printCount: 1,
+          sessionId: job.data.sessionId,
+        });
 
-      // Simulated delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+        if (orderResult.success) {
+          console.log(`✅ Chitu order created: ${orderResult.orderId}`);
+          job.data.chituOrderId = orderResult.orderId;
+        } else {
+          throw new Error(`Chitu order creation failed: ${orderResult.message}`);
+        }
+      } else {
+        console.log(`⚠️ Skipping Chitu order creation - missing machineId or productId`);
+      }
 
       // Mark as completed
       job.status = 'completed';

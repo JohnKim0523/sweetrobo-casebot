@@ -3,6 +3,7 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useDropzone } from 'react-dropzone';
 import Modal from 'react-modal';
+import { io, Socket } from 'socket.io-client';
 import 'cropperjs/dist/cropper.css';
 import { getPhoneModel, PhoneModel } from '../types/phone-models';
 
@@ -175,15 +176,26 @@ export default function Editor() {
   const [isSessionLocked, setIsSessionLocked] = useState(false);
   const sessionCheckRef = useRef(false); // Prevent double session checks
   const [debugInfo, setDebugInfo] = useState<string>(''); // Debug info for mobile
-  const [showThankYou, setShowThankYou] = useState(false);
+  const [showWaitingForPayment, setShowWaitingForPayment] = useState(false); // First page - waiting for payment
+  const [showThankYou, setShowThankYou] = useState(false); // Second page - payment confirmed
   const [thankYouMessage, setThankYouMessage] = useState('Thank you for your design!');
   const [isCheckingSession, setIsCheckingSession] = useState(true); // Loading state
   const [crosshairLines, setCrosshairLines] = useState<{vertical: any, horizontal: any}>({vertical: null, horizontal: null});
   const [isSnapping, setIsSnapping] = useState(false);
 
+  // WebSocket and order tracking
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [orderStatus, setOrderStatus] = useState<{
+    status?: 'pending' | 'paid' | 'printing' | 'completed' | 'failed';
+    payStatus?: 'unpaid' | 'paid' | 'refunded';
+    payType?: string;
+    amount?: number;
+  } | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null); // Track print job ID
+
   // Preview and Payment modal states
   const [showPreviewModal, setShowPreviewModal] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  // Payment modal removed - users pay at physical machine after submission
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   // AI Editing states
@@ -268,21 +280,280 @@ export default function Editor() {
     });
   }, []);
 
+  // Clean up old session storage entries on mount
   useEffect(() => {
-    // Extract URL parameters
+    const cleanupSessionStorage = () => {
+      const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+      const lastCleanup = sessionStorage.getItem('lastSessionCleanup');
+      const now = Date.now();
+
+      // Only cleanup once per 24 hours per tab
+      if (lastCleanup && (now - parseInt(lastCleanup)) < CLEANUP_INTERVAL_MS) {
+        return;
+      }
+
+      console.log('🧹 Running session storage cleanup...');
+
+      // Get all sessionStorage keys
+      const keysToCheck = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key && (key.startsWith('tab-session-') || key.startsWith('demo-tab-session-'))) {
+          keysToCheck.push(key);
+        }
+      }
+
+      // Extract current parameters to preserve current session
+      const urlParams = new URLSearchParams(window.location.search);
+      const machine = urlParams.get('machineId');
+      const modelParam = urlParams.get('model');
+
+      const currentProductionKey = machine && modelParam ? `tab-session-${machine}-${modelParam}` : null;
+      const currentDemoKey = modelParam && !machine ? `demo-tab-session-${modelParam}` : null;
+
+      // Remove all session keys except current one
+      let cleanedCount = 0;
+      keysToCheck.forEach(key => {
+        if (key !== currentProductionKey && key !== currentDemoKey) {
+          sessionStorage.removeItem(key);
+          cleanedCount++;
+        }
+      });
+
+      if (cleanedCount > 0) {
+        console.log(`✅ Cleaned up ${cleanedCount} old session entries`);
+      }
+
+      // Mark cleanup timestamp
+      sessionStorage.setItem('lastSessionCleanup', now.toString());
+    };
+
+    cleanupSessionStorage();
+  }, []); // Run once on mount
+
+  useEffect(() => {
+    // Extract URL parameters first
     const urlParams = new URLSearchParams(window.location.search);
     const machine = urlParams.get('machineId');
     const session = urlParams.get('session');
     const modelParam = urlParams.get('model');
     const resetParam = urlParams.get('reset');
 
-    // Dev reset - clear localStorage if reset=true parameter is present
-    if (resetParam === 'true') {
-      console.log('🔄 Resetting sessions (dev mode)');
-      localStorage.removeItem('submittedSessions');
-      if (modelParam) {
-        localStorage.removeItem(`model-session-${modelParam}`);
+    // ===== URL VALIDATION: Detect manipulated or invalid sessions =====
+    // Valid session formats:
+    // - UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36 chars with hyphens)
+    // - Timestamp format: 1234567890123-abc123def (13+ digit timestamp + random chars)
+    if (session) {
+      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session);
+      const isValidTimestamp = /^\d{13}-[a-z0-9]{9,}$/i.test(session);
+
+      if (!isValidUUID && !isValidTimestamp) {
+        console.warn('⚠️ Invalid session format detected:', session);
+
+        // Check if there's an existing valid session in sessionStorage for this machine/model
+        let existingValidSession = null;
+
+        if (machine && modelParam) {
+          const tabSessionKey = `tab-session-${machine}-${modelParam}`;
+          existingValidSession = sessionStorage.getItem(tabSessionKey);
+          console.log('🔍 Checking for existing session in tab storage:', existingValidSession);
+        } else if (modelParam && !machine) {
+          const demoTabSessionKey = `demo-tab-session-${modelParam}`;
+          existingValidSession = sessionStorage.getItem(demoTabSessionKey);
+          console.log('🔍 Checking for existing demo session:', existingValidSession);
+        }
+
+        // If we found an existing valid session, redirect to it
+        if (existingValidSession) {
+          console.log('✅ Found existing valid session, redirecting to restore it:', existingValidSession);
+
+          // Always set the session info
+          setMachineId(machine || ('demo-' + modelParam));
+          setSessionId(existingValidSession);
+
+          // Check if the existing session is locked (on waiting/thank you page)
+          const existingSessionLockKey = `session-locked-${existingValidSession}`;
+          const isExistingSessionLocked = sessionStorage.getItem(existingSessionLockKey) === 'true';
+
+          if (isExistingSessionLocked) {
+            console.log('🔒 Existing session is locked - will restore to waiting/thank you/preview page');
+
+            // Set locked state
+            setIsSessionLocked(true);
+
+            // Restore the correct page state
+            const pageState = sessionStorage.getItem(`page-state-${existingValidSession}`);
+            console.log('📋 Restoring page state:', pageState);
+
+            if (pageState === 'preview') {
+              const previewImageData = sessionStorage.getItem(`preview-image-${existingValidSession}`);
+              const submissionDataStr = sessionStorage.getItem(`submission-data-${existingValidSession}`);
+
+              if (previewImageData && submissionDataStr) {
+                setPreviewImage(previewImageData);
+                (window as any).__submissionData = JSON.parse(submissionDataStr);
+                setShowPreviewModal(true);
+                console.log('📄 Restored to preview/confirmation page');
+              }
+            } else if (pageState === 'waiting') {
+              setShowWaitingForPayment(true);
+              setShowThankYou(false);
+              console.log('📄 Restored to waiting for payment page');
+            } else if (pageState === 'thankyou') {
+              setShowWaitingForPayment(false);
+              setShowThankYou(true);
+              console.log('📄 Restored to thank you page');
+            }
+          } else {
+            console.log('🔓 Existing session is unlocked - will restore to editor page');
+          }
+
+          // Update URL by doing a full redirect to the correct session URL
+          // This ensures the address bar updates properly
+          const correctedUrl = machine && modelParam
+            ? `/editor?machineId=${machine}&model=${modelParam}&session=${existingValidSession}`
+            : `/editor?model=${modelParam}&session=${existingValidSession}`;
+
+          console.log('✅ Redirecting to correct URL:', correctedUrl);
+
+          // Use window.location.href to force a full URL update
+          window.location.href = correctedUrl;
+          return;
+        }
+
+        // No existing session found - clear invalid session and redirect to generate new one
+        console.log('🔄 No existing session found, redirecting to generate new session...');
+
+        // Clear any sessionStorage for this invalid session
+        sessionStorage.removeItem(`session-locked-${session}`);
+        sessionStorage.removeItem(`session-lock-timestamp-${session}`);
+        sessionStorage.removeItem(`page-state-${session}`);
+        sessionStorage.removeItem(`canvas-state-${session}`);
+
+        // Redirect to appropriate flow based on parameters
+        if (machine && modelParam) {
+          // Production flow - redirect without session to generate new one
+          router.replace(`/editor?machineId=${machine}&model=${modelParam}`);
+        } else if (modelParam && !machine) {
+          // Demo flow - redirect without session to generate new one
+          router.replace(`/editor?model=${modelParam}`);
+        } else {
+          // No valid params - redirect to model selection
+          router.replace('/select-model');
+        }
+
+        setIsCheckingSession(false);
+        return;
       }
+
+      console.log('✅ Valid session format:', session);
+    }
+    // ===== END URL VALIDATION =====
+
+    // Check if this session is locked (persisted in sessionStorage)
+    const lockKey = session ? `session-locked-${session}` : null;
+    const lockTimestampKey = session ? `session-lock-timestamp-${session}` : null;
+    const isLocked = lockKey ? sessionStorage.getItem(lockKey) === 'true' : false;
+
+    // Check if session lock has expired (30 minutes = 1800000ms)
+    const SESSION_LOCK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+    if (isLocked && lockKey && lockTimestampKey) {
+      const lockTimestamp = sessionStorage.getItem(lockTimestampKey);
+      if (lockTimestamp) {
+        const lockTime = parseInt(lockTimestamp);
+        const now = Date.now();
+        const elapsed = now - lockTime;
+
+        if (elapsed > SESSION_LOCK_TIMEOUT_MS) {
+          console.warn('⏰ Session lock expired (30+ minutes old), clearing lock');
+
+          // Clear the expired lock and associated data
+          sessionStorage.removeItem(lockKey);
+          sessionStorage.removeItem(lockTimestampKey);
+          sessionStorage.removeItem(`page-state-${session}`);
+          sessionStorage.removeItem(`preview-image-${session}`);
+          sessionStorage.removeItem(`submission-data-${session}`);
+
+          // Redirect to model selection to start fresh
+          router.replace('/select-model');
+          return;
+        } else {
+          const remainingMinutes = Math.ceil((SESSION_LOCK_TIMEOUT_MS - elapsed) / 60000);
+          console.log(`🔒 Session locked, expires in ${remainingMinutes} minutes`);
+        }
+      }
+    }
+
+    console.log('🔍 Session lock check:', {
+      session,
+      lockKey,
+      lockValue: lockKey ? sessionStorage.getItem(lockKey) : 'no key',
+      isLocked
+    });
+
+    if (isLocked) {
+      console.log('🔒 Session is locked - restoring waiting/thank you page state');
+
+      // Restore locked state
+      setIsSessionLocked(true);
+      setMachineId(machine || null);
+      setSessionId(session);
+
+      // Check for test parameter to simulate payment
+      const testParam = urlParams.get('test');
+      if (testParam === 'payment') {
+        console.log('🧪 TEST MODE: test=payment detected - forcing thank you page');
+        // Remove test param from URL
+        urlParams.delete('test');
+        const cleanUrl = `${window.location.pathname}?${urlParams.toString()}`;
+        window.history.replaceState(null, '', cleanUrl);
+
+        // Force thank you page state
+        setShowWaitingForPayment(false);
+        setShowThankYou(true);
+        sessionStorage.setItem(`page-state-${session}`, 'thankyou');
+        console.log('✅ TEST MODE: Transitioned to thank you page');
+      } else {
+        // Normal restoration - check which page state to restore
+        const pageState = sessionStorage.getItem(`page-state-${session}`);
+        if (pageState === 'preview') {
+          // Restore preview modal state
+          const previewImageData = sessionStorage.getItem(`preview-image-${session}`);
+          const submissionDataStr = sessionStorage.getItem(`submission-data-${session}`);
+
+          if (previewImageData && submissionDataStr) {
+            setPreviewImage(previewImageData);
+            (window as any).__submissionData = JSON.parse(submissionDataStr);
+            setShowPreviewModal(true);
+            console.log('📄 Restored to preview/confirmation page');
+          } else {
+            console.warn('⚠️ Preview state found but data missing, redirecting to editor');
+            sessionStorage.removeItem(`page-state-${session}`);
+          }
+        } else if (pageState === 'waiting') {
+          setShowWaitingForPayment(true);
+          setShowThankYou(false);
+          console.log('📄 Restored to waiting for payment page');
+        } else if (pageState === 'thankyou') {
+          setShowWaitingForPayment(false);
+          setShowThankYou(true);
+          console.log('📄 Restored to thank you page');
+        }
+      }
+
+      setIsCheckingSession(false);
+      return;
+    }
+
+    // Skip session check if session is locked (on waiting or thank you pages)
+    if (isSessionLocked) {
+      console.log('⏭️ Skipping session check - session is locked (on waiting/thank you page)');
+      return;
+    }
+
+    // Dev reset - reload without reset param
+    if (resetParam === 'true') {
+      console.log('🔄 Resetting session (dev mode)');
       // Remove reset param and reload
       urlParams.delete('reset');
       const newUrl = `${window.location.pathname}?${urlParams.toString()}`;
@@ -291,136 +562,430 @@ export default function Editor() {
     }
 
     console.log('🔍 URL params:', { machine, session, model: modelParam });
-    
-    // Check if we're in model selection flow (no machine ID required)
-    if (modelParam) {
-      console.log('📱 Phone model flow - model:', modelParam);
-      setMachineId('demo-' + modelParam); // Use model-based ID for demo
 
-      // Generate a unique session for this device+model combination
-      const storedSessionKey = `model-session-${modelParam}`;
-      let modelSession = localStorage.getItem(storedSessionKey);
+    // Check if we have both machineId and model (production flow)
+    if (machine && modelParam) {
+      console.log('🏭 Production flow - machine:', machine, 'model:', modelParam);
 
-      if (!modelSession) {
-        // Generate unique session ID (not shared across users)
-        modelSession = typeof crypto !== 'undefined' && crypto.randomUUID
-          ? `model-${modelParam}-${crypto.randomUUID()}`
-          : `model-${modelParam}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        localStorage.setItem(storedSessionKey, modelSession);
-        console.log('🆕 Created new model session:', modelSession);
-      } else {
-        console.log('📱 Using existing model session:', modelSession);
-      }
-
-      setSessionId(modelSession);
-
-      // Check if this session was already submitted
-      const submittedSessions = JSON.parse(localStorage.getItem('submittedSessions') || '[]');
-      if (submittedSessions.includes(modelSession)) {
-        console.log('🔒 Model session already submitted - showing thank you page');
-        setIsSessionLocked(true);
-        setShowThankYou(true);
-        setThankYouMessage('Your design has been submitted successfully. Your custom print will be ready shortly!');
+      // Check if we already generated a session for this page instance
+      if ((window as any).__sessionGenerated) {
+        console.log('📱 Session already generated for this page, using:', session);
+        setMachineId(machine);
+        setSessionId(session);
         setIsCheckingSession(false);
-
-        // Prevent back navigation
-        window.history.pushState(null, '', window.location.href);
-        window.onpopstate = () => {
-          window.history.go(1);
-        };
-
-        // Prevent page refresh/reload
-        const preventRefresh = (e: BeforeUnloadEvent) => {
-          e.preventDefault();
-          e.returnValue = '';
-        };
-        window.addEventListener('beforeunload', preventRefresh);
-
         return;
       }
 
+      // Check sessionStorage for existing session in this tab (survives refresh)
+      const tabSessionKey = `tab-session-${machine}-${modelParam}`;
+      const existingTabSession = sessionStorage.getItem(tabSessionKey);
+
+      if (existingTabSession) {
+        // This tab already has a session - use it (allows refresh)
+        console.log('🔄 Found existing session for this tab (refresh):', existingTabSession);
+
+        // CRITICAL: Check if this session is LOCKED (user submitted design)
+        const tabSessionLockKey = `session-locked-${existingTabSession}`;
+        const isTabSessionLocked = sessionStorage.getItem(tabSessionLockKey) === 'true';
+
+        if (isTabSessionLocked) {
+          console.log('🔒 Tab session is LOCKED - preventing access to editor');
+          console.log('📄 This session has submitted a design and is on waiting/thank you page');
+
+          // Set states FIRST before any router operations
+          setIsSessionLocked(true);
+          setMachineId(machine);
+          setSessionId(existingTabSession);
+          setIsCheckingSession(false);
+
+          // Check which page state to restore
+          const pageState = sessionStorage.getItem(`page-state-${existingTabSession}`);
+          console.log('📋 Page state from storage:', pageState);
+
+          if (pageState === 'preview') {
+            // Restore preview modal state
+            const previewImageData = sessionStorage.getItem(`preview-image-${existingTabSession}`);
+            const submissionDataStr = sessionStorage.getItem(`submission-data-${existingTabSession}`);
+
+            if (previewImageData && submissionDataStr) {
+              setPreviewImage(previewImageData);
+              (window as any).__submissionData = JSON.parse(submissionDataStr);
+              setShowPreviewModal(true);
+              console.log('📄 Restored to preview/confirmation page');
+            } else {
+              console.warn('⚠️ Preview state found but data missing');
+            }
+          } else if (pageState === 'waiting') {
+            setShowWaitingForPayment(true);
+            setShowThankYou(false);
+            console.log('📄 Restored to waiting for payment page');
+          } else if (pageState === 'thankyou') {
+            setShowWaitingForPayment(false);
+            setShowThankYou(true);
+            console.log('📄 Restored to thank you page');
+          } else {
+            console.error('⚠️ No valid page state found! pageState =', pageState);
+          }
+
+          // Fix the URL to match the correct session (but don't allow editor access)
+          // Use history.replaceState instead of router.replace to avoid triggering re-renders
+          const correctUrl = `/editor?machineId=${machine}&model=${modelParam}&session=${existingTabSession}`;
+          window.history.replaceState(null, '', correctUrl);
+          console.log('✅ URL corrected to:', correctUrl);
+
+          return;
+        }
+
+        (window as any).__sessionGenerated = true;
+
+        // Update URL to match the tab's session
+        router.replace(
+          {
+            pathname: '/editor',
+            query: { machineId: machine, model: modelParam, session: existingTabSession }
+          },
+          undefined,
+          { shallow: true }
+        );
+
+        setMachineId(machine);
+        setSessionId(existingTabSession);
+        setIsCheckingSession(false);
+        return;
+      }
+
+      // No tab session - generate new one (new tab or first visit)
+      const productionSession = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      console.log('🆕 Generating new session for this tab:', productionSession);
+
+      // Store in sessionStorage (survives refresh, unique per tab)
+      sessionStorage.setItem(tabSessionKey, productionSession);
+      (window as any).__sessionGenerated = true;
+
+      // Update URL
+      router.replace(
+        {
+          pathname: '/editor',
+          query: { machineId: machine, model: modelParam, session: productionSession }
+        },
+        undefined,
+        { shallow: true }
+      );
+
+      console.log('✅ URL updated with new session:', productionSession);
+
+      setMachineId(machine);
+      setSessionId(productionSession);
       setIsCheckingSession(false);
       return;
     }
-    
-    // Original kiosk flow - validate machineId
-    if (!machine || machine === 'null' || machine === 'undefined' || machine === '') {
-      // Check if we have a session but invalid machineId (URL corruption)
-      if (session && session !== 'null' && session !== 'undefined') {
-        console.error('❌ Invalid machine ID with existing session - URL may be corrupted');
-        setShowThankYou(true);
-        setThankYouMessage('Invalid URL. Please scan the QR code again to access the designer.');
-        setIsSessionLocked(true);
+
+    // Check if we're in model selection flow (demo mode - no machine ID)
+    if (modelParam && !machine) {
+      console.log('📱 Demo mode - model:', modelParam);
+
+      if ((window as any).__demoSessionGenerated) {
+        console.log('📱 Demo session already generated, using:', session);
+        setMachineId('demo-' + modelParam);
+        setSessionId(session);
         setIsCheckingSession(false);
         return;
       }
-      
-      // No valid machine ID and no session - redirect to model selection
+
+      // Check for existing demo session in this tab
+      const demoTabSessionKey = `demo-tab-session-${modelParam}`;
+      const existingDemoSession = sessionStorage.getItem(demoTabSessionKey);
+
+      if (existingDemoSession) {
+        console.log('🔄 Found existing demo session for this tab (refresh):', existingDemoSession);
+
+        // CRITICAL: Check if this demo session is LOCKED (user submitted design)
+        const demoSessionLockKey = `session-locked-${existingDemoSession}`;
+        const isDemoSessionLocked = sessionStorage.getItem(demoSessionLockKey) === 'true';
+
+        if (isDemoSessionLocked) {
+          console.log('🔒 Demo session is LOCKED - preventing access to editor');
+          console.log('📄 This session has submitted a design and is on waiting/thank you page');
+
+          // Set states FIRST before any router operations
+          setIsSessionLocked(true);
+          setMachineId('demo-' + modelParam);
+          setSessionId(existingDemoSession);
+          setIsCheckingSession(false);
+
+          // Check which page state to restore
+          const pageState = sessionStorage.getItem(`page-state-${existingDemoSession}`);
+          console.log('📋 Demo page state from storage:', pageState);
+
+          if (pageState === 'preview') {
+            // Restore preview modal state
+            const previewImageData = sessionStorage.getItem(`preview-image-${existingDemoSession}`);
+            const submissionDataStr = sessionStorage.getItem(`submission-data-${existingDemoSession}`);
+
+            if (previewImageData && submissionDataStr) {
+              setPreviewImage(previewImageData);
+              (window as any).__submissionData = JSON.parse(submissionDataStr);
+              setShowPreviewModal(true);
+              console.log('📄 Restored to preview/confirmation page');
+            } else {
+              console.warn('⚠️ Preview state found but data missing');
+            }
+          } else if (pageState === 'waiting') {
+            setShowWaitingForPayment(true);
+            setShowThankYou(false);
+            console.log('📄 Restored to waiting for payment page');
+          } else if (pageState === 'thankyou') {
+            setShowWaitingForPayment(false);
+            setShowThankYou(true);
+            console.log('📄 Restored to thank you page');
+          } else {
+            console.error('⚠️ No valid page state found! pageState =', pageState);
+          }
+
+          // Fix the URL to match the correct session (but don't allow editor access)
+          // Use history.replaceState instead of router.replace to avoid triggering re-renders
+          const correctUrl = `/editor?model=${modelParam}&session=${existingDemoSession}`;
+          window.history.replaceState(null, '', correctUrl);
+          console.log('✅ Demo URL corrected to:', correctUrl);
+
+          return;
+        }
+
+        (window as any).__demoSessionGenerated = true;
+
+        router.replace(
+          {
+            pathname: '/editor',
+            query: { model: modelParam, session: existingDemoSession }
+          },
+          undefined,
+          { shallow: true }
+        );
+
+        setMachineId('demo-' + modelParam);
+        setSessionId(existingDemoSession);
+        setIsCheckingSession(false);
+        return;
+      }
+
+      // Generate new demo session
+      const modelSession = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      console.log('🆕 Generating new demo session for this tab:', modelSession);
+
+      sessionStorage.setItem(demoTabSessionKey, modelSession);
+      (window as any).__demoSessionGenerated = true;
+
+      router.replace(
+        {
+          pathname: '/editor',
+          query: { model: modelParam, session: modelSession }
+        },
+        undefined,
+        { shallow: true }
+      );
+
+      console.log('✅ Demo URL updated with session:', modelSession);
+
+      setMachineId('demo-' + modelParam);
+      setSessionId(modelSession);
+      setIsCheckingSession(false);
+      return;
+    }
+
+    // If we have machineId but no model, redirect to phone selection
+    if (machine && !modelParam) {
+      console.log('🔄 Machine ID provided but no model - redirecting to phone selection');
+      router.push(`/select-model?machineId=${machine}`);
+      return;
+    }
+
+    // No machine ID and no model - redirect to model selection (demo mode)
+    if (!machine || machine === 'null' || machine === 'undefined' || machine === '') {
       console.log('🔄 No machine ID - redirecting to model selection');
       router.push('/select-model');
       return;
     }
-    
-    // Valid machine ID found
-    setMachineId(machine);
-    console.log('🏭 Machine ID detected:', machine);
-    
-    // Handle session logic
-    if (!session || session === 'null' || session === 'undefined') {
-      // No valid session - generate new one, register it, and redirect
-      // Use crypto.randomUUID if available, otherwise fallback
-      const newSessionId = typeof crypto !== 'undefined' && crypto.randomUUID 
-        ? crypto.randomUUID()
-        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-            const r = Math.random() * 16 | 0;
-            const v = c === 'x' ? r : (r & 0x3 | 0x8);
-            return v.toString(16);
-          });
-      console.log('🎫 Generating new session:', newSessionId);
-      
-      // Set the session ID in state immediately
-      setSessionId(newSessionId);
-      setSessionTimestamp(Date.now());
-      
-      // Session registration handled elsewhere
-      console.log('✅ Session created locally:', newSessionId);
-      
-      router.push(`/editor?machineId=${machine}&session=${newSessionId}`);
-      setIsCheckingSession(false);
-    } else {
-      // Valid session exists - check if it was already used
-      console.log('📋 Checking existing session:', session);
-      
-      // Check localStorage to see if this session already submitted
-      const submittedSessions = JSON.parse(localStorage.getItem('submittedSessions') || '[]');
-      if (submittedSessions.includes(session)) {
-        console.log('🔒 Session already submitted - showing thank you page');
-        setIsSessionLocked(true);
+  }, []); // Run once on mount
+
+  // Auto-reset session after thank you page is shown (for production multi-user flow)
+  useEffect(() => {
+    if (!showThankYou) return;
+
+    console.log('⏰ Starting session auto-reset timer (30 seconds)...');
+
+    // After 30 seconds on thank you page, automatically reset to allow next user
+    const resetTimer = setTimeout(() => {
+      console.log('🔄 Auto-resetting session for next user...');
+
+      // Extract current parameters
+      const urlParams = new URLSearchParams(window.location.search);
+      const machine = urlParams.get('machineId');
+      const modelParam = urlParams.get('model');
+
+      // Clear sessionStorage for this tab to force new session generation
+      if (machine && modelParam) {
+        const tabSessionKey = `tab-session-${machine}-${modelParam}`;
+        sessionStorage.removeItem(tabSessionKey);
+        console.log('🗑️ Cleared production session from storage:', tabSessionKey);
+      } else if (modelParam) {
+        const demoTabSessionKey = `demo-tab-session-${modelParam}`;
+        sessionStorage.removeItem(demoTabSessionKey);
+        console.log('🗑️ Cleared demo session from storage:', demoTabSessionKey);
+      }
+
+      // Clear session lock and page state
+      if (sessionId) {
+        sessionStorage.removeItem(`session-locked-${sessionId}`);
+        sessionStorage.removeItem(`session-lock-timestamp-${sessionId}`);
+        sessionStorage.removeItem(`page-state-${sessionId}`);
+        console.log('🗑️ Cleared session lock and page state from storage');
+      }
+
+      // Clear the page generation flag
+      delete (window as any).__sessionGenerated;
+      delete (window as any).__demoSessionGenerated;
+
+      // Redirect back to phone selection to start fresh
+      if (machine) {
+        router.push(`/select-model?machineId=${machine}`);
+      } else {
+        router.push('/select-model');
+      }
+    }, 30000); // 30 seconds
+
+    return () => clearTimeout(resetTimer);
+  }, [showThankYou, router]);
+
+  // TEST MODE: Check for test parameter when on waiting page
+  useEffect(() => {
+    if (!showWaitingForPayment) {
+      console.log('⏭️ Test mode check skipped - not on waiting page');
+      return;
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const testParam = urlParams.get('test');
+
+    console.log('🔍 Test mode check - test param:', testParam);
+
+    if (testParam === 'payment') {
+      console.log('🧪 TEST MODE: Simulating payment confirmation');
+
+      // Remove test param from URL
+      urlParams.delete('test');
+      const newUrl = `${window.location.pathname}?${urlParams.toString()}`;
+      window.history.replaceState(null, '', newUrl);
+
+      // Trigger page transition after a small delay to ensure state is ready
+      setTimeout(() => {
+        console.log('✅ TEST MODE: Transitioning to thank you page');
+        setShowWaitingForPayment(false);
         setShowThankYou(true);
-        setThankYouMessage('Your design has already been submitted. Your custom print will be ready shortly!');
-        setIsCheckingSession(false);
+        setThankYouMessage('Payment received! (Test Mode)');
 
-        // Prevent back navigation
-        window.history.pushState(null, '', window.location.href);
-        window.onpopstate = () => {
-          window.history.go(1);
-        };
+        // Update page state in sessionStorage
+        if (sessionId) {
+          sessionStorage.setItem(`page-state-${sessionId}`, 'thankyou');
+          console.log('💾 Updated page state to thank you in sessionStorage (test mode)');
+        }
+      }, 100);
+    }
+  }, [showWaitingForPayment, sessionId, router.query.test]);
 
-        // Prevent page refresh/reload
-        const preventRefresh = (e: BeforeUnloadEvent) => {
-          e.preventDefault();
-          e.returnValue = '';
-        };
-        window.addEventListener('beforeunload', preventRefresh);
+  // WebSocket connection for real-time order status updates
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
 
+    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+
+    console.log('🔌 Connecting to WebSocket:', BACKEND_URL);
+
+    const newSocket = io(BACKEND_URL, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
+    });
+
+    newSocket.on('connect', () => {
+      console.log('✅ WebSocket connected:', newSocket.id);
+
+      // Subscribe to order updates if we have a jobId
+      if (jobId) {
+        console.log('📡 Subscribing to order updates:', jobId);
+        newSocket.emit('subscribe:order', jobId);
+      }
+
+      // Subscribe to machine updates if we have a machineId
+      if (machineId) {
+        console.log('📡 Subscribing to machine updates:', machineId);
+        newSocket.emit('subscribe:machine', machineId);
+      }
+    });
+
+    newSocket.on('disconnect', () => {
+      console.log('💔 WebSocket disconnected');
+    });
+
+    // Listen for order status updates
+    newSocket.on('order:status', (data: any) => {
+      console.log('📦 Order status update:', data);
+
+      // CRITICAL: Verify this update is for OUR order (prevent multi-user conflicts)
+      if (data.orderNo !== jobId) {
+        console.log(`⚠️ Ignoring update for different order: ${data.orderNo} (ours: ${jobId})`);
         return;
       }
-      
-      setSessionId(session);
-      setSessionTimestamp(Date.now());
-      setIsCheckingSession(false);
-    }
-  }, []); // Run once on mount
+
+      console.log('✅ Order status matches our jobId:', jobId);
+
+      setOrderStatus({
+        status: data.status,
+        payStatus: data.payStatus,
+        payType: data.payType,
+        amount: data.amount,
+      });
+
+      // Transition from waiting page to thank you page when payment is confirmed
+      if (data.payStatus === 'paid') {
+        console.log('💳 Payment confirmed! Transitioning to thank you page...');
+        setShowWaitingForPayment(false);
+        setShowThankYou(true);
+        setThankYouMessage('Payment received! Your case is being prepared for printing.');
+
+        // Update page state in sessionStorage
+        if (sessionId) {
+          sessionStorage.setItem(`page-state-${sessionId}`, 'thankyou');
+          console.log('💾 Updated page state to thank you in sessionStorage');
+        }
+      }
+
+      // Update messages for different statuses
+      if (data.status === 'printing') {
+        setThankYouMessage('Your case is now printing!');
+      } else if (data.status === 'completed') {
+        setThankYouMessage('Your case is ready! Please collect it from the machine.');
+      } else if (data.status === 'failed') {
+        setThankYouMessage('There was an issue with your order. Please contact support.');
+      }
+    });
+
+    newSocket.on('error', (error: any) => {
+      console.error('❌ WebSocket error:', error);
+    });
+
+    setSocket(newSocket);
+
+    return () => {
+      console.log('🔌 Closing WebSocket connection');
+      newSocket.close();
+    };
+  }, [jobId, machineId]); // Reconnect if jobId or machineId changes
 
   // Define control sets at component level to avoid scope issues
   const normalControls = useRef<any>(null);
@@ -458,6 +1023,22 @@ export default function Editor() {
 
       const stateString = JSON.stringify(mainImageState);
 
+      // CRITICAL: Save full canvas state to sessionStorage for refresh persistence
+      if (sessionId) {
+        try {
+          const fullCanvasState = canvas.toJSON(['selectable', 'hasControls', 'excludeFromExport']);
+          sessionStorage.setItem(`canvas-state-${sessionId}`, JSON.stringify({
+            canvasJSON: fullCanvasState,
+            mainImageState: mainImageState,
+            backgroundColor: canvasBackgroundColor,
+            savedAt: Date.now()
+          }));
+          console.log('💾 Canvas state persisted to sessionStorage');
+        } catch (err) {
+          console.error('❌ Failed to save canvas to sessionStorage:', err);
+        }
+      }
+
       setCanvasHistory(prev => {
         // Limit history to last 20 states to prevent memory issues
         const newHistory = [...prev, stateString];
@@ -472,7 +1053,7 @@ export default function Editor() {
 
   useEffect(() => {
     // Only initialize canvas when all conditions are met
-    if (!canvasRef.current || !fabric || isCheckingSession || isSessionLocked || showThankYou || canvas) {
+    if (!canvasRef.current || !fabric || isCheckingSession || isSessionLocked || showWaitingForPayment || showThankYou || canvas) {
       return;
     }
     
@@ -1398,7 +1979,7 @@ export default function Editor() {
       return () => {
         fabricCanvas.dispose();
       };
-  }, [fabric, isCheckingSession, isSessionLocked, showThankYou]); // Removed isCropMode to prevent re-initialization
+  }, [fabric, isCheckingSession, isSessionLocked, showWaitingForPayment, showThankYou]); // Removed isCropMode to prevent re-initialization
 
   // Separate useEffect to add undo event listeners after canvas is ready
   useEffect(() => {
@@ -2102,11 +2683,29 @@ export default function Editor() {
         return; // Exit early without throwing error
       }
       
+      // Validate we received an image URL
+      if (!result.imageUrl) {
+        console.error('❌ No edited image URL received from mask edit API');
+        setIsProcessing(false);
+        setShowMaskModal(false);
+        alert('❌ Failed to receive edited image. Please try again.');
+        return;
+      }
+
       // Load the edited image
       const imgElement = new Image();
       imgElement.crossOrigin = 'anonymous';
-      
-      imgElement.onload = function() {
+
+      // Timeout to prevent infinite loading (30 seconds)
+      const maskLoadTimeout = setTimeout(() => {
+        console.error('⏱️ Mask edit image load timeout');
+        setIsProcessing(false);
+        setShowMaskModal(false);
+        alert('⏱️ Image loading timed out. Please try again.');
+      }, 30000);
+
+      const handleMaskEditLoad = function() {
+        clearTimeout(maskLoadTimeout);
         console.log('🔍 AI Edit Result Debug:');
         console.log('  Received image dimensions:', imgElement.width, 'x', imgElement.height);
         console.log('  Expected EXPORT dimensions:', EXPORT_WIDTH, 'x', EXPORT_HEIGHT);
@@ -2169,14 +2768,25 @@ export default function Editor() {
         
         console.log('Mask edited image replaced at scale:', SCALE_FACTOR);
       };
-      
+
+      imgElement.onload = handleMaskEditLoad;
+
       imgElement.onerror = function(error) {
+        clearTimeout(maskLoadTimeout);
         console.error('Failed to load edited image:', error);
         setAiError('Failed to load edited image');
         setIsProcessing(false);
+        setShowMaskModal(false);
+        alert('❌ Failed to load edited image. Please try again.');
       };
-      
+
       imgElement.src = result.imageUrl;
+
+      // CRITICAL FIX: Handle cached images that load synchronously
+      if (imgElement.complete && imgElement.naturalHeight !== 0) {
+        console.log('🚀 Mask edit image loaded from cache - handling immediately');
+        handleMaskEditLoad();
+      }
       
     } catch (error: any) {
       console.error('Mask Edit Error:', error);
@@ -2259,6 +2869,9 @@ export default function Editor() {
       
       // Call Vertex AI image edit API
       const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
+      console.log('🚀 Sending AI edit request to:', `${backendUrl}/api/vertex-ai/edit-image`);
+      console.log('📦 Request payload size:', imageData.length, 'bytes');
+
       const response = await fetch(`${backendUrl}/api/vertex-ai/edit-image`, {
         method: 'POST',
         headers: {
@@ -2270,9 +2883,22 @@ export default function Editor() {
           userId: 'editor-user', // Optional: track usage per user
         }),
       });
-      
+
+      console.log('📡 Response status:', response.status, response.statusText);
+      console.log('📊 Response headers:', {
+        contentType: response.headers.get('content-type'),
+        contentLength: response.headers.get('content-length'),
+      });
+
       const result = await response.json();
-      
+      console.log('✅ AI Edit API Response received:', {
+        success: result.success,
+        hasEditedImageUrl: !!result.editedImageUrl,
+        hasImageUrl: !!result.imageUrl,
+        editedImageUrlLength: result.editedImageUrl?.length || 0,
+        imageUrlLength: result.imageUrl?.length || 0,
+      });
+
       if (!result.success) {
         console.log('AI Edit failed:', result.error);
         
@@ -2313,13 +2939,30 @@ export default function Editor() {
       const editedImageUrl = result.editedImageUrl || result.imageUrl; // Support both response formats
       console.log('Loading edited image to canvas...');
       console.log('Image data type:', typeof editedImageUrl);
-      console.log('Image data preview:', editedImageUrl.substring(0, 100));
+      console.log('Image data preview:', editedImageUrl?.substring(0, 100));
+
+      if (!editedImageUrl) {
+        console.error('❌ No edited image URL received from API');
+        setIsProcessing(false);
+        setShowAIModal(false);
+        alert('❌ Failed to receive edited image. Please try again.');
+        return;
+      }
 
       // Create a new Image element first to ensure it loads
       const imgElement = new Image();
       imgElement.crossOrigin = 'anonymous';
 
-      imgElement.onload = function() {
+      // Timeout to prevent infinite loading (30 seconds)
+      const loadTimeout = setTimeout(() => {
+        console.error('⏱️ Image load timeout - taking too long');
+        setIsProcessing(false);
+        setShowAIModal(false);
+        alert('⏱️ Image loading timed out. Please try again.');
+      }, 30000);
+
+      const handleImageLoad = function() {
+        clearTimeout(loadTimeout);
         console.log('🔍 AI Edit Result:');
         console.log('  Received image dimensions:', imgElement.width, 'x', imgElement.height);
 
@@ -2438,15 +3081,27 @@ export default function Editor() {
 
         console.log('Image successfully added to canvas');
       };
-      
+
+      imgElement.onload = handleImageLoad;
+
       imgElement.onerror = function(error) {
+        clearTimeout(loadTimeout);
         console.error('Failed to load image element:', error);
         setAiError('Failed to load edited image');
         setIsProcessing(false);
+        setShowAIModal(false);
+        alert('❌ Failed to load edited image. Please try again.');
       };
 
       // Set the source to trigger loading
       imgElement.src = editedImageUrl;
+
+      // CRITICAL FIX: Handle cached images that load synchronously
+      // If image is already loaded from cache before onload handler attached
+      if (imgElement.complete && imgElement.naturalHeight !== 0) {
+        console.log('🚀 Image loaded from cache - handling immediately');
+        handleImageLoad();
+      }
       
     } catch (error: any) {
       console.error('AI Edit Error:', error);
@@ -2621,14 +3276,32 @@ export default function Editor() {
 
         return; // Exit early without throwing error
       }
-      
+
+      // Extract the generated image URL from the response
+      const generatedImageUrl = result.imageUrl;
       console.log('Loading generated image to canvas...');
-      
+
+      // Validate we received an image URL
+      if (!generatedImageUrl) {
+        console.error('❌ No generated image URL received from API');
+        setIsProcessing(false);
+        alert('❌ Failed to receive generated image. Please try again.');
+        return;
+      }
+
       // Create a new Image element first to ensure it loads
       const imgElement = new Image();
       imgElement.crossOrigin = 'anonymous';
-      
-      imgElement.onload = function() {
+
+      // Timeout to prevent infinite loading (30 seconds)
+      const loadTimeout = setTimeout(() => {
+        console.error('⏱️ Generated image load timeout');
+        setIsProcessing(false);
+        alert('⏱️ Image loading timed out. Please try again.');
+      }, 30000);
+
+      const handleGeneratedImageLoad = function() {
+        clearTimeout(loadTimeout);
         console.log('Generated image loaded, dimensions:', imgElement.width, 'x', imgElement.height);
         
         // Clear processing state and prompt
@@ -2682,15 +3355,25 @@ export default function Editor() {
         
         console.log('Generated image successfully added to canvas');
       };
-      
+
+      imgElement.onload = handleGeneratedImageLoad;
+
       imgElement.onerror = function(error) {
+        clearTimeout(loadTimeout);
         console.error('Failed to load generated image:', error);
         setAiError('Failed to load generated image');
         setIsProcessing(false);
+        alert('❌ Failed to load generated image. Please try again.');
       };
-      
+
       // Set the source to trigger loading
-      imgElement.src = result.imageUrl;
+      imgElement.src = generatedImageUrl;
+
+      // CRITICAL FIX: Handle cached images that load synchronously
+      if (imgElement.complete && imgElement.naturalHeight !== 0) {
+        console.log('🚀 Generated image loaded from cache - handling immediately');
+        handleGeneratedImageLoad();
+      }
       
     } catch (error: any) {
       console.error('AI Create Error:', error);
@@ -3112,6 +3795,19 @@ export default function Editor() {
 
         // Show preview modal instead of navigating
         setShowPreviewModal(true);
+
+        // Persist preview modal state and data in sessionStorage
+        if (sessionId) {
+          sessionStorage.setItem(`session-locked-${sessionId}`, 'true');
+          sessionStorage.setItem(`session-lock-timestamp-${sessionId}`, Date.now().toString());
+          sessionStorage.setItem(`page-state-${sessionId}`, 'preview');
+          sessionStorage.setItem(`preview-image-${sessionId}`, dataURL);
+          sessionStorage.setItem(`submission-data-${sessionId}`, JSON.stringify(previewData.submissionData));
+          setIsSessionLocked(true);
+          console.log('💾 Persisted preview page state and data to sessionStorage for session:', sessionId);
+        } else {
+          console.error('❌ Cannot persist preview state - sessionId is null!');
+        }
       } catch (error) {
         console.error('Error submitting design:', error);
         alert('Failed to submit design');
@@ -3119,8 +3815,8 @@ export default function Editor() {
     }
   };
 
-  // Show loading screen while checking session OR show Thank You page
-  if (isCheckingSession || showThankYou) {
+  // Show loading screen while checking session OR show Waiting/Thank You pages
+  if (isCheckingSession || showWaitingForPayment || showThankYou) {
     // If still checking, show loading
     if (isCheckingSession) {
       return (
@@ -3133,7 +3829,7 @@ export default function Editor() {
             <meta name="apple-touch-fullscreen" content="yes" />
             <meta name="format-detection" content="telephone=no" />
             <style dangerouslySetInnerHTML={{__html: `
-              * { 
+              * {
                 -webkit-touch-callout: none !important;
                 -webkit-user-select: none !important;
                 -webkit-tap-highlight-color: transparent !important;
@@ -3150,8 +3846,135 @@ export default function Editor() {
         </>
       );
     }
-    
-    // Show Thank You page if session is completed
+
+    // Show Waiting for Payment page (first page after submission)
+    if (showWaitingForPayment) {
+      return (
+      <>
+        <Head>
+          <title>Waiting for Payment - SweetRobo</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+          <meta name="apple-mobile-web-app-capable" content="yes" />
+          <meta name="mobile-web-app-capable" content="yes" />
+          <meta name="apple-touch-fullscreen" content="yes" />
+          <meta name="format-detection" content="telephone=no" />
+          <style dangerouslySetInnerHTML={{__html: `
+            * {
+              -webkit-touch-callout: none !important;
+              -webkit-user-select: none !important;
+              -webkit-tap-highlight-color: transparent !important;
+              user-select: none !important;
+            }
+          `}} />
+        </Head>
+        <div className="min-h-screen bg-white flex items-center justify-center p-5">
+          <div className="max-w-md w-full text-center">
+            {/* Animated Hourglass/Waiting Icon */}
+            <div className="mb-8">
+              <div className="inline-block animate-bounce">
+                <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="50" cy="50" r="40" stroke="#9333EA" strokeWidth="4" fill="none" opacity="0.2"/>
+                  <circle cx="50" cy="50" r="40" stroke="#9333EA" strokeWidth="4" fill="none" strokeDasharray="251.2" strokeDashoffset="125.6" strokeLinecap="round">
+                    <animateTransform
+                      attributeName="transform"
+                      type="rotate"
+                      from="0 50 50"
+                      to="360 50 50"
+                      dur="2s"
+                      repeatCount="indefinite"/>
+                  </circle>
+                  <text x="50" y="60" fontSize="40" textAnchor="middle" fill="#9333EA">⏳</text>
+                </svg>
+              </div>
+            </div>
+
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">Design Submitted!</h1>
+
+            <p className="text-base text-gray-600 mb-8 leading-relaxed">
+              Please proceed to the machine to complete your payment.
+            </p>
+
+            <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-6 mb-6">
+              <p className="text-purple-800 font-semibold mb-2">Waiting for payment confirmation...</p>
+              <p className="text-sm text-purple-600">This page will automatically update once payment is received.</p>
+            </div>
+
+            {/* Order Status Display */}
+            {orderStatus && (
+              <div className="mb-6 space-y-3">
+                {/* Payment Status */}
+                {orderStatus.payStatus && (
+                  <div className={`rounded-xl p-4 ${
+                    orderStatus.payStatus === 'paid'
+                      ? 'bg-green-100 border-2 border-green-500'
+                      : orderStatus.payStatus === 'refunded'
+                      ? 'bg-yellow-100 border-2 border-yellow-500'
+                      : 'bg-gray-100 border-2 border-gray-300'
+                  }`}>
+                    <p className="text-xs uppercase tracking-wide mb-1 font-semibold text-gray-600">Payment Status</p>
+                    <div className="flex items-center gap-2">
+                      {orderStatus.payStatus === 'paid' && <span className="text-2xl">✅</span>}
+                      {orderStatus.payStatus === 'refunded' && <span className="text-2xl">↩️</span>}
+                      {orderStatus.payStatus === 'unpaid' && <span className="text-2xl">⏳</span>}
+                      <p className="text-lg font-bold capitalize">{orderStatus.payStatus}</p>
+                    </div>
+                    {orderStatus.payType && (
+                      <p className="text-sm text-gray-600 mt-1">via {orderStatus.payType}</p>
+                    )}
+                    {orderStatus.amount && (
+                      <p className="text-sm text-gray-600 mt-1">Amount: ${orderStatus.amount.toFixed(2)}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Order Status */}
+                {orderStatus.status && (
+                  <div className={`rounded-xl p-4 ${
+                    orderStatus.status === 'completed'
+                      ? 'bg-green-100 border-2 border-green-500'
+                      : orderStatus.status === 'printing'
+                      ? 'bg-blue-100 border-2 border-blue-500'
+                      : orderStatus.status === 'failed'
+                      ? 'bg-red-100 border-2 border-red-500'
+                      : 'bg-gray-100 border-2 border-gray-300'
+                  }`}>
+                    <p className="text-xs uppercase tracking-wide mb-1 font-semibold text-gray-600">Order Status</p>
+                    <div className="flex items-center gap-2">
+                      {orderStatus.status === 'completed' && <span className="text-2xl">🎉</span>}
+                      {orderStatus.status === 'printing' && <span className="text-2xl">🖨️</span>}
+                      {orderStatus.status === 'failed' && <span className="text-2xl">❌</span>}
+                      {orderStatus.status === 'pending' && <span className="text-2xl">⏳</span>}
+                      {orderStatus.status === 'paid' && <span className="text-2xl">📦</span>}
+                      <p className="text-lg font-bold capitalize">{orderStatus.status}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {sessionId && (
+              <div className="bg-gray-100 rounded-xl p-4">
+                <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-semibold">Session ID</p>
+                <p className="text-sm font-mono text-gray-700 break-all">{sessionId}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <style jsx>{`
+          @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          .animate-bounce {
+            animation: fadeIn 0.6s ease-out;
+          }
+        `}</style>
+      </>
+      );
+    }
+
+    // Show Thank You page (second page after payment confirmed)
     if (showThankYou) {
       return (
       <>
@@ -3188,8 +4011,61 @@ export default function Editor() {
             </p>
 
             <p className="text-sm text-gray-500 mb-6">
-              Please scan QR code to start a new session.
+              Return to the machine to complete your payment and start printing.
             </p>
+
+            {/* Order Status Display */}
+            {orderStatus && (
+              <div className="mb-6 space-y-3">
+                {/* Payment Status */}
+                {orderStatus.payStatus && (
+                  <div className={`rounded-xl p-4 ${
+                    orderStatus.payStatus === 'paid'
+                      ? 'bg-green-100 border-2 border-green-500'
+                      : orderStatus.payStatus === 'refunded'
+                      ? 'bg-yellow-100 border-2 border-yellow-500'
+                      : 'bg-gray-100 border-2 border-gray-300'
+                  }`}>
+                    <p className="text-xs uppercase tracking-wide mb-1 font-semibold text-gray-600">Payment Status</p>
+                    <div className="flex items-center gap-2">
+                      {orderStatus.payStatus === 'paid' && <span className="text-2xl">✅</span>}
+                      {orderStatus.payStatus === 'refunded' && <span className="text-2xl">↩️</span>}
+                      {orderStatus.payStatus === 'unpaid' && <span className="text-2xl">⏳</span>}
+                      <p className="text-lg font-bold capitalize">{orderStatus.payStatus}</p>
+                    </div>
+                    {orderStatus.payType && (
+                      <p className="text-sm text-gray-600 mt-1">via {orderStatus.payType}</p>
+                    )}
+                    {orderStatus.amount && (
+                      <p className="text-sm text-gray-600 mt-1">Amount: ${orderStatus.amount.toFixed(2)}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Order Status */}
+                {orderStatus.status && (
+                  <div className={`rounded-xl p-4 ${
+                    orderStatus.status === 'completed'
+                      ? 'bg-green-100 border-2 border-green-500'
+                      : orderStatus.status === 'printing'
+                      ? 'bg-blue-100 border-2 border-blue-500'
+                      : orderStatus.status === 'failed'
+                      ? 'bg-red-100 border-2 border-red-500'
+                      : 'bg-gray-100 border-2 border-gray-300'
+                  }`}>
+                    <p className="text-xs uppercase tracking-wide mb-1 font-semibold text-gray-600">Print Status</p>
+                    <div className="flex items-center gap-2">
+                      {orderStatus.status === 'completed' && <span className="text-2xl">🎉</span>}
+                      {orderStatus.status === 'printing' && <span className="text-2xl">🖨️</span>}
+                      {orderStatus.status === 'failed' && <span className="text-2xl">❌</span>}
+                      {orderStatus.status === 'pending' && <span className="text-2xl">⏳</span>}
+                      {orderStatus.status === 'paid' && <span className="text-2xl">📦</span>}
+                      <p className="text-lg font-bold capitalize">{orderStatus.status}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {sessionId && (
               <div className="bg-gray-100 rounded-xl p-4">
@@ -5189,13 +6065,80 @@ export default function Editor() {
           <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg">
             <div className="max-w-md mx-auto space-y-3">
               <button
-                onClick={() => {
-                  setShowPreviewModal(false);
-                  setShowPaymentModal(true);
+                onClick={async () => {
+                  if (!previewImage) return;
+
+                  setIsUploading(true);
+
+                  try {
+                    // Get submission data from window
+                    const submissionData = (window as any).__submissionData;
+
+                    // Submit to backend (S3 upload + print job)
+                    const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
+                    const response = await fetch(`${backendUrl}/api/chitu/print`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify(submissionData),
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                      // Store job ID for WebSocket order tracking
+                      if (result.jobId) {
+                        setJobId(result.jobId);
+                        console.log('✅ Print job submitted with ID:', result.jobId);
+                      }
+
+                      // Clear data
+                      delete (window as any).__submissionData;
+                      setShowPreviewModal(false);
+                      setPreviewImage(null);
+
+                      // Clear preview data from sessionStorage
+                      if (sessionId) {
+                        sessionStorage.removeItem(`preview-image-${sessionId}`);
+                        sessionStorage.removeItem(`submission-data-${sessionId}`);
+                      }
+
+                      // Show waiting for payment page (NOT thank you yet)
+                      setIsSessionLocked(true);
+                      setShowWaitingForPayment(true);
+                      setShowThankYou(false);
+
+                      // Persist lock and page state in sessionStorage
+                      if (sessionId) {
+                        sessionStorage.setItem(`session-locked-${sessionId}`, 'true');
+                        sessionStorage.setItem(`session-lock-timestamp-${sessionId}`, Date.now().toString());
+                        sessionStorage.setItem(`page-state-${sessionId}`, 'waiting');
+                        console.log('💾 Persisted waiting page state to sessionStorage');
+                      }
+
+                      // Prevent back navigation
+                      window.history.pushState(null, '', window.location.href);
+                      window.onpopstate = () => {
+                        window.history.go(1);
+                      };
+
+                      // Note: We no longer prevent page refresh/reload with beforeunload
+                      // because sessionStorage persistence now handles page state restoration correctly
+                    } else {
+                      alert('Submission failed: ' + (result.error || 'Unknown error'));
+                      setIsUploading(false);
+                    }
+                  } catch (error: any) {
+                    console.error('Submission error:', error);
+                    alert('Failed to submit design: ' + error.message);
+                    setIsUploading(false);
+                  }
                 }}
-                className="w-full bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-semibold py-4 px-6 rounded-lg transition shadow-md"
+                disabled={isUploading}
+                className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 active:bg-purple-800 text-white font-semibold py-4 px-6 rounded-lg transition shadow-md"
               >
-                Proceed with Payment
+                {isUploading ? 'Submitting...' : 'Submit Design'}
               </button>
               <button
                 onClick={() => {
@@ -5203,7 +6146,19 @@ export default function Editor() {
                   setPreviewImage(null);
                   setIsUploading(false);
                   setDebugInfo('');
+
+                  // Clear preview data from sessionStorage when going back to edit
+                  if (sessionId) {
+                    sessionStorage.removeItem(`session-locked-${sessionId}`);
+                    sessionStorage.removeItem(`session-lock-timestamp-${sessionId}`);
+                    sessionStorage.removeItem(`page-state-${sessionId}`);
+                    sessionStorage.removeItem(`preview-image-${sessionId}`);
+                    sessionStorage.removeItem(`submission-data-${sessionId}`);
+                    setIsSessionLocked(false);
+                    console.log('🗑️ Cleared preview data from sessionStorage and unlocked session');
+                  }
                 }}
+                disabled={isUploading}
                 className="w-full bg-gray-200 hover:bg-gray-300 active:bg-gray-400 text-gray-800 font-semibold py-4 px-6 rounded-lg transition"
               >
                 Back to Edit
@@ -5213,235 +6168,7 @@ export default function Editor() {
         </div>
       )}
 
-      {/* Payment Modal */}
-      {showPaymentModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl my-8 max-h-[90vh] overflow-hidden flex flex-col">
-            {/* Modal Header */}
-            <div className="border-b border-gray-200 p-4 flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => {
-                    setShowPaymentModal(false);
-                    setShowPreviewModal(true);
-                  }}
-                  className="text-gray-600 hover:text-gray-800 text-2xl"
-                  disabled={isUploading}
-                >
-                  ←
-                </button>
-                <h2 className="text-lg font-bold text-gray-900">Complete Payment</h2>
-              </div>
-            </div>
-
-            {/* Modal Content - Scrollable */}
-            <div className="p-4 space-y-4 overflow-y-auto flex-1">
-              {/* Order Summary */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Order Summary</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">AI Photo Enhancement</span>
-                    <span className="text-gray-900">$4.99</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Premium Sticker Pack</span>
-                    <span className="text-gray-900">$2.99</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Text Overlay Features</span>
-                    <span className="text-gray-900">$1.99</span>
-                  </div>
-                  <div className="border-t border-gray-200 pt-2 mt-2"></div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-600">Subtotal</span>
-                    <span className="text-gray-900">$9.97</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-600">Tax</span>
-                    <span className="text-gray-900">$0.80</span>
-                  </div>
-                  <div className="border-t border-gray-200 pt-2 mt-2"></div>
-                  <div className="flex justify-between font-bold text-base">
-                    <span className="text-gray-900">Total</span>
-                    <span className="text-purple-600">$10.77</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Payment Method */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Payment Method</h3>
-                <div className="space-y-2">
-                  {/* Credit/Debit Card */}
-                  <div className="border-2 border-purple-500 rounded-lg p-3 flex items-center gap-3 bg-purple-50">
-                    <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center text-white">
-                      ✓
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-semibold text-gray-900 text-sm">Credit/Debit Card</div>
-                      <div className="text-xs text-gray-600">Visa, Mastercard, Amex</div>
-                    </div>
-                  </div>
-
-                  {/* PayPal */}
-                  <div className="border border-gray-300 rounded-lg p-3 flex items-center gap-3 opacity-60">
-                    <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center">
-                      <span className="text-white text-xs font-bold">PP</span>
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-semibold text-gray-900 text-sm">PayPal</div>
-                      <div className="text-xs text-gray-600">Login to your PayPal account</div>
-                    </div>
-                  </div>
-
-                  {/* Apple Pay */}
-                  <div className="border border-gray-300 rounded-lg p-3 flex items-center gap-3 opacity-60">
-                    <div className="w-8 h-8 bg-black rounded flex items-center justify-center">
-                      <span className="text-white text-xs font-bold">🍎</span>
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-semibold text-gray-900 text-sm">Apple Pay</div>
-                      <div className="text-xs text-gray-600">Use Apple Pay to pay</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card Details Form */}
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Card Number</label>
-                  <input
-                    type="text"
-                    placeholder="1234 5678 9012 3456"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    disabled={isUploading}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Expiry Date</label>
-                    <input
-                      type="text"
-                      placeholder="MM/YY"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      disabled={isUploading}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">CVC</label>
-                    <input
-                      type="text"
-                      placeholder="123"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      disabled={isUploading}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Cardholder Name</label>
-                  <input
-                    type="text"
-                    placeholder="John Doe"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    disabled={isUploading}
-                  />
-                </div>
-              </div>
-
-              {/* Security Notice */}
-              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs">
-                <div className="font-semibold text-green-800 mb-1">Secure Payment</div>
-                <div className="text-green-700">Your payment information is encrypted and secure</div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="space-y-2 pt-2">
-                <button
-                  onClick={async () => {
-                    if (!previewImage) return;
-
-                    setIsUploading(true);
-
-                    try {
-                      // Get submission data from window
-                      const submissionData = (window as any).__submissionData;
-
-                      // Submit to backend (S3 upload + print job)
-                      const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
-                      const response = await fetch(`${backendUrl}/api/chitu/print`, {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify(submissionData),
-                      });
-
-                      const result = await response.json();
-
-                      if (result.success) {
-                        // Clear data
-                        delete (window as any).__submissionData;
-                        setShowPaymentModal(false);
-                        setPreviewImage(null);
-
-                        // Mark session as submitted in localStorage
-                        if (sessionId) {
-                          const submittedSessions = JSON.parse(localStorage.getItem('submittedSessions') || '[]');
-                          submittedSessions.push(sessionId);
-                          localStorage.setItem('submittedSessions', JSON.stringify(submittedSessions));
-                        }
-
-                        // Show thank you page within editor (no navigation)
-                        setIsSessionLocked(true);
-                        setThankYouMessage('Your design has been submitted successfully. Your custom print will be ready shortly!');
-                        setShowThankYou(true);
-
-                        // Prevent back navigation
-                        window.history.pushState(null, '', window.location.href);
-                        window.onpopstate = () => {
-                          window.history.go(1);
-                        };
-
-                        // Prevent page refresh/reload
-                        const preventRefresh = (e: BeforeUnloadEvent) => {
-                          e.preventDefault();
-                          e.returnValue = '';
-                        };
-                        window.addEventListener('beforeunload', preventRefresh);
-                      } else {
-                        alert('Submission failed: ' + (result.error || 'Unknown error'));
-                        setIsUploading(false);
-                      }
-                    } catch (error: any) {
-                      console.error('Submission error:', error);
-                      alert('Failed to submit design: ' + error.message);
-                      setIsUploading(false);
-                    }
-                  }}
-                  disabled={isUploading}
-                  className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold py-3 px-6 rounded-lg transition"
-                >
-                  {isUploading ? 'Processing...' : 'Complete Payment'}
-                </button>
-                <button
-                  onClick={() => {
-                    setShowPaymentModal(false);
-                    setShowPreviewModal(true);
-                  }}
-                  disabled={isUploading}
-                  className="w-full text-center text-gray-600 hover:text-gray-800 py-2 text-sm"
-                >
-                  ✕ Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Payment modal removed - users pay at physical machine after submission */}
     </>
   );
 }

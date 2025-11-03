@@ -417,6 +417,99 @@ export class ChituService {
   }
 
   /**
+   * Upload custom QR code URL to machine home screen
+   * This allows users to scan QR code on machine to start designing
+   */
+  async uploadQRCode(deviceId: string, qrcodeUrl: string): Promise<{ success: boolean; message: string }> {
+    console.log(`\n📱 Uploading QR code to machine`);
+    console.log(`📱 Device ID: ${deviceId}`);
+    console.log(`🔗 QR Code URL: ${qrcodeUrl}`);
+
+    const response = await this.request(
+      '/api/openApi/machineQRCode',
+      {
+        device_id: deviceId,
+        qrcode: qrcodeUrl,
+      },
+    );
+
+    return {
+      success: response.status === 200,
+      message: response.msg || 'QR code uploaded successfully',
+    };
+  }
+
+  /**
+   * Helper to upload QR code using device_code (converts to device_id)
+   */
+  async uploadQRCodeByCode(deviceCode: string, qrcodeUrl: string): Promise<{ success: boolean; message: string }> {
+    const deviceId = await this.getDeviceIdFromCode(deviceCode);
+    return this.uploadQRCode(deviceId, qrcodeUrl);
+  }
+
+  /**
+   * Create print order on machine
+   * This submits the design to Chitu for printing
+   */
+  async createOrder(params: {
+    deviceId: string;
+    productId: string;      // Chitu product_id from phone model catalog
+    imageUrl: string;       // S3 URL to TIF image
+    orderNo?: string;       // Optional external order number
+    printCount?: number;    // Number of copies (default 1)
+    sessionId?: string;     // For tracking
+  }): Promise<{ success: boolean; orderId?: string; message: string }> {
+    console.log(`\n📦 Creating Chitu order`);
+    console.log(`📱 Device ID: ${params.deviceId}`);
+    console.log(`🎯 Product ID: ${params.productId}`);
+    console.log(`🖼️ Image URL: ${params.imageUrl}`);
+
+    const response = await this.request(
+      '/api/openApi/addDeviceOrder',
+      {
+        device_id: params.deviceId,
+        product_id: params.productId,
+        image_url: params.imageUrl,
+        order_no: params.orderNo || `order_${Date.now()}`,
+        print_count: params.printCount || 1,
+      },
+    );
+
+    if (response.status === 200) {
+      console.log(`✅ Order created successfully`);
+      return {
+        success: true,
+        orderId: response.data?.order_id,
+        message: response.msg || 'Order created successfully',
+      };
+    } else {
+      console.error(`❌ Order creation failed: ${response.msg}`);
+      return {
+        success: false,
+        message: response.msg || 'Order creation failed',
+      };
+    }
+  }
+
+  /**
+   * Helper to create order using device_code (converts to device_id)
+   */
+  async createOrderByCode(params: {
+    deviceCode: string;
+    productId: string;
+    imageUrl: string;
+    orderNo?: string;
+    printCount?: number;
+    sessionId?: string;
+  }): Promise<{ success: boolean; orderId?: string; message: string }> {
+    const deviceId = await this.getDeviceIdFromCode(params.deviceCode);
+    return this.createOrder({
+      ...params,
+      deviceId,
+    });
+  }
+
+  /**
    * Test connection to Chitu API
    */
   async testConnection(): Promise<any> {
