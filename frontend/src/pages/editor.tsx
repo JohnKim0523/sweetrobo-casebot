@@ -6141,22 +6141,18 @@ export default function Editor() {
                   e.preventDefault();
                   e.stopPropagation();
 
-                  console.log('👈 Back to Edit clicked - before state change');
-                  console.log('showPreviewModal before:', showPreviewModal);
-                  console.log('uploadedImage exists:', !!uploadedImage);
-                  console.log('canvas exists:', !!canvas);
+                  console.log('👈 Back to Edit clicked');
 
-                  // CRITICAL: Just hide the modal - DO NOT touch sessionStorage
-                  // Modifying sessionStorage triggers page remount
+                  // CRITICAL: Clear the page-state from sessionStorage
+                  // Otherwise the useEffect will restore the preview modal on re-render
+                  if (sessionId) {
+                    sessionStorage.removeItem(`page-state-${sessionId}`);
+                    console.log('🗑️ Cleared page-state from sessionStorage');
+                  }
+
+                  // Hide the modal
                   setShowPreviewModal(false);
-
-                  console.log('👈 setShowPreviewModal(false) called');
-
-                  // Check after a tick if the state actually changed
-                  setTimeout(() => {
-                    console.log('showPreviewModal after (1 tick):', showPreviewModal);
-                    console.log('Canvas elements in DOM:', document.querySelectorAll('canvas').length);
-                  }, 0);
+                  console.log('✅ Preview modal hidden, returning to editor');
                 }}
                 disabled={isUploading}
                 className="w-full bg-gray-200 hover:bg-gray-300 active:bg-gray-400 text-gray-800 font-semibold py-4 px-6 rounded-lg transition"
