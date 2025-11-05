@@ -6141,11 +6141,22 @@ export default function Editor() {
                   e.preventDefault();
                   e.stopPropagation();
 
+                  console.log('👈 Back to Edit clicked - before state change');
+                  console.log('showPreviewModal before:', showPreviewModal);
+                  console.log('uploadedImage exists:', !!uploadedImage);
+                  console.log('canvas exists:', !!canvas);
+
                   // CRITICAL: Just hide the modal - DO NOT touch sessionStorage
                   // Modifying sessionStorage triggers page remount
                   setShowPreviewModal(false);
 
-                  console.log('👈 Back to Edit clicked');
+                  console.log('👈 setShowPreviewModal(false) called');
+
+                  // Check after a tick if the state actually changed
+                  setTimeout(() => {
+                    console.log('showPreviewModal after (1 tick):', showPreviewModal);
+                    console.log('Canvas elements in DOM:', document.querySelectorAll('canvas').length);
+                  }, 0);
                 }}
                 disabled={isUploading}
                 className="w-full bg-gray-200 hover:bg-gray-300 active:bg-gray-400 text-gray-800 font-semibold py-4 px-6 rounded-lg transition"
