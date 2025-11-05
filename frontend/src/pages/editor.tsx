@@ -4593,12 +4593,6 @@ export default function Editor() {
           >
             {isUploading ? 'Processing...' : 'Submit Image'}
           </button>
-          {/* Debug info for mobile */}
-          {debugInfo && (
-            <div className="mt-2 p-2 bg-black text-yellow-400 text-xs rounded">
-              Debug: {debugInfo}
-            </div>
-          )}
             </div>
           </div>
         </div>
@@ -6147,11 +6141,16 @@ export default function Editor() {
                   e.preventDefault();
                   e.stopPropagation();
 
-                  // ONLY hide the modal - nothing else
-                  // The canvas is underneath and should remain untouched
+                  // Hide the modal
                   setShowPreviewModal(false);
 
-                  console.log('👈 Back to Edit clicked - modal hidden');
+                  // Clear the preview state from sessionStorage so it doesn't restore
+                  if (sessionId) {
+                    sessionStorage.removeItem(`page-state-${sessionId}`);
+                    sessionStorage.removeItem(`preview-image-${sessionId}`);
+                    sessionStorage.removeItem(`submission-data-${sessionId}`);
+                    console.log('👈 Back to Edit clicked - modal hidden and preview state cleared');
+                  }
                 }}
                 disabled={isUploading}
                 className="w-full bg-gray-200 hover:bg-gray-300 active:bg-gray-400 text-gray-800 font-semibold py-4 px-6 rounded-lg transition"

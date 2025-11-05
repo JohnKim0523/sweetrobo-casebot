@@ -13,8 +13,8 @@ export default function Home() {
       // If machine ID provided (from QR code), go to model selection
       router.replace(`/select-model?machineId=${machine}`);
     } else {
-      // For public demo/testing, redirect to model selection with test machine
-      router.replace('/select-model?demo=true');
+      // For public demo/testing, redirect to model selection
+      router.replace('/select-model');
     }
   }, [router]);
 
