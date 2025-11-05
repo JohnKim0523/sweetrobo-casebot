@@ -489,15 +489,28 @@ export default function AdminDashboard() {
                 {images.map((image) => (
                   <div key={image.key} className="bg-gray-700 rounded overflow-hidden">
                     <div className="bg-gray-900 flex items-center justify-center p-4" style={{ minHeight: '250px' }}>
-                      <img
-                        src={image.url}
-                        alt={image.key}
-                        className="max-w-full max-h-64 object-contain"
-                        style={{
-                          imageRendering: 'auto',
-                          background: 'repeating-conic-gradient(#444 0% 25%, #555 0% 50%) 50% / 20px 20px'
-                        }}
-                      />
+                      {image.key.toLowerCase().endsWith('.tif') || image.key.toLowerCase().endsWith('.tiff') ? (
+                        <div className="text-center text-gray-400">
+                          <div className="text-4xl mb-2">🖼️</div>
+                          <div className="text-sm">TIF/TIFF Preview</div>
+                          <div className="text-xs mt-1">(Not displayable in browser)</div>
+                        </div>
+                      ) : (
+                        <img
+                          src={image.url}
+                          alt={image.key}
+                          className="max-w-full max-h-64 object-contain"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            target.parentElement!.innerHTML = '<div class="text-center text-gray-400"><div class="text-4xl mb-2">❌</div><div class="text-sm">Failed to load</div></div>';
+                          }}
+                          style={{
+                            imageRendering: 'auto',
+                            background: 'repeating-conic-gradient(#444 0% 25%, #555 0% 50%) 50% / 20px 20px'
+                          }}
+                        />
+                      )}
                     </div>
                     <div className="p-3">
                       <p className="text-xs text-gray-400 truncate" title={image.key}>

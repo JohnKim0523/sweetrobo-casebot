@@ -8,7 +8,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { S3Service } from '../s3/s3.service';
-import { S3Client, ListObjectsV2Command, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, ListObjectsV2Command, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
 
 @Controller('api/admin')
@@ -30,7 +31,7 @@ export class AdminController {
   async listS3Images() {
     try {
       const bucketName = process.env.AWS_S3_BUCKET || 'sweetrobo-phonecase-designs';
-      
+
       // List all objects in the designs folder
       const command = new ListObjectsV2Command({
         Bucket: bucketName,
@@ -39,18 +40,30 @@ export class AdminController {
       });
 
       const response = await this.s3Client.send(command);
-      
-      const images = (response.Contents || []).map(item => ({
-        key: item.Key,
-        url: `https://${bucketName}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${item.Key}`,
-        size: item.Size,
-        lastModified: item.LastModified,
-      }));
 
-      return { 
-        success: true, 
+      // Generate signed URLs for each image (valid for 1 hour)
+      const images = await Promise.all(
+        (response.Contents || []).map(async (item) => {
+          const getCommand = new GetObjectCommand({
+            Bucket: bucketName,
+            Key: item.Key,
+          });
+
+          const signedUrl = await getSignedUrl(this.s3Client, getCommand, { expiresIn: 3600 });
+
+          return {
+            key: item.Key,
+            url: signedUrl,
+            size: item.Size,
+            lastModified: item.LastModified,
+          };
+        })
+      );
+
+      return {
+        success: true,
         images: images.reverse(), // Show newest first
-        count: images.length 
+        count: images.length
       };
     } catch (error: any) {
       console.error('Error listing S3 objects:', error);
