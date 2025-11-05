@@ -6143,21 +6143,15 @@ export default function Editor() {
                 {isUploading ? 'Submitting...' : 'Submit Design'}
               </button>
               <button
-                onClick={() => {
-                  // Simply hide the modal - that's all we need to do
-                  // Don't clear sessionStorage or change isSessionLocked state
-                  // The preview modal is just a UI overlay, not a locked state
-                  setShowPreviewModal(false);
-                  setIsUploading(false);
-                  setDebugInfo('');
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
 
-                  // Only clear the preview-specific data from sessionStorage
-                  if (sessionId) {
-                    sessionStorage.removeItem(`preview-image-${sessionId}`);
-                    sessionStorage.removeItem(`submission-data-${sessionId}`);
-                    sessionStorage.removeItem(`page-state-${sessionId}`);
-                    console.log('🗑️ Cleared preview data from sessionStorage');
-                  }
+                  // ONLY hide the modal - nothing else
+                  // The canvas is underneath and should remain untouched
+                  setShowPreviewModal(false);
+
+                  console.log('👈 Back to Edit clicked - modal hidden');
                 }}
                 disabled={isUploading}
                 className="w-full bg-gray-200 hover:bg-gray-300 active:bg-gray-400 text-gray-800 font-semibold py-4 px-6 rounded-lg transition"
