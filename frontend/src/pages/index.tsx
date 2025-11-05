@@ -10,11 +10,11 @@ export default function Home() {
     const machine = urlParams.get('machine') || urlParams.get('machineId');
 
     if (machine) {
-      // If machine ID provided (from QR code), go to editor
-      router.replace(`/editor?machine=${machine}`);
+      // If machine ID provided (from QR code), go to model selection
+      router.replace(`/select-model?machineId=${machine}`);
     } else {
-      // Otherwise, go to editor directly
-      router.replace('/editor');
+      // For public demo/testing, redirect to model selection with test machine
+      router.replace('/select-model?demo=true');
     }
   }, [router]);
 
