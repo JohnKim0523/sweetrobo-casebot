@@ -32,6 +32,7 @@ async function bootstrap() {
     allowedOrigins.push(
       'https://sweetrobo.com',
       'https://www.sweetrobo.com',
+      'https://sweetrobo-casebot.vercel.app',
       'https://sweetrobo.vercel.app',
     );
   }
