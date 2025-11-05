@@ -6144,20 +6144,19 @@ export default function Editor() {
               </button>
               <button
                 onClick={() => {
-                  // Only hide the modal - don't clear previewImage to avoid canvas issues
+                  // Simply hide the modal - that's all we need to do
+                  // Don't clear sessionStorage or change isSessionLocked state
+                  // The preview modal is just a UI overlay, not a locked state
                   setShowPreviewModal(false);
                   setIsUploading(false);
                   setDebugInfo('');
 
-                  // Clear preview data from sessionStorage when going back to edit
+                  // Only clear the preview-specific data from sessionStorage
                   if (sessionId) {
-                    sessionStorage.removeItem(`session-locked-${sessionId}`);
-                    sessionStorage.removeItem(`session-lock-timestamp-${sessionId}`);
-                    sessionStorage.removeItem(`page-state-${sessionId}`);
                     sessionStorage.removeItem(`preview-image-${sessionId}`);
                     sessionStorage.removeItem(`submission-data-${sessionId}`);
-                    setIsSessionLocked(false);
-                    console.log('🗑️ Cleared preview data from sessionStorage and unlocked session');
+                    sessionStorage.removeItem(`page-state-${sessionId}`);
+                    console.log('🗑️ Cleared preview data from sessionStorage');
                   }
                 }}
                 disabled={isUploading}
