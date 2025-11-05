@@ -36,19 +36,29 @@ async function bootstrap() {
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps or Postman)
       if (!origin) return callback(null, true);
-      
+
+      // Log the origin for debugging
+      console.log('🌐 CORS request from origin:', origin);
+      console.log('✅ Allowed origins:', allowedOrigins);
+
       if (allowedOrigins.includes(origin) || origin.includes('localhost')) {
+        console.log('✅ Origin allowed:', origin);
         callback(null, true);
       } else if (process.env.NODE_ENV !== 'production') {
         // In development, allow all origins
+        console.log('✅ Development mode - allowing origin:', origin);
         callback(null, true);
       } else {
+        console.log('❌ Origin blocked:', origin);
         callback(new Error('Not allowed by CORS'));
       }
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    exposedHeaders: ['Content-Type', 'Authorization'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
   });
 
   // Security headers
