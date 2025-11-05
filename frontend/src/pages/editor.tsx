@@ -3799,13 +3799,12 @@ export default function Editor() {
         setShowPreviewModal(true);
 
         // Persist preview modal state and data in sessionStorage
+        // NOTE: We do NOT lock the session here - preview is just a modal overlay
+        // Session only gets locked when user submits and goes to waiting/payment page
         if (sessionId) {
-          sessionStorage.setItem(`session-locked-${sessionId}`, 'true');
-          sessionStorage.setItem(`session-lock-timestamp-${sessionId}`, Date.now().toString());
           sessionStorage.setItem(`page-state-${sessionId}`, 'preview');
           sessionStorage.setItem(`preview-image-${sessionId}`, dataURL);
           sessionStorage.setItem(`submission-data-${sessionId}`, JSON.stringify(previewData.submissionData));
-          setIsSessionLocked(true);
           console.log('💾 Persisted preview page state and data to sessionStorage for session:', sessionId);
         } else {
           console.error('❌ Cannot persist preview state - sessionId is null!');
@@ -6143,14 +6142,14 @@ export default function Editor() {
 
                   console.log('👈 Back to Edit clicked');
 
-                  // CRITICAL: Clear the page-state from sessionStorage
-                  // Otherwise the useEffect will restore the preview modal on re-render
+                  // Clear the page-state from sessionStorage
+                  // This prevents the useEffect from restoring the preview modal on page refresh
                   if (sessionId) {
                     sessionStorage.removeItem(`page-state-${sessionId}`);
                     console.log('🗑️ Cleared page-state from sessionStorage');
                   }
 
-                  // Hide the modal
+                  // Simply hide the modal - canvas stays alive underneath
                   setShowPreviewModal(false);
                   console.log('✅ Preview modal hidden, returning to editor');
                 }}
