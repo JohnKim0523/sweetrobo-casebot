@@ -541,17 +541,15 @@ export default function AdminDashboard() {
                       <div className="flex gap-2">
                         <button
                           onClick={() => {
-                            // Download the base64 image
-                            const link = document.createElement('a');
-                            link.href = image.image;
-                            link.download = `design-${image.sessionId}.png`;
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
+                            // Download the TIF file from S3 via backend proxy
+                            const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+                            const downloadUrl = `${backendUrl}/api/admin/s3-download?url=${encodeURIComponent(image.imageUrl || '')}`;
+                            window.open(downloadUrl, '_blank');
                           }}
-                          className="flex-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+                          disabled={!image.imageUrl}
+                          className="flex-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded text-sm"
                         >
-                          ⬇️ Download
+                          ⬇️ Download TIF
                         </button>
                         <button
                           onClick={() => deleteImage(image.key)}

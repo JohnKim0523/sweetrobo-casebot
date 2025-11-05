@@ -232,30 +232,21 @@ export class SimpleQueueService {
     console.log(`🖨️ Processing job ${job.id} (attempt ${job.attempts}) for machine ${job.data.machineId}`);
 
     try {
-      // Upload image to S3 (both PNG for preview and TIF for Chitu printer)
+      // Upload image to S3 (converted to TIF for Chitu printer)
       let imageUrl = job.data.imageUrl;
       if (!imageUrl && job.data.image) {
-        console.log(`📤 Uploading images to S3...`);
+        console.log(`📤 Uploading image to S3...`);
 
         const buffer = Buffer.from(
           job.data.image.replace(/^data:image\/\w+;base64,/, ''),
           'base64'
         );
 
-        const timestamp = Date.now();
-        const basePath = `designs/${job.data.sessionId}/${timestamp}`;
-
-        // Upload PNG for admin preview
-        const pngKey = `${basePath}.png`;
-        await this.s3Service.uploadImage(buffer, pngKey, false); // Keep as PNG
-        console.log(`✅ PNG preview uploaded: ${pngKey}`);
-
-        // Upload TIF for printer
-        const tifKey = `${basePath}.tif`;
-        imageUrl = await this.s3Service.uploadImage(buffer, tifKey, true); // Convert to TIF
+        const key = `designs/${job.data.sessionId}/${Date.now()}.tif`;
+        imageUrl = await this.s3Service.uploadImage(buffer, key, true); // Convert to TIF
         job.data.imageUrl = imageUrl;
 
-        console.log(`✅ TIF uploaded for printer: ${tifKey}`);
+        console.log(`✅ Image uploaded as TIF: ${imageUrl}`);
       }
 
       // Create Chitu order (if machineId and productId are available)
