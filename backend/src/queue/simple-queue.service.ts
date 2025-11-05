@@ -232,21 +232,30 @@ export class SimpleQueueService {
     console.log(`🖨️ Processing job ${job.id} (attempt ${job.attempts}) for machine ${job.data.machineId}`);
 
     try {
-      // Upload image to S3 (converted to TIF for Chitu printer)
+      // Upload image to S3 (both PNG for preview and TIF for Chitu printer)
       let imageUrl = job.data.imageUrl;
       if (!imageUrl && job.data.image) {
-        console.log(`📤 Uploading image to S3...`);
+        console.log(`📤 Uploading images to S3...`);
 
         const buffer = Buffer.from(
           job.data.image.replace(/^data:image\/\w+;base64,/, ''),
           'base64'
         );
 
-        const key = `designs/${job.data.sessionId}/${Date.now()}.tif`;
-        imageUrl = await this.s3Service.uploadImage(buffer, key, true); // Convert to TIF
+        const timestamp = Date.now();
+        const basePath = `designs/${job.data.sessionId}/${timestamp}`;
+
+        // Upload PNG for admin preview
+        const pngKey = `${basePath}.png`;
+        await this.s3Service.uploadImage(buffer, pngKey, false); // Keep as PNG
+        console.log(`✅ PNG preview uploaded: ${pngKey}`);
+
+        // Upload TIF for printer
+        const tifKey = `${basePath}.tif`;
+        imageUrl = await this.s3Service.uploadImage(buffer, tifKey, true); // Convert to TIF
         job.data.imageUrl = imageUrl;
 
-        console.log(`✅ Image uploaded as TIF: ${imageUrl}`);
+        console.log(`✅ TIF uploaded for printer: ${tifKey}`);
       }
 
       // Create Chitu order (if machineId and productId are available)
@@ -276,13 +285,7 @@ export class SimpleQueueService {
       job.completedAt = new Date();
       console.log(`✅ Job ${job.id} completed successfully`);
 
-      // Remove from queue after 5 minutes
-      setTimeout(() => {
-        const index = this.queue.findIndex(j => j.id === job.id);
-        if (index > -1) {
-          this.queue.splice(index, 1);
-        }
-      }, 5 * 60 * 1000);
+      // Keep jobs in memory for S3 section display (don't auto-delete)
 
     } catch (error) {
       console.error(`❌ Job ${job.id} failed:`, error);

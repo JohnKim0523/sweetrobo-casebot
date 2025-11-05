@@ -34,31 +34,17 @@ export class AdminController {
   @Get('s3-images')
   async listS3Images(@Query('limit') limit?: string) {
     try {
-      // Get all completed jobs from the queue (these have the base64 images)
-      const maxLimit = limit ? parseInt(limit) : 100;
-      const completedJobs = await this.queueService.getCompletedJobs(maxLimit);
+      // Simply return all jobs that have uploaded to S3 (have imageUrl)
+      const maxLimit = limit ? parseInt(limit) : 200;
+      const allJobs = await this.queueService.getAllJobs(maxLimit);
 
-      // Map to same format as queue jobs for display
-      const images = completedJobs.map((job) => ({
-        id: job.id,
-        key: job.imageUrl || job.sessionId, // Use imageUrl as key if available
-        image: job.image, // Base64 PNG image
-        imageUrl: job.imageUrl, // S3 TIF URL for deletion
-        sessionId: job.sessionId,
-        phoneModel: job.phoneModel,
-        phoneModelId: job.phoneModelId,
-        productId: job.productId,
-        machineId: job.machineId,
-        dimensions: job.dimensions,
-        status: job.status,
-        createdAt: job.createdAt,
-        completedAt: job.completedAt,
-      }));
+      // Filter to only jobs that have been uploaded to S3
+      const s3Jobs = allJobs.filter(job => job.imageUrl);
 
       return {
         success: true,
-        images: images, // Already newest first from queue
-        count: images.length
+        images: s3Jobs, // These already have the base64 image thumbnails
+        count: s3Jobs.length
       };
     } catch (error: any) {
       console.error('Error listing S3 images:', error);
