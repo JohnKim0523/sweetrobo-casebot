@@ -537,14 +537,30 @@ export default function AdminDashboard() {
                         Job: {image.id}
                       </p>
 
-                      {/* Delete Button */}
-                      <button
-                        onClick={() => deleteImage(image.key)}
-                        disabled={deleting === image.key}
-                        className="w-full px-3 py-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 rounded text-sm"
-                      >
-                        {deleting === image.key ? 'Deleting...' : '🗑️ Delete from S3'}
-                      </button>
+                      {/* Action Buttons */}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            // Download the base64 image
+                            const link = document.createElement('a');
+                            link.href = image.image;
+                            link.download = `design-${image.sessionId}.png`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                          }}
+                          className="flex-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+                        >
+                          ⬇️ Download
+                        </button>
+                        <button
+                          onClick={() => deleteImage(image.key)}
+                          disabled={deleting === image.key}
+                          className="flex-1 px-3 py-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 rounded text-sm"
+                        >
+                          {deleting === image.key ? 'Deleting...' : '🗑️ Delete'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}

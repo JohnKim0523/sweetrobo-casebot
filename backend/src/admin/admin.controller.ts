@@ -58,24 +58,54 @@ export class AdminController {
   @Delete('s3-images')
   async deleteS3Image(@Body() body: { key: string }) {
     try {
-      const { key } = body;
-      
+      let { key } = body;
+
       if (!key) {
         throw new HttpException('No key provided', HttpStatus.BAD_REQUEST);
       }
 
-      const bucketName = process.env.AWS_S3_BUCKET || 'sweetrobo-phonecase-designs';
-      
-      const command = new DeleteObjectCommand({
-        Bucket: bucketName,
-        Key: key,
-      });
+      // If key is a full URL, extract just the key part
+      if (key.startsWith('http')) {
+        const url = new URL(key);
+        key = url.pathname.substring(1); // Remove leading slash
+      }
 
-      await this.s3Client.send(command);
-      
-      return { 
-        success: true, 
-        message: `Deleted ${key}` 
+      console.log('🗑️ Deleting S3 files for key:', key);
+
+      const bucketName = process.env.AWS_S3_BUCKET || 'sweetrobo-phonecase-designs';
+
+      // Delete both TIF and PNG files (if key is .tif, also delete .png and vice versa)
+      const baseKey = key.replace(/\.(tif|png)$/, '');
+      const tifKey = `${baseKey}.tif`;
+      const pngKey = `${baseKey}.png`;
+
+      try {
+        // Delete TIF
+        const tifCommand = new DeleteObjectCommand({
+          Bucket: bucketName,
+          Key: tifKey,
+        });
+        await this.s3Client.send(tifCommand);
+        console.log('✅ Deleted TIF:', tifKey);
+      } catch (err) {
+        console.warn('⚠️ Could not delete TIF (might not exist):', tifKey);
+      }
+
+      try {
+        // Delete PNG
+        const pngCommand = new DeleteObjectCommand({
+          Bucket: bucketName,
+          Key: pngKey,
+        });
+        await this.s3Client.send(pngCommand);
+        console.log('✅ Deleted PNG:', pngKey);
+      } catch (err) {
+        console.warn('⚠️ Could not delete PNG (might not exist):', pngKey);
+      }
+
+      return {
+        success: true,
+        message: `Deleted ${baseKey}`
       };
     } catch (error: any) {
       console.error('Error deleting S3 object:', error);
