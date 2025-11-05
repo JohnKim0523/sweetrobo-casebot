@@ -25,17 +25,12 @@ async function bootstrap() {
     'http://localhost:3000',
     'http://localhost:3001',
     process.env.FRONTEND_URL || 'http://localhost:3000',
+    // Production domains - always include for Railway deployment
+    'https://sweetrobo.com',
+    'https://www.sweetrobo.com',
+    'https://sweetrobo-casebot.vercel.app',
+    'https://sweetrobo.vercel.app',
   ];
-
-  // Add production domains when deployed
-  if (process.env.NODE_ENV === 'production') {
-    allowedOrigins.push(
-      'https://sweetrobo.com',
-      'https://www.sweetrobo.com',
-      'https://sweetrobo-casebot.vercel.app',
-      'https://sweetrobo.vercel.app',
-    );
-  }
 
   app.enableCors({
     origin: (origin, callback) => {
