@@ -72,10 +72,30 @@ class VertexAIService {
     this.location = process.env.VERTEX_AI_LOCATION || 'us-central1';
 
     if (this.projectId) {
+      // Handle credentials from environment variable (Railway deployment)
+      // Railway can't mount files, so we read credentials from JSON string in env var
+      const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+      let googleAuthOptions: any = undefined;
+
+      if (credentialsJson) {
+        try {
+          // Parse credentials from JSON string
+          const credentials = JSON.parse(credentialsJson);
+          googleAuthOptions = { credentials };
+          console.log(`🔑 Using Vertex AI credentials from GOOGLE_APPLICATION_CREDENTIALS_JSON`);
+        } catch (error) {
+          console.error('❌ Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON:', error);
+        }
+      } else {
+        // Fall back to default credentials (local development with gcloud auth)
+        console.log(`🔑 Using default Vertex AI credentials (local development mode)`);
+      }
+
       // Initialize Vertex AI client
       this.vertexAI = new VertexAI({
         project: this.projectId,
         location: this.location,
+        ...(googleAuthOptions && { googleAuthOptions }),
       });
 
       console.log(`✅ Vertex AI initialized: Project=${this.projectId}, Location=${this.location}`);
