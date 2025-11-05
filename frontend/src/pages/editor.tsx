@@ -6141,16 +6141,11 @@ export default function Editor() {
                   e.preventDefault();
                   e.stopPropagation();
 
-                  // Hide the modal
+                  // CRITICAL: Just hide the modal - DO NOT touch sessionStorage
+                  // Modifying sessionStorage triggers page remount
                   setShowPreviewModal(false);
 
-                  // Clear the preview state from sessionStorage so it doesn't restore
-                  if (sessionId) {
-                    sessionStorage.removeItem(`page-state-${sessionId}`);
-                    sessionStorage.removeItem(`preview-image-${sessionId}`);
-                    sessionStorage.removeItem(`submission-data-${sessionId}`);
-                    console.log('👈 Back to Edit clicked - modal hidden and preview state cleared');
-                  }
+                  console.log('👈 Back to Edit clicked');
                 }}
                 disabled={isUploading}
                 className="w-full bg-gray-200 hover:bg-gray-300 active:bg-gray-400 text-gray-800 font-semibold py-4 px-6 rounded-lg transition"
