@@ -488,12 +488,15 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {images.map((image) => (
                   <div key={image.key} className="bg-gray-700 rounded overflow-hidden">
-                    <div className="bg-gray-600 flex items-center justify-center p-4" style={{ minHeight: '200px' }}>
+                    <div className="bg-gray-900 flex items-center justify-center p-4" style={{ minHeight: '250px' }}>
                       <img
                         src={image.url}
                         alt={image.key}
                         className="max-w-full max-h-64 object-contain"
-                        loading="lazy"
+                        style={{
+                          imageRendering: 'auto',
+                          background: 'repeating-conic-gradient(#444 0% 25%, #555 0% 50%) 50% / 20px 20px'
+                        }}
                       />
                     </div>
                     <div className="p-3">
