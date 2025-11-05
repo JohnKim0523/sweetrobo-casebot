@@ -427,4 +427,40 @@ export class SimpleQueueService {
       attempts: job.attempts,
     }));
   }
+
+  getCompletedJobs(limit: number = 100) {
+    // Filter only completed jobs
+    const completedJobs = this.queue.filter(job => job.status === 'completed');
+
+    // Sort by completion date, most recent first
+    const sortedJobs = completedJobs.sort((a, b) => {
+      const aTime = a.completedAt?.getTime() || 0;
+      const bTime = b.completedAt?.getTime() || 0;
+      return bTime - aTime;
+    });
+
+    // Limit results
+    const limitedJobs = sortedJobs.slice(0, limit);
+
+    // Map to same format as getAllJobs
+    return limitedJobs.map(job => ({
+      id: job.id,
+      status: job.status,
+      phoneModel: job.data.phoneModel,
+      phoneModelId: job.data.phoneModelId,
+      productId: job.data.productId,
+      machineId: job.data.machineId,
+      sessionId: job.data.sessionId,
+      dimensions: job.data.dimensions,
+      image: job.data.image, // Base64 PNG image for display
+      imageUrl: job.data.imageUrl, // S3 TIF URL for deletion
+      priority: job.priority,
+      queuePosition: 0, // Completed jobs have no queue position
+      createdAt: job.createdAt,
+      startedAt: job.startedAt,
+      completedAt: job.completedAt,
+      error: job.error,
+      attempts: job.attempts,
+    }));
+  }
 }

@@ -2,10 +2,24 @@ import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 
 interface S3Image {
+  id: string;
   key: string;
-  url: string;
-  size: number;
-  lastModified: string;
+  image: string; // Base64 PNG
+  imageUrl?: string; // S3 TIF URL
+  sessionId: string;
+  phoneModel: string;
+  phoneModelId: string;
+  productId?: string;
+  machineId: string;
+  dimensions: {
+    widthPX: number;
+    heightPX: number;
+    widthMM: number;
+    heightMM: number;
+  };
+  status: 'completed';
+  createdAt: string;
+  completedAt?: string;
 }
 
 interface QueueJob {
@@ -101,25 +115,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // Download image from S3
-  const downloadImage = async (url: string, filename: string) => {
-    try {
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      window.URL.revokeObjectURL(blobUrl);
-    } catch (err: any) {
-      alert(`Failed to download: ${err.message}`);
-    }
-  };
 
   // Delete image from S3 via backend
   const deleteImage = async (key: string) => {
@@ -462,81 +457,94 @@ export default function AdminDashboard() {
             )}
           </div>
 
-          {/* S3 Images */}
+          {/* S3 Backup Storage (Completed Jobs) */}
           <div className="bg-gray-800 rounded p-4">
             <h2 className="text-xl font-bold mb-4">
-              📦 S3 Images ({images.length})
+              📦 S3 Backup Storage - Completed Jobs ({images.length})
             </h2>
+            <p className="text-sm text-gray-400 mb-4">
+              These are completed print jobs backed up to S3. PNG previews shown, TIF files stored.
+            </p>
 
             {loading && (
               <div className="text-center py-8">Loading...</div>
             )}
 
-            {error && (
-              <div className="bg-red-600 p-3 rounded mb-4">
-                Error: {error}
-              </div>
-            )}
-
             {!loading && images.length === 0 && (
               <div className="text-center py-8 text-gray-400">
-                No images found in S3
+                No completed jobs found
               </div>
             )}
 
             {images.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {images.map((image) => (
-                  <div key={image.key} className="bg-gray-700 rounded overflow-hidden">
+                  <div key={image.id} className="bg-gray-700 rounded overflow-hidden">
+                    {/* Image Preview - Same as Queue */}
                     <div className="bg-gray-900 flex items-center justify-center p-4" style={{ minHeight: '250px' }}>
-                      {image.key.toLowerCase().endsWith('.tif') || image.key.toLowerCase().endsWith('.tiff') ? (
-                        <div className="text-center text-gray-400">
-                          <div className="text-4xl mb-2">🖼️</div>
-                          <div className="text-sm">TIF/TIFF Preview</div>
-                          <div className="text-xs mt-1">(Not displayable in browser)</div>
-                        </div>
-                      ) : (
-                        <img
-                          src={image.url}
-                          alt={image.key}
-                          className="max-w-full max-h-64 object-contain"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                            target.parentElement!.innerHTML = '<div class="text-center text-gray-400"><div class="text-4xl mb-2">❌</div><div class="text-sm">Failed to load</div></div>';
-                          }}
-                          style={{
-                            imageRendering: 'auto',
-                            background: 'repeating-conic-gradient(#444 0% 25%, #555 0% 50%) 50% / 20px 20px'
-                          }}
-                        />
-                      )}
+                      <img
+                        src={image.image}
+                        alt={`${image.phoneModel} - ${image.id}`}
+                        className="max-w-full max-h-64 object-contain"
+                        style={{
+                          imageRendering: 'pixelated',
+                          background: 'repeating-conic-gradient(#444 0% 25%, #555 0% 50%) 50% / 20px 20px'
+                        }}
+                      />
                     </div>
+
+                    {/* Job Details - Same format as Queue */}
                     <div className="p-3">
-                      <p className="text-xs text-gray-400 truncate" title={image.key}>
-                        {image.key.split('/').pop()}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {formatFileSize(image.size)}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {formatDate(image.lastModified)}
-                      </p>
-                      <div className="mt-2 flex gap-2">
-                        <button
-                          onClick={() => downloadImage(image.url, image.key.split('/').pop() || 'design.png')}
-                          className="flex-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm"
-                        >
-                          ⬇️ Download
-                        </button>
-                        <button
-                          onClick={() => deleteImage(image.key)}
-                          disabled={deleting === image.key}
-                          className="flex-1 px-3 py-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 rounded text-sm"
-                        >
-                          {deleting === image.key ? 'Deleting...' : '🗑️ Delete'}
-                        </button>
+                      {/* Status Badge */}
+                      <div className="mb-2">
+                        <span className="px-2 py-1 rounded text-xs font-bold bg-green-600">
+                          COMPLETED
+                        </span>
                       </div>
+
+                      {/* Phone Model */}
+                      <p className="text-sm font-bold mb-1">
+                        📱 {image.phoneModel}
+                      </p>
+
+                      {/* Product ID */}
+                      {image.productId && (
+                        <p className="text-xs text-gray-400 mb-1 truncate" title={image.productId}>
+                          🆔 {image.productId.substring(0, 12)}...
+                        </p>
+                      )}
+
+                      {/* Dimensions */}
+                      <p className="text-xs text-gray-400 mb-1">
+                        📏 {image.dimensions.widthPX} × {image.dimensions.heightPX} px
+                      </p>
+                      <p className="text-xs text-gray-400 mb-1">
+                        📐 {image.dimensions.widthMM} × {image.dimensions.heightMM} mm
+                      </p>
+
+                      {/* Machine ID */}
+                      <p className="text-xs text-gray-400 mb-1">
+                        🖨️ {image.machineId}
+                      </p>
+
+                      {/* Timestamp */}
+                      <p className="text-xs text-gray-500 mb-2">
+                        ✅ {formatDate(image.completedAt || image.createdAt)}
+                      </p>
+
+                      {/* Job ID */}
+                      <p className="text-xs text-gray-500 truncate mb-2" title={image.id}>
+                        Job: {image.id}
+                      </p>
+
+                      {/* Delete Button */}
+                      <button
+                        onClick={() => deleteImage(image.key)}
+                        disabled={deleting === image.key}
+                        className="w-full px-3 py-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 rounded text-sm"
+                      >
+                        {deleting === image.key ? 'Deleting...' : '🗑️ Delete from S3'}
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -558,13 +566,13 @@ export default function AdminDashboard() {
             </div>
             <div className="bg-gray-800 p-4 rounded text-center">
               <div className="text-2xl font-bold">{images.length}</div>
-              <div className="text-gray-400">S3 Images</div>
+              <div className="text-gray-400">Completed Jobs</div>
             </div>
             <div className="bg-gray-800 p-4 rounded text-center">
               <div className="text-2xl font-bold">
-                {formatFileSize(images.reduce((acc, img) => acc + img.size, 0))}
+                {queueJobs.filter(j => j.status === 'completed').length}
               </div>
-              <div className="text-gray-400">Total Size</div>
+              <div className="text-gray-400">In Queue (Completed)</div>
             </div>
           </div>
             </>

@@ -6,18 +6,22 @@ import {
   HttpException,
   HttpStatus,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { S3Service } from '../s3/s3.service';
-import { S3Client, ListObjectsV2Command, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { S3Client, ListObjectsV2Command, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { AdminAuthGuard } from '../auth/admin-auth.guard';
+import { SimpleQueueService } from '../queue/simple-queue.service';
 
 @Controller('api/admin')
 @UseGuards(AdminAuthGuard) // Protect all admin endpoints
 export class AdminController {
   private s3Client: S3Client;
 
-  constructor(private readonly s3Service: S3Service) {
+  constructor(
+    private readonly s3Service: S3Service,
+    private readonly queueService: SimpleQueueService,
+  ) {
     this.s3Client = new S3Client({
       region: process.env.AWS_REGION || 'us-east-1',
       credentials: {
@@ -28,45 +32,36 @@ export class AdminController {
   }
 
   @Get('s3-images')
-  async listS3Images() {
+  async listS3Images(@Query('limit') limit?: string) {
     try {
-      const bucketName = process.env.AWS_S3_BUCKET || 'sweetrobo-phonecase-designs';
+      // Get all completed jobs from the queue (these have the base64 images)
+      const maxLimit = limit ? parseInt(limit) : 100;
+      const completedJobs = await this.queueService.getCompletedJobs(maxLimit);
 
-      // List all objects in the designs folder
-      const command = new ListObjectsV2Command({
-        Bucket: bucketName,
-        Prefix: 'designs/',
-        MaxKeys: 100,
-      });
-
-      const response = await this.s3Client.send(command);
-
-      // Generate signed URLs for each image (valid for 1 hour)
-      const images = await Promise.all(
-        (response.Contents || []).map(async (item) => {
-          const getCommand = new GetObjectCommand({
-            Bucket: bucketName,
-            Key: item.Key,
-          });
-
-          const signedUrl = await getSignedUrl(this.s3Client, getCommand, { expiresIn: 3600 });
-
-          return {
-            key: item.Key,
-            url: signedUrl,
-            size: item.Size,
-            lastModified: item.LastModified,
-          };
-        })
-      );
+      // Map to same format as queue jobs for display
+      const images = completedJobs.map((job) => ({
+        id: job.id,
+        key: job.imageUrl || job.sessionId, // Use imageUrl as key if available
+        image: job.image, // Base64 PNG image
+        imageUrl: job.imageUrl, // S3 TIF URL for deletion
+        sessionId: job.sessionId,
+        phoneModel: job.phoneModel,
+        phoneModelId: job.phoneModelId,
+        productId: job.productId,
+        machineId: job.machineId,
+        dimensions: job.dimensions,
+        status: job.status,
+        createdAt: job.createdAt,
+        completedAt: job.completedAt,
+      }));
 
       return {
         success: true,
-        images: images.reverse(), // Show newest first
+        images: images, // Already newest first from queue
         count: images.length
       };
     } catch (error: any) {
-      console.error('Error listing S3 objects:', error);
+      console.error('Error listing S3 images:', error);
       throw new HttpException(
         error.message || 'Failed to list S3 images',
         HttpStatus.INTERNAL_SERVER_ERROR,
