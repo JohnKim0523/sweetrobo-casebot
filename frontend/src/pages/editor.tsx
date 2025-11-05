@@ -6038,7 +6038,7 @@ export default function Editor() {
       {showPreviewModal && previewImage && (
         <div className="fixed inset-0 bg-white z-50 flex flex-col">
           {/* Preview Container - Scrollable content */}
-          <div className="flex-1 overflow-y-auto pb-32 px-4 pt-8">
+          <div className="flex-1 overflow-y-auto px-4 pt-8" style={{ paddingBottom: 'calc(180px + env(safe-area-inset-bottom))' }}>
             <div className="max-w-md mx-auto">
               {/* Phone Model Preview */}
               <div className="relative mx-auto mb-6" style={{ maxWidth: '280px', maxHeight: '60vh' }}>
@@ -6061,8 +6061,8 @@ export default function Editor() {
             </div>
           </div>
 
-          {/* Fixed Bottom Buttons */}
-          <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg">
+          {/* Fixed Bottom Buttons - With safe area padding for mobile notches/home indicators */}
+          <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
             <div className="max-w-md mx-auto space-y-3">
               <button
                 onClick={async () => {
@@ -6142,8 +6142,8 @@ export default function Editor() {
               </button>
               <button
                 onClick={() => {
+                  // Only hide the modal - don't clear previewImage to avoid canvas issues
                   setShowPreviewModal(false);
-                  setPreviewImage(null);
                   setIsUploading(false);
                   setDebugInfo('');
 
