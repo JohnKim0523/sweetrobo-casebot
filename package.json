@@ -1,4 +1,16 @@
 {
+  "name": "sweetrobo-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install": "cd backend && npm install",
+    "build": "cd backend && npm run build",
+    "start": "cd backend && npm run start:prod",
+    "start:prod": "cd backend && npm run start:prod"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
