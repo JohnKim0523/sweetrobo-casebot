@@ -118,11 +118,14 @@ export default function AdminDashboard() {
 
   // Delete image from S3 via backend
   const deleteImage = async (key: string) => {
+    console.log('🗑️ Attempting to delete with key:', key);
     if (!confirm(`Delete ${key}?`)) return;
 
     try {
       setDeleting(key);
       const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      console.log('Sending DELETE request with key:', key);
+
       const response = await fetch(`${backendUrl}/api/admin/s3-images`, {
         method: 'DELETE',
         headers: {
@@ -132,14 +135,18 @@ export default function AdminDashboard() {
         body: JSON.stringify({ key }),
       });
 
+      console.log('Delete response status:', response.status);
       const data = await response.json();
+      console.log('Delete response data:', data);
 
       if (data.success) {
-        setImages(images.filter(img => img.key !== key));
+        setImages(images.filter(img => img.imageUrl !== key && img.key !== key));
+        alert('Deleted successfully!');
       } else {
-        alert(`Failed to delete: ${data.error}`);
+        alert(`Failed to delete: ${data.error || data.message}`);
       }
     } catch (err: any) {
+      console.error('Delete error:', err);
       alert(`Error: ${err.message}`);
     } finally {
       setDeleting(null);
@@ -540,11 +547,33 @@ export default function AdminDashboard() {
                       {/* Action Buttons */}
                       <div className="flex gap-2">
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             // Download the TIF file from S3 via backend proxy
-                            const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-                            const downloadUrl = `${backendUrl}/api/admin/s3-download?url=${encodeURIComponent(image.imageUrl || '')}`;
-                            window.open(downloadUrl, '_blank');
+                            try {
+                              const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+                              const response = await fetch(`${backendUrl}/api/admin/s3-download?url=${encodeURIComponent(image.imageUrl || '')}`, {
+                                headers: {
+                                  'Authorization': `Bearer ${adminToken}`
+                                }
+                              });
+
+                              if (!response.ok) {
+                                alert('Failed to download: ' + response.statusText);
+                                return;
+                              }
+
+                              const blob = await response.blob();
+                              const url = window.URL.createObjectURL(blob);
+                              const link = document.createElement('a');
+                              link.href = url;
+                              link.download = `design-${image.sessionId}.tif`;
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                              window.URL.revokeObjectURL(url);
+                            } catch (err: any) {
+                              alert('Download failed: ' + err.message);
+                            }
                           }}
                           disabled={!image.imageUrl}
                           className="flex-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded text-sm"
@@ -552,11 +581,11 @@ export default function AdminDashboard() {
                           ⬇️ Download TIF
                         </button>
                         <button
-                          onClick={() => deleteImage(image.key)}
-                          disabled={deleting === image.key}
+                          onClick={() => deleteImage(image.imageUrl || '')}
+                          disabled={deleting === image.imageUrl}
                           className="flex-1 px-3 py-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 rounded text-sm"
                         >
-                          {deleting === image.key ? 'Deleting...' : '🗑️ Delete'}
+                          {deleting === image.imageUrl ? 'Deleting...' : '🗑️ Delete'}
                         </button>
                       </div>
                     </div>
