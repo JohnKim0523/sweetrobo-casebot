@@ -805,7 +805,9 @@ export default function Editor() {
     }
 
     // No machine ID and no model - redirect to model selection (demo mode)
-    if (!machine || machine === 'null' || machine === 'undefined' || machine === '') {
+    // BUT: Don't redirect if we already have a session (demo mode with model parameter)
+    const hasSession = sessionParam || modelParam;
+    if ((!machine || machine === 'null' || machine === 'undefined' || machine === '') && !hasSession) {
       console.log('🔄 No machine ID - redirecting to model selection');
       router.push('/select-model');
       return;
