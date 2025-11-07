@@ -28,8 +28,90 @@ export default function Editor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvas, setCanvas] = useState<any>(null);
   const [uploadedImage, setUploadedImage] = useState<any>(null);
+  // Check if we have a saved image in sessionStorage on initial load
+  const [hasRestoredImage, setHasRestoredImage] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlSessionId = urlParams.get('session');
+
+      if (!urlSessionId) return false;
+
+      const savedStateKey = `canvas-state-${urlSessionId}`;
+      const savedStateJson = sessionStorage.getItem(savedStateKey);
+
+      if (savedStateJson) {
+        const savedState = JSON.parse(savedStateJson);
+        // Check if saved state has image data
+        const hasImage = savedState.canvasJSON?.objects?.some((obj: any) =>
+          obj.type?.toLowerCase() === 'image'
+        );
+        console.log('🔍 Initial check - Has saved image:', hasImage);
+        return hasImage;
+      }
+    } catch (error) {
+      console.error('❌ Failed to check for saved image:', error);
+    }
+
+    return false;
+  });
   const [originalImageFile, setOriginalImageFile] = useState<File | null>(null); // Store original file for AI edits
   const [fabric, setFabric] = useState<any>(null);
+
+  // Saved canvas dimensions for consistent refresh behavior (must be declared early)
+  // Initialize by reading from sessionStorage BEFORE first render
+  const [savedCanvasDimensions, setSavedCanvasDimensions] = useState<{
+    displayWidth: number;
+    displayHeight: number;
+    exportWidth: number;
+    exportHeight: number;
+    scaleFactor: number;
+  } | null>(() => {
+    // This initialization function runs synchronously before first render
+    if (typeof window === 'undefined') return null;
+
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlSessionId = urlParams.get('session');
+
+      console.log('🔍 Dimension initialization - sessionId from URL:', urlSessionId);
+
+      if (!urlSessionId) {
+        console.log('⚠️ No session ID in URL, cannot restore dimensions');
+        return null;
+      }
+
+      const savedStateKey = `canvas-state-${urlSessionId}`;
+      const savedStateJson = sessionStorage.getItem(savedStateKey);
+
+      console.log('🔍 SessionStorage key:', savedStateKey);
+      console.log('🔍 Found saved state:', savedStateJson ? 'YES' : 'NO');
+
+      if (savedStateJson) {
+        const savedState = JSON.parse(savedStateJson);
+        console.log('🔍 Parsed saved state keys:', Object.keys(savedState));
+        console.log('🔍 Has canvasDimensions:', !!savedState.canvasDimensions);
+
+        if (savedState.canvasDimensions) {
+          console.log('📐 Initializing with saved canvas dimensions:', savedState.canvasDimensions);
+          return {
+            displayWidth: savedState.canvasDimensions.displayWidth,
+            displayHeight: savedState.canvasDimensions.displayHeight,
+            exportWidth: savedState.canvasDimensions.exportWidth,
+            exportHeight: savedState.canvasDimensions.exportHeight,
+            scaleFactor: savedState.canvasDimensions.scaleFactor,
+          };
+        } else {
+          console.log('⚠️ Saved state exists but no canvasDimensions property');
+        }
+      }
+    } catch (error) {
+      console.error('❌ Failed to initialize canvas dimensions:', error);
+    }
+
+    return null;
+  });
 
   // Dynamic viewport detection with state
   const [viewportHeight, setViewportHeight] = useState(typeof window !== 'undefined' ? window.innerHeight : 800);
@@ -76,15 +158,17 @@ export default function Editor() {
   const scaleY = SPACE_FOR_CANVAS_ONLY / modelHeightMM;
 
   // STEP 7: Use smaller scale to maintain aspect ratio and fit maximally WITHOUT overflow
-  const SCALE_FACTOR = Math.min(scaleX, scaleY);
+  // OR use saved dimensions if available (from previous session before refresh)
+  const SCALE_FACTOR = savedCanvasDimensions?.scaleFactor ?? Math.min(scaleX, scaleY);
 
   // STEP 8: Calculate final display dimensions (scaled to fit perfectly)
-  const DISPLAY_WIDTH = Math.round(modelWidthMM * SCALE_FACTOR);
-  const DISPLAY_HEIGHT = Math.round(modelHeightMM * SCALE_FACTOR);
+  // OR use saved dimensions for consistent restore after refresh
+  const DISPLAY_WIDTH = savedCanvasDimensions?.displayWidth ?? Math.round(modelWidthMM * SCALE_FACTOR);
+  const DISPLAY_HEIGHT = savedCanvasDimensions?.displayHeight ?? Math.round(modelHeightMM * SCALE_FACTOR);
 
   // Export dimensions (actual size for printing)
-  const EXPORT_WIDTH = phoneModel ? phoneModel.dimensions.widthPX : Math.round(DEFAULT_WIDTH_MM * 11.81);
-  const EXPORT_HEIGHT = phoneModel ? phoneModel.dimensions.heightPX : Math.round(DEFAULT_HEIGHT_MM * 11.81);
+  const EXPORT_WIDTH = savedCanvasDimensions?.exportWidth ?? (phoneModel ? phoneModel.dimensions.widthPX : Math.round(DEFAULT_WIDTH_MM * 11.81));
+  const EXPORT_HEIGHT = savedCanvasDimensions?.exportHeight ?? (phoneModel ? phoneModel.dimensions.heightPX : Math.round(DEFAULT_HEIGHT_MM * 11.81));
 
   // Canvas dimensions - add small padding to ensure borders are fully visible
   const CANVAS_TOTAL_WIDTH = AVAILABLE_WIDTH;
@@ -248,6 +332,7 @@ export default function Editor() {
   const [canvasHistory, setCanvasHistory] = useState<string[]>([]);
   const [canvasRedoStack, setCanvasRedoStack] = useState<string[]>([]); // Redo stack for going forward
   const isRestoringState = useRef(false); // Prevent saving during restore (using ref to avoid triggering re-renders)
+
   const [drawnMask, setDrawnMask] = useState<string | null>(null);
   const [isManipulating, setIsManipulating] = useState<boolean>(false);
   const [isCropMode, setIsCropMode] = useState<boolean>(false);
@@ -798,8 +883,16 @@ export default function Editor() {
       return;
     }
 
-    // If we have machineId but no model, redirect to phone selection
+    // If we have machineId but no model, check if we can restore from sessionStorage before redirecting
     if (machine && !modelParam) {
+      // Try to restore model from sessionStorage (in case of refresh)
+      const savedModel = sessionStorage.getItem('selectedPhoneModel');
+      if (savedModel && session) {
+        console.log('🔄 Model parameter missing but found in sessionStorage, restoring:', savedModel);
+        router.replace(`/editor?machineId=${machine}&model=${savedModel}&session=${session}`);
+        return;
+      }
+
       console.log('🔄 Machine ID provided but no model - redirecting to phone selection');
       router.push(`/select-model?machineId=${machine}`);
       return;
@@ -1029,14 +1122,46 @@ export default function Editor() {
       // CRITICAL: Save full canvas state to sessionStorage for refresh persistence
       if (sessionId) {
         try {
-          const fullCanvasState = canvas.toJSON(['selectable', 'hasControls', 'excludeFromExport']);
+          const fullCanvasState = canvas.toJSON([
+            'selectable',
+            'hasControls',
+            'excludeFromExport',
+            'hasBorders',
+            'borderColor',
+            'src',  // Critical for images!
+            'filters',
+            'crossOrigin'
+          ]);
+
+          // Get existing saved state to preserve dimensions if they already exist
+          const existingSavedState = sessionStorage.getItem(`canvas-state-${sessionId}`);
+          let existingDimensions = null;
+          if (existingSavedState) {
+            try {
+              const parsed = JSON.parse(existingSavedState);
+              existingDimensions = parsed.canvasDimensions;
+            } catch (e) {
+              // Ignore parse errors
+            }
+          }
+
           sessionStorage.setItem(`canvas-state-${sessionId}`, JSON.stringify({
             canvasJSON: fullCanvasState,
             mainImageState: mainImageState,
             backgroundColor: canvasBackgroundColor,
-            savedAt: Date.now()
+            savedAt: Date.now(),
+            // Preserve existing dimensions, or save new ones if this is the first save
+            canvasDimensions: existingDimensions || {
+              displayWidth: DISPLAY_WIDTH,
+              displayHeight: DISPLAY_HEIGHT,
+              exportWidth: EXPORT_WIDTH,
+              exportHeight: EXPORT_HEIGHT,
+              scaleFactor: SCALE_FACTOR,
+              viewportWidth: viewportWidth,
+              viewportHeight: viewportHeight
+            }
           }));
-          console.log('💾 Canvas state persisted to sessionStorage');
+          console.log('💾 Canvas state persisted to sessionStorage' + (existingDimensions ? ' (dimensions preserved)' : ' (dimensions saved)'));
         } catch (err) {
           console.error('❌ Failed to save canvas to sessionStorage:', err);
         }
@@ -2031,6 +2156,380 @@ export default function Editor() {
     };
   }, [canvas, saveCanvasState]);
 
+  // Restore canvas state from sessionStorage on page refresh (separate from preview restoration)
+  useEffect(() => {
+    // Only run once when canvas is first ready and we haven't already restored
+    if (!canvas || !fabric || !sessionId || uploadedImage || isRestoringState.current) {
+      return;
+    }
+
+    // Skip if coming from preview page (handled by different logic)
+    if (router.query.restore === 'true') {
+      return;
+    }
+
+    // Try to restore from sessionStorage
+    const savedStateKey = `canvas-state-${sessionId}`;
+    const savedStateJson = sessionStorage.getItem(savedStateKey);
+
+    if (!savedStateJson) {
+      console.log('📭 No saved canvas state to restore');
+      return;
+    }
+
+    // Set flag IMMEDIATELY to prevent duplicate runs (React StrictMode)
+    isRestoringState.current = true;
+    console.log('🔒 Restoration lock acquired');
+
+    try {
+      console.log('🔄 Restoring canvas state from sessionStorage on refresh...');
+      const savedState = JSON.parse(savedStateJson);
+
+      if (!savedState.canvasJSON || !savedState.mainImageState) {
+        console.log('⚠️ Saved state incomplete, skipping restoration');
+        isRestoringState.current = false;
+        return;
+      }
+
+      // Debug: Log what's in the saved canvas JSON (case-insensitive for 'image' type)
+      const imageObjects = savedState.canvasJSON.objects?.filter((o: any) => o.type?.toLowerCase() === 'image');
+      console.log('🔍 Canvas JSON contains:', {
+        objectCount: savedState.canvasJSON.objects?.length,
+        objectTypes: savedState.canvasJSON.objects?.map((o: any) => o.type),
+        hasImageObjects: imageObjects && imageObjects.length > 0,
+        imageObjectsCount: imageObjects?.length,
+        imageDetails: imageObjects?.map((img: any) => ({
+          type: img.type,
+          hasSrc: !!img.src,
+          srcLength: img.src?.length,
+          srcPreview: img.src?.substring(0, 100),
+          hasFilters: !!img.filters,
+          width: img.width,
+          height: img.height
+        }))
+      });
+
+      // Set flag to prevent auto-saves during restoration
+      isRestoringState.current = true;
+
+      // Restore background color
+      if (savedState.backgroundColor) {
+        setCanvasBackgroundColor(savedState.backgroundColor);
+      }
+
+      // CRITICAL FIX: Manually restore image FIRST, then restore other objects
+      // Fabric.js loadFromJSON often fails to deserialize large base64 images
+      const imageData = savedState.canvasJSON.objects?.find((obj: any) =>
+        obj.type?.toLowerCase() === 'image' && obj.selectable !== false
+      );
+
+      if (imageData && imageData.src) {
+        console.log('🖼️ Manually restoring image first (before loadFromJSON)...');
+        console.log('🔍 Image src length:', imageData.src?.length);
+
+        // Set a timeout to force fallback if fromObject takes too long
+        let callbackFired = false;
+        const timeoutId = setTimeout(() => {
+          if (!callbackFired) {
+            console.warn('⚠️ fabric.Image.fromObject timeout - falling back to loadFromJSON');
+            fallbackToLoadFromJSON();
+          }
+        }, 2000); // 2 second timeout
+
+        // Create image from base64 data
+        fabric.Image.fromObject(imageData, (restoredImage: any) => {
+          callbackFired = true;
+          clearTimeout(timeoutId);
+          console.log('✅ Image restored via fromObject!');
+          console.log('🔍 Restored image details:', {
+            type: restoredImage.type,
+            width: restoredImage.width,
+            height: restoredImage.height,
+            left: restoredImage.left,
+            top: restoredImage.top
+          });
+
+          // Apply custom controls (L-shaped corners, rotation icon, arrows)
+          restoredImage.controls = normalControls.current;
+          // Remove border to match initial upload behavior
+          restoredImage.set({
+            hasBorders: false,
+            borderColor: 'transparent'
+          });
+          console.log('🎨 Applied custom controls to restored image');
+
+          // Add image to canvas
+          canvas.add(restoredImage);
+          setUploadedImage(restoredImage);
+          setHasRestoredImage(true); // Mark that we've restored an image
+          // Don't select the image - matches initial upload behavior
+          canvas.discardActiveObject();
+
+          // Now restore the REST of the canvas (borders, lines, etc.) WITHOUT the image
+          const canvasJSONWithoutImage = {
+            ...savedState.canvasJSON,
+            objects: savedState.canvasJSON.objects?.filter((obj: any) =>
+              !(obj.type?.toLowerCase() === 'image' && obj.selectable !== false)
+            )
+          };
+
+          console.log('🔄 Now restoring other canvas objects (borders, lines)...');
+          canvas.loadFromJSON(canvasJSONWithoutImage, () => {
+            console.log('✅ Canvas borders/lines restored');
+
+            // Move image to correct z-index (should be on top or at specific position)
+            canvas.bringToFront(restoredImage);
+            canvas.renderAll();
+
+            // Restore the initial state for undo history
+            const initialState = JSON.stringify(savedState.mainImageState);
+            setCanvasHistory([initialState]);
+            console.log('📸 Initial state restored from saved data');
+
+            setTimeout(() => {
+              isRestoringState.current = false;
+              console.log('✅ Canvas restoration complete (manual image restoration)');
+            }, 200);
+          });
+        }, (error: any) => {
+          callbackFired = true;
+          clearTimeout(timeoutId);
+          console.error('❌ fabric.Image.fromObject failed:', error);
+          // Fallback to original approach if fromObject fails
+          fallbackToLoadFromJSON();
+        });
+
+        return; // Exit early, restoration continues in callback
+      }
+
+      // Fallback function if no image or fromObject fails
+      function fallbackToLoadFromJSON() {
+        console.log('🔄 Using fallback: loadFromJSON for entire canvas...');
+        canvas.loadFromJSON(savedState.canvasJSON, () => {
+        console.log('✅ Canvas state restored from sessionStorage');
+
+        // Find the main uploaded image object
+        const objects = canvas.getObjects();
+
+        console.log('🔍 Restored objects count:', objects.length);
+        objects.forEach((obj: any, i: number) => {
+          console.log(`  Object ${i}:`, {
+            type: obj.type,
+            selectable: obj.selectable,
+            excludeFromExport: obj.excludeFromExport,
+            width: obj.width,
+            height: obj.height
+          });
+        });
+
+        // Case-insensitive check for image type (Fabric.js uses 'Image' with capital I)
+        const mainImage = objects.find((obj: any) =>
+          obj.type?.toLowerCase() === 'image' && obj.selectable !== false
+        );
+
+        if (mainImage) {
+          console.log('✅ Main image found and restored');
+          // Apply custom controls (L-shaped corners, rotation icon, arrows)
+          mainImage.controls = normalControls.current;
+          // Remove border to match initial upload behavior
+          mainImage.set({
+            hasBorders: false,
+            borderColor: 'transparent'
+          });
+          console.log('🎨 Applied custom controls to restored image');
+
+          setUploadedImage(mainImage);
+          setHasRestoredImage(true); // Mark that we've restored an image
+          // Don't select the image - matches initial upload behavior
+          canvas.discardActiveObject();
+
+          // Restore the initial state for undo history
+          const initialState = JSON.stringify(savedState.mainImageState);
+          setCanvasHistory([initialState]);
+          console.log('📸 Initial state restored from saved data');
+        } else {
+          console.warn('⚠️ No main image found in restored canvas');
+          console.warn('   Trying fallback: find any image object...');
+
+          // Fallback: just use the first image object (case-insensitive)
+          const anyImage = objects.find((obj: any) => obj.type?.toLowerCase() === 'image');
+          if (anyImage) {
+            console.log('✅ Using first image object as fallback');
+            // Apply custom controls (L-shaped corners, rotation icon, arrows)
+            anyImage.controls = normalControls.current;
+            // Remove border to match initial upload behavior
+            anyImage.set({
+              hasBorders: false,
+              borderColor: 'transparent'
+            });
+            console.log('🎨 Applied custom controls to restored image');
+
+            setUploadedImage(anyImage);
+            setHasRestoredImage(true); // Mark that we've restored an image
+            // Don't select the image - matches initial upload behavior
+            canvas.discardActiveObject();
+
+            const initialState = JSON.stringify(savedState.mainImageState);
+            setCanvasHistory([initialState]);
+            console.log('📸 Initial state restored from saved data (fallback)');
+          } else {
+            // Last resort: manually create image from saved JSON data
+            console.warn('❌ No image objects found in canvas after loadFromJSON');
+            console.warn('   Attempting manual image restoration from JSON...');
+
+            const imageData = savedState.canvasJSON.objects?.find((obj: any) =>
+              obj.type?.toLowerCase() === 'image' && obj.selectable !== false
+            );
+
+            if (imageData && imageData.src) {
+              console.log('🔧 Found image data in JSON, manually creating fabric.Image...');
+              console.log('🔍 Image data details:', {
+                type: imageData.type,
+                srcLength: imageData.src?.length,
+                srcStart: imageData.src?.substring(0, 50),
+                left: imageData.left,
+                top: imageData.top,
+                width: imageData.width,
+                height: imageData.height
+              });
+
+              // Use native Image loading with a more reliable approach
+              console.log('🔄 Loading image using native Image element...');
+              const imgElement = new Image();
+              imgElement.crossOrigin = 'anonymous';
+
+              imgElement.onload = () => {
+                console.log('✅ Native image loaded successfully!');
+                console.log('📐 Image dimensions:', { width: imgElement.width, height: imgElement.height });
+
+                // Check if image was already restored (prevent duplicates from React StrictMode)
+                const allObjects = canvas.getObjects();
+                console.log('🔍 All objects on canvas before adding image:', allObjects.map((o: any) => ({
+                  type: o.type,
+                  selectable: o.selectable,
+                  hasImage: o._element ? 'yes' : 'no'
+                })));
+
+                const existingImage = allObjects.find((obj: any) =>
+                  obj.type?.toLowerCase() === 'image' && obj.selectable !== false
+                );
+                if (existingImage) {
+                  console.log('⚠️ Image already exists on canvas, skipping duplicate restoration');
+                  console.log('🔍 Existing image details:', {
+                    type: existingImage.type,
+                    width: existingImage.width,
+                    height: existingImage.height,
+                    hasElement: !!existingImage._element,
+                    selectable: existingImage.selectable,
+                    visible: existingImage.visible
+                  });
+
+                  // Apply custom controls (L-shaped corners, rotation icon, arrows)
+                  existingImage.controls = normalControls.current;
+                  // Remove border to match initial upload behavior
+                  existingImage.set({
+                    hasBorders: false,
+                    borderColor: 'transparent'
+                  });
+                  console.log('🎨 Applied custom controls to existing image');
+
+                  // Still set uploadedImage to clear the loading overlay
+                  console.log('🔧 Setting uploadedImage to existing image to clear loading overlay');
+                  setUploadedImage(existingImage);
+                  // Don't select the image - matches initial upload behavior
+                  canvas.discardActiveObject();
+
+                  // Restore undo history
+                  const initialState = JSON.stringify(savedState.mainImageState);
+                  setCanvasHistory([initialState]);
+
+                  canvas.renderAll();
+                  console.log('✅ uploadedImage state updated with existing image');
+                  return;
+                }
+
+                try {
+                  // Create Fabric image from loaded element
+                  const fabricImage = new fabric.Image(imgElement, {
+                    left: imageData.left || 0,
+                    top: imageData.top || 0,
+                    scaleX: imageData.scaleX || 1,
+                    scaleY: imageData.scaleY || 1,
+                    angle: imageData.angle || 0,
+                    flipX: imageData.flipX || false,
+                    flipY: imageData.flipY || false,
+                    opacity: imageData.opacity !== undefined ? imageData.opacity : 1,
+                    selectable: imageData.selectable !== false,
+                    hasControls: imageData.hasControls !== false,
+                    excludeFromExport: imageData.excludeFromExport || false,
+                    originX: imageData.originX || 'left',
+                    originY: imageData.originY || 'top'
+                  });
+
+                  // Apply filters if they exist
+                  if (imageData.filters && imageData.filters.length > 0) {
+                    fabricImage.filters = imageData.filters;
+                    fabricImage.applyFilters();
+                  }
+
+                  // Apply custom controls (L-shaped corners, rotation icon, arrows)
+                  fabricImage.controls = normalControls.current;
+                  // Remove border to match initial upload behavior
+                  fabricImage.set({
+                    hasBorders: false,
+                    borderColor: 'transparent'
+                  });
+                  console.log('🎨 Applied custom controls to manually restored image');
+
+                  console.log('✅ Fabric image created from native element');
+                  canvas.add(fabricImage);
+                  setUploadedImage(fabricImage);
+                  setHasRestoredImage(true);
+                  // Don't select the image - matches initial upload behavior
+                  canvas.discardActiveObject();
+                  canvas.renderAll();
+
+                  const initialState = JSON.stringify(savedState.mainImageState);
+                  setCanvasHistory([initialState]);
+                  console.log('✅ Image manually restored from JSON data using native Image');
+                } catch (err) {
+                  console.error('❌ Failed to create Fabric image from element:', err);
+                }
+              };
+
+              imgElement.onerror = (err) => {
+                console.error('❌ Native image loading failed:', err);
+              };
+
+              imgElement.src = imageData.src;
+              console.log('🔄 Started loading image from base64 data...');
+            } else {
+              console.error('❌ No image data found in saved JSON');
+            }
+          }
+        }
+
+        canvas.renderAll();
+
+        // Clear restoration flag after a delay to ensure all events have settled
+        setTimeout(() => {
+          isRestoringState.current = false;
+          console.log('✅ Canvas restoration complete (fallback method)');
+        }, 200);
+        });
+      } // End of fallbackToLoadFromJSON function
+
+      // If no image found in saved state, use fallback immediately
+      if (!imageData || !imageData.src) {
+        console.log('⚠️ No image data in saved state, using fallback method');
+        fallbackToLoadFromJSON();
+      }
+    } catch (error) {
+      console.error('❌ Failed to restore canvas state:', error);
+      isRestoringState.current = false;
+    }
+  }, [canvas, fabric, sessionId, uploadedImage, router.query.restore]);
+
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -2295,6 +2794,7 @@ export default function Editor() {
             canvas.setActiveObject(fabricImage);
             canvas.renderAll();
             setUploadedImage(fabricImage);
+            setHasRestoredImage(true); // Mark that we have an image (either fresh or restored)
 
             // Save initial state after image is uploaded so undo appears on first edit
             setTimeout(() => {
@@ -2317,6 +2817,80 @@ export default function Editor() {
                 };
                 setCanvasHistory([JSON.stringify(initialState)]);
                 console.log('📸 Initial state saved after upload');
+
+                // Also save to sessionStorage for refresh persistence with dimensions
+                // We need to do this directly because uploadedImage state hasn't updated yet
+                // IMPORTANT: sessionId state may not be set yet, so read from URL or sessionStorage
+                const urlParams = new URLSearchParams(window.location.search);
+                const currentSessionId = urlParams.get('session') || sessionId;
+
+                console.log('🔍 Checking if we can save to sessionStorage:', {
+                  hasSessionId: !!currentSessionId,
+                  sessionId: currentSessionId,
+                  sessionIdFromState: sessionId,
+                  sessionIdFromURL: urlParams.get('session'),
+                  hasCanvas: !!canvas
+                });
+
+                if (currentSessionId && canvas) {
+                  try {
+                    // Log what's on canvas before saving
+                    const objectsBeforeSave = canvas.getObjects();
+                    console.log('📊 Objects on canvas before saving:', objectsBeforeSave.length);
+                    objectsBeforeSave.forEach((obj: any, i: number) => {
+                      console.log(`  Object ${i}:`, {
+                        type: obj.type,
+                        selectable: obj.selectable,
+                        excludeFromExport: obj.excludeFromExport
+                      });
+                    });
+
+                    // Include all necessary properties for proper serialization
+                    // Especially important for images which need src, filters, etc.
+                    const fullCanvasState = canvas.toJSON([
+                      'selectable',
+                      'hasControls',
+                      'excludeFromExport',
+                      'hasBorders',
+                      'borderColor',
+                      'src',  // Critical for images!
+                      'filters',
+                      'crossOrigin'
+                    ]);
+                    console.log('📊 Canvas JSON objects:', fullCanvasState.objects?.length);
+                    console.log('📊 Canvas JSON object types:', fullCanvasState.objects?.map((o: any) => o.type));
+
+                    // Debug: Check if image src is actually saved (case-insensitive)
+                    const imageObjs = fullCanvasState.objects?.filter((o: any) => o.type?.toLowerCase() === 'image');
+                    console.log('📊 Image objects in JSON:', imageObjs?.map((img: any) => ({
+                      type: img.type,
+                      hasSrc: !!img.src,
+                      srcLength: img.src?.length,
+                      srcPreview: img.src?.substring(0, 50)
+                    })));
+
+                    sessionStorage.setItem(`canvas-state-${currentSessionId}`, JSON.stringify({
+                      canvasJSON: fullCanvasState,
+                      mainImageState: initialState,
+                      backgroundColor: canvasBackgroundColor,
+                      savedAt: Date.now(),
+                      canvasDimensions: {
+                        displayWidth: DISPLAY_WIDTH,
+                        displayHeight: DISPLAY_HEIGHT,
+                        exportWidth: EXPORT_WIDTH,
+                        exportHeight: EXPORT_HEIGHT,
+                        scaleFactor: SCALE_FACTOR,
+                        viewportWidth: viewportWidth,
+                        viewportHeight: viewportHeight
+                      }
+                    }));
+                    console.log('💾 Canvas state persisted to sessionStorage (dimensions saved)');
+                  } catch (err) {
+                    console.error('❌ Failed to save canvas to sessionStorage:', err);
+                  }
+                } else {
+                  console.warn('⚠️ Cannot save to sessionStorage - missing sessionId or canvas');
+                }
               }
             }, 100);
           };
@@ -3811,7 +4385,16 @@ export default function Editor() {
         setDebugInfo(`Preparing preview...`);
 
         // Save canvas state as JSON to restore all layers when going back
-        const canvasJSON = canvas.toJSON(['selectable', 'hasControls', 'excludeFromExport']);
+        const canvasJSON = canvas.toJSON([
+          'selectable',
+          'hasControls',
+          'excludeFromExport',
+          'hasBorders',
+          'borderColor',
+          'src',  // Critical for images!
+          'filters',
+          'crossOrigin'
+        ]);
         console.log('💾 Saved canvas state with', canvas.getObjects().length, 'objects');
 
         // Store preview data in global window object (too large for sessionStorage)
@@ -4372,24 +4955,8 @@ export default function Editor() {
                         // Remove from redo stack
                         setCanvasRedoStack(prev => prev.slice(0, -1));
 
-                        // Add current state to history before applying redo
-                        const currentImageSrc = (uploadedImage as any).getSrc ? (uploadedImage as any).getSrc() : (uploadedImage as any)._element?.src;
-                        const currentState = {
-                          src: currentImageSrc,
-                          left: uploadedImage.left,
-                          top: uploadedImage.top,
-                          scaleX: uploadedImage.scaleX,
-                          scaleY: uploadedImage.scaleY,
-                          angle: uploadedImage.angle,
-                          flipX: uploadedImage.flipX,
-                          flipY: uploadedImage.flipY,
-                          opacity: uploadedImage.opacity,
-                          originX: uploadedImage.originX,
-                          originY: uploadedImage.originY,
-                          filters: uploadedImage.filters ? [...uploadedImage.filters] : [],
-                          backgroundColor: canvasBackgroundColor
-                        };
-                        setCanvasHistory(prev => [...prev, JSON.stringify(currentState)]);
+                        // Add the redo state to history (not current state - that's already in history!)
+                        setCanvasHistory(prev => [...prev, redoState]);
 
                         try {
                           const savedState = JSON.parse(redoState);
@@ -4507,8 +5074,18 @@ export default function Editor() {
               </div>
             )}
 
+            {/* Loading overlay while restoration is in progress */}
+            {!uploadedImage && hasRestoredImage && (
+              <div className="absolute inset-0 z-30 bg-white flex items-center justify-center">
+                <div className="text-center">
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-full border-4 border-purple-200 border-t-purple-600 animate-spin"></div>
+                  <p className="text-gray-600 font-medium">Restoring your design...</p>
+                </div>
+              </div>
+            )}
+
             {/* Beautiful card overlay when no image */}
-            {!uploadedImage && (
+            {!uploadedImage && !hasRestoredImage && (
               <div className="absolute inset-0 z-30 bg-white">
                 <div className="h-full w-full flex flex-col px-4 py-3">
                   {/* Header - Fixed at top */}
@@ -6201,6 +6778,13 @@ export default function Editor() {
 
                   setUploadedImage(null);
                   setCropHistory([]);
+                  setHasRestoredImage(false);
+
+                  // Clear canvas state from sessionStorage to prevent restoration
+                  if (sessionId) {
+                    sessionStorage.removeItem(`canvas-state-${sessionId}`);
+                    console.log('🗑️ Cleared canvas state from sessionStorage');
+                  }
 
                   // Reset text customization states
                   setTextInput('');

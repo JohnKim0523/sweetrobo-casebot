@@ -10,12 +10,20 @@ export default function SelectModel() {
   const brands = getBrands();
   const currentModels = getModelsByBrand(selectedBrand);
 
-  // CRITICAL: Clear tab-session associations when user arrives at model selection
-  // This prevents multi-user conflicts where User B would see User A's locked session
-  // NOTE: We do NOT clear session-locked or page-state keys - those remain active
-  // until they expire naturally (30 seconds after payment)
+  // CRITICAL: DO NOT clear tab-session associations automatically
+  // Tab-sessions are needed for refresh functionality - they help restore the correct session
+  // Only clear them when explicitly navigating here from outside the editor (not from refresh)
   useEffect(() => {
-    console.log('🧹 Model selection page loaded - clearing tab-session associations');
+    // Check if we came here from a direct navigation (not a refresh/redirect from editor)
+    const referrer = document.referrer;
+    const isFromEditor = referrer.includes('/editor');
+
+    if (isFromEditor) {
+      console.log('🔄 Came from editor - preserving tab-session for refresh restoration');
+      return;
+    }
+
+    console.log('🧹 Model selection page loaded from external source - clearing tab-session associations');
 
     const machineId = router.query.machineId as string;
 
