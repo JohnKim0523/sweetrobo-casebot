@@ -244,8 +244,9 @@ export default function Editor() {
   const [cropHistory, setCropHistory] = useState<string[]>([]);
   const [drawingMode, setDrawingMode] = useState<boolean>(false);
 
-  // Comprehensive undo system - stores full canvas state
+  // Comprehensive undo/redo system - stores full canvas state
   const [canvasHistory, setCanvasHistory] = useState<string[]>([]);
+  const [canvasRedoStack, setCanvasRedoStack] = useState<string[]>([]); // Redo stack for going forward
   const isRestoringState = useRef(false); // Prevent saving during restore (using ref to avoid triggering re-renders)
   const [drawnMask, setDrawnMask] = useState<string | null>(null);
   const [isManipulating, setIsManipulating] = useState<boolean>(false);
@@ -1040,6 +1041,9 @@ export default function Editor() {
           console.error('❌ Failed to save canvas to sessionStorage:', err);
         }
       }
+
+      // Clear redo stack when new action is performed (standard undo/redo behavior)
+      setCanvasRedoStack([]);
 
       setCanvasHistory(prev => {
         // Limit history to last 20 states to prevent memory issues
@@ -2026,6 +2030,40 @@ export default function Editor() {
       console.log('🧹 Undo event listeners cleaned up');
     };
   }, [canvas, saveCanvasState]);
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+Z for Undo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        if (canvasHistory.length >= 2 && canvas && uploadedImage && fabric) {
+          // Trigger undo button click
+          const undoButton = document.querySelector('[data-undo-button]') as HTMLButtonElement;
+          if (undoButton) undoButton.click();
+        }
+      }
+
+      // Ctrl+Shift+Z or Ctrl+Y for Redo
+      if (((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) ||
+          ((e.ctrlKey || e.metaKey) && e.key === 'y')) {
+        e.preventDefault();
+        if (canvasRedoStack.length > 0 && canvas && uploadedImage && fabric) {
+          // Trigger redo button click
+          const redoButton = document.querySelector('[data-redo-button]') as HTMLButtonElement;
+          if (redoButton) redoButton.click();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    console.log('⌨️ Keyboard shortcuts enabled: Ctrl+Z (Undo), Ctrl+Shift+Z or Ctrl+Y (Redo)');
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      console.log('🧹 Keyboard shortcuts cleaned up');
+    };
+  }, [canvas, uploadedImage, fabric, canvasHistory, canvasRedoStack]);
 
   // Add pinch-to-zoom gesture support for mobile
   useEffect(() => {
@@ -4183,14 +4221,18 @@ export default function Editor() {
                   {/* Undo Button - Top right corner at header level */}
                   {canvasHistory.length >= 2 && (
                     <button
+                      data-undo-button
                       onClick={() => {
                         if (canvasHistory.length < 2 || !canvas || !uploadedImage || !fabric) return;
 
                         isRestoringState.current = true;
 
-                        // Get the PREVIOUS state (second to last in history)
-                        // Current state is at index [length-1], previous is at [length-2]
+                        // Get the CURRENT state (to save to redo stack) and PREVIOUS state (to restore)
+                        const currentState = canvasHistory[canvasHistory.length - 1];
                         const previousState = canvasHistory[canvasHistory.length - 2];
+
+                        // Save current state to redo stack before removing
+                        setCanvasRedoStack(prev => [...prev, currentState]);
 
                         // Remove the last state (current state) from history
                         setCanvasHistory(prev => prev.slice(0, -1));
@@ -4312,6 +4354,153 @@ export default function Editor() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                       </svg>
                       Undo
+                    </button>
+                  )}
+
+                  {/* Redo Button - Next to undo button */}
+                  {canvasRedoStack.length > 0 && (
+                    <button
+                      data-redo-button
+                      onClick={() => {
+                        if (canvasRedoStack.length === 0 || !canvas || !uploadedImage || !fabric) return;
+
+                        isRestoringState.current = true;
+
+                        // Get the state to redo (last item in redo stack)
+                        const redoState = canvasRedoStack[canvasRedoStack.length - 1];
+
+                        // Remove from redo stack
+                        setCanvasRedoStack(prev => prev.slice(0, -1));
+
+                        // Add current state to history before applying redo
+                        const currentImageSrc = (uploadedImage as any).getSrc ? (uploadedImage as any).getSrc() : (uploadedImage as any)._element?.src;
+                        const currentState = {
+                          src: currentImageSrc,
+                          left: uploadedImage.left,
+                          top: uploadedImage.top,
+                          scaleX: uploadedImage.scaleX,
+                          scaleY: uploadedImage.scaleY,
+                          angle: uploadedImage.angle,
+                          flipX: uploadedImage.flipX,
+                          flipY: uploadedImage.flipY,
+                          opacity: uploadedImage.opacity,
+                          originX: uploadedImage.originX,
+                          originY: uploadedImage.originY,
+                          filters: uploadedImage.filters ? [...uploadedImage.filters] : [],
+                          backgroundColor: canvasBackgroundColor
+                        };
+                        setCanvasHistory(prev => [...prev, JSON.stringify(currentState)]);
+
+                        try {
+                          const savedState = JSON.parse(redoState);
+                          const currentSrc = (uploadedImage as any).getSrc ? (uploadedImage as any).getSrc() : (uploadedImage as any)._element?.src;
+
+                          console.log('🔄 Redo: Restoring forward state');
+
+                          // Check if we need to reload the image (AI edit redo)
+                          if (savedState.src && savedState.src !== currentSrc) {
+                            console.log('🔄 Redo: Image source changed, reloading image...');
+
+                            // Remove current image
+                            canvas.remove(uploadedImage);
+
+                            // Load the redo image
+                            const imgElement = new Image();
+                            imgElement.onload = function() {
+                              const fabricImage = new fabric.Image(imgElement, {
+                                left: savedState.left,
+                                top: savedState.top,
+                                scaleX: savedState.scaleX,
+                                scaleY: savedState.scaleY,
+                                angle: savedState.angle,
+                                flipX: savedState.flipX,
+                                flipY: savedState.flipY,
+                                opacity: savedState.opacity,
+                                originX: savedState.originX || 'center',
+                                originY: savedState.originY || 'center',
+                                selectable: true,
+                                evented: true,
+                                hasControls: true,
+                                hasBorders: false
+                              });
+
+                              // Apply saved filters
+                              if (savedState.filters && savedState.filters.length > 0) {
+                                fabricImage.filters = savedState.filters;
+                                fabricImage.applyFilters();
+                              }
+
+                              // Restore background color
+                              if (savedState.backgroundColor !== undefined) {
+                                setCanvasBackgroundColor(savedState.backgroundColor);
+                                canvas.backgroundColor = savedState.backgroundColor;
+                              }
+
+                              // Apply custom controls
+                              if (normalControls.current) {
+                                (fabricImage as any).controls = normalControls.current;
+                              }
+
+                              canvas.add(fabricImage);
+                              canvas.setActiveObject(fabricImage);
+                              canvas.renderAll();
+                              setUploadedImage(fabricImage);
+
+                              setTimeout(() => {
+                                isRestoringState.current = false;
+                                console.log('✅ Redo successful, restored forward image');
+                              }, 150);
+                            };
+                            imgElement.src = savedState.src;
+                          } else {
+                            // Just restore transformations
+                            uploadedImage.set({
+                              left: savedState.left,
+                              top: savedState.top,
+                              scaleX: savedState.scaleX,
+                              scaleY: savedState.scaleY,
+                              angle: savedState.angle,
+                              flipX: savedState.flipX,
+                              flipY: savedState.flipY,
+                              opacity: savedState.opacity
+                            });
+
+                            // Restore filters
+                            if (savedState.filters && savedState.filters.length > 0) {
+                              uploadedImage.filters = savedState.filters;
+                              uploadedImage.applyFilters();
+                            } else {
+                              uploadedImage.filters = [];
+                              uploadedImage.applyFilters();
+                            }
+
+                            // Restore background color
+                            if (savedState.backgroundColor !== undefined) {
+                              setCanvasBackgroundColor(savedState.backgroundColor);
+                              canvas.backgroundColor = savedState.backgroundColor;
+                            }
+
+                            uploadedImage.setCoords();
+                            canvas.setActiveObject(uploadedImage);
+                            canvas.renderAll();
+
+                            setTimeout(() => {
+                              isRestoringState.current = false;
+                              console.log('✅ Redo successful, restored to forward state');
+                            }, 150);
+                          }
+                        } catch (error) {
+                          console.error('Failed to redo:', error);
+                          isRestoringState.current = false;
+                        }
+                      }}
+                      className="absolute top-1/2 -translate-y-1/2 right-20 bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg shadow-lg transition-all transform active:scale-95 flex items-center gap-1 text-sm font-semibold z-10"
+                      style={{ touchAction: 'manipulation' }}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" />
+                      </svg>
+                      Redo
                     </button>
                   )}
                 </div>
