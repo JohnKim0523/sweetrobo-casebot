@@ -3048,6 +3048,20 @@ export default function Editor() {
         canvas.renderAll();
         setUploadedImage(fabricImage);
 
+        // CRITICAL: Update originalImageFile so next AI edit uses this edited version (sequential editing)
+        // Convert the edited image data URL to a File object
+        fetch(result.editedImageUrl)
+          .then(res => res.blob())
+          .then(blob => {
+            const editedFile = new File([blob], 'ai-edited-image.png', { type: 'image/png' });
+            setOriginalImageFile(editedFile);
+            console.log('✅ Updated originalImageFile for sequential AI edits');
+          })
+          .catch(err => {
+            console.error('⚠️ Failed to update originalImageFile:', err);
+            // Not critical - next edit will just use canvas export instead
+          });
+
         // Save state after AI edit completes (new image added)
         // Keep isRestoringState=true during this to block automatic event-driven saves
         setTimeout(() => {
