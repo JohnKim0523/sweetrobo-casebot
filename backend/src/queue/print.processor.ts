@@ -93,24 +93,56 @@ export class PrintProcessor {
    */
   private async submitToChitu(data: PrintJobData, imageUrl: string) {
     try {
-      // When we have valid Chitu credentials, this will call the actual API
-      // For now, mock the response
       console.log(`📨 Submitting to Chitu API for machine: ${data.machineId}`);
-      
-      // Simulated API call
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // In production:
-      // const result = await this.chituService.createPrintTask({
-      //   device_id: data.machineId,
-      //   image_url: imageUrl,
-      //   task_name: `${data.phoneModel}_${data.sessionId}`,
-      //   slice_param: this.getSliceParams(data.dimensions),
-      // });
-      
+      console.log(`📱 Phone Model: ${data.phoneModel}`);
+      console.log(`🔑 Product ID: ${data.phoneModelId}`);
+      console.log(`🖼️ Image URL: ${imageUrl}`);
+
+      // Get product ID - try from data first, then use default from env
+      const productId = (data as any).productId ||
+                       data.phoneModelId ||
+                       process.env.CHITU_DEFAULT_PRODUCT_ID ||
+                       'dZesWMYqBIuCwV1qr6Ugxw==';
+
+      console.log(`🎯 Using Product ID: ${productId}`);
+
+      // Check if machineId is a device code (like CT0700026) or encrypted device_id
+      // Device codes start with CT and are plain text
+      const isDeviceCode = data.machineId.startsWith('CT') && !data.machineId.includes('==');
+
+      let result;
+      if (isDeviceCode) {
+        // Use the helper method that converts device_code to device_id
+        console.log(`🔄 Converting device code ${data.machineId} to device_id...`);
+        result = await this.chituService.createOrderByCode({
+          deviceCode: data.machineId,
+          productId: productId,
+          imageUrl: imageUrl,
+          orderNo: `order_${data.sessionId}_${Date.now()}`,
+          printCount: 1,
+          sessionId: data.sessionId,
+        });
+      } else {
+        // Already have encrypted device_id
+        result = await this.chituService.createOrder({
+          deviceId: data.machineId,
+          productId: productId,
+          imageUrl: imageUrl,
+          orderNo: `order_${data.sessionId}_${Date.now()}`,
+          printCount: 1,
+          sessionId: data.sessionId,
+        });
+      }
+
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to create Chitu order');
+      }
+
+      console.log(`✅ Chitu order created: ${result.orderId}`);
+
       return {
         success: true,
-        taskId: `task_${Date.now()}`,
+        taskId: result.orderId || `task_${Date.now()}`,
         machineId: data.machineId,
       };
     } catch (error) {

@@ -10,6 +10,7 @@ export interface PrintJobData {
   imageUrl?: string;
   phoneModel: string;
   phoneModelId: string;
+  productId?: string;  // Chitu product_id for the phone case model
   dimensions: {
     widthPX: number;
     heightPX: number;

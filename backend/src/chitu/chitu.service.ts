@@ -465,13 +465,12 @@ export class ChituService {
     console.log(`🖼️ Image URL: ${params.imageUrl}`);
 
     const response = await this.request(
-      '/api/openApi/addDeviceOrder',
+      '/api/openApi/machineCreateOrder',  // Correct endpoint
       {
         device_id: params.deviceId,
         product_id: params.productId,
         image_url: params.imageUrl,
-        order_no: params.orderNo || `order_${Date.now()}`,
-        print_count: params.printCount || 1,
+        pay_type: this.configService.get<string>('CHITU_DEFAULT_PAY_TYPE', 'nayax'),
       },
     );
 
