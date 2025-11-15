@@ -7,14 +7,14 @@ const crypto = require('crypto');
  */
 async function checkPhoneCaseStatus() {
   console.log('\n' + '='.repeat(70));
-  console.log('📱 PHONE CASE PRINTER (CT0700026) STATUS CHECK');
+  console.log('📱 PHONE CASE PRINTER (CT0700046) STATUS CHECK');
   console.log('='.repeat(70));
 
   const config = {
     appId: 'ct0feee2e5ad8b1913',
     appSecret: 'c1f1d8de63ed4a08b252f54d0df5eced',
     baseUrl: 'https://www.gzchitu.cn/api/openApi',
-    machineCode: 'CT0700026'
+    machineCode: 'CT0700046'
   };
 
   // Generate signature following EXACT cotton candy pattern
@@ -155,7 +155,7 @@ async function checkPhoneCaseStatus() {
     console.log('2. Provide them with:');
     console.log(`   - Your App ID: ${config.appId}`);
     console.log(`   - Machine Code: ${config.machineCode}`);
-    console.log('3. Request: "Please bind machine CT0700026 to our appId"');
+    console.log('3. Request: "Please bind machine CT0700046 to our appId"');
     console.log('4. They may ask for merchant verification');
     console.log('\nAlternatively:');
     console.log('- Check if there\'s a merchant portal at www.gzchitu.cn');

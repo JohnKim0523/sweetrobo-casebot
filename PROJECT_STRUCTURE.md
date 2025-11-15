@@ -36,7 +36,7 @@ sweetrobo-casebot-webapp/
 ## User Flow
 
 ### 1. Entry Points
-- **QR Code**: `/?machine=CT0700026` → Upload page with machine ID
+- **QR Code**: `/?machine=CT0700046` → Upload page with machine ID
 - **Direct Access**: `/` → Model selection → Upload page
 
 ### 2. Image Creation
@@ -107,7 +107,7 @@ sweetrobo-casebot-webapp/
 CHITU_APP_ID=ct0feee2e5ad8b1913
 CHITU_APP_SECRET=c1f1d8de63ed4a08b252f54d0df5eced
 CHITU_BASE_URL=https://www.gzchitu.cn
-AVAILABLE_MACHINES=CT0700026
+AVAILABLE_MACHINES=CT0700046
 ```
 
 ## Development

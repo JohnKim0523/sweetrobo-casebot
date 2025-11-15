@@ -15,7 +15,7 @@
 3. **Order Creation**: Product ID error (needs valid product catalog)
 
 ### 🔒 Exhibition Machine Notice
-**IMPORTANT**: The connected machine (CT0700026) is in the exhibition hall. Per Chitu's request:
+**IMPORTANT**: The connected machine (CT0700046) is in the exhibition hall. Per Chitu's request:
 - ❌ DO NOT modify product prices
 - ❌ DO NOT modify inventory
 - ✅ Can perform read-only tests
@@ -61,7 +61,7 @@
   "count": 10,
   "machines": [
     {
-      "device_code": "CT0700026",
+      "device_code": "CT0700046",
       "name": "phone case print26",
       "machine_model": "CT-sjk360",
       "online_status": false
@@ -78,13 +78,13 @@
 ### GET `/api/chitu/machine/:deviceCode`
 **Purpose**: Get machine details by device code
 **Parameters**:
-- `deviceCode`: Machine code (e.g., "CT0700026")
+- `deviceCode`: Machine code (e.g., "CT0700046")
 **Response**:
 ```json
 {
   "success": true,
   "machine": {
-    "device_code": "CT0700026",
+    "device_code": "CT0700046",
     "device_name": "phone case print26",
     "machine_model": "CT-sjk360",
     "online_status": false,
@@ -103,7 +103,7 @@
 ### GET `/api/chitu/products/:deviceCode`
 **Purpose**: Get product catalog (phone models) for a machine
 **Parameters**:
-- `deviceCode`: Machine code (e.g., "CT0700026")
+- `deviceCode`: Machine code (e.g., "CT0700046")
 **Query Params**:
 - `type`: "diy" (phone cases) or "default" (pre-made designs)
 - `status`: 1 (active) or 0 (inactive)
@@ -145,7 +145,7 @@
   "phoneModel": "iPhone_15_Pro",
   "caseType": "hard",
   "quantity": 1,
-  "deviceCode": "CT0700026"
+  "deviceCode": "CT0700046"
 }
 ```
 
@@ -163,7 +163,7 @@
     "total": 0,
     "activeJobs": 0,
     "machineLoads": {
-      "CT0700026": 0
+      "CT0700046": 0
     }
   }
 }

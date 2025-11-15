@@ -6,7 +6,7 @@ const config = {
   appId: 'ct0feee2e5ad8b1913',
   appSecret: 'c1f1d8de63ed4a08b252f54d0df5eced',
   baseUrl: 'https://www.gzchitu.cn',
-  testMachineId: 'CT0700026',
+  testMachineId: 'CT0700046',
   testMachineModel: 'CT-sjk360'
 };
 
@@ -114,7 +114,7 @@ async function testChituAPI() {
     console.log('='.repeat(60));
     console.log('\n📝 Troubleshooting:');
     console.log('1. Verify the APP_ID and APP_SECRET are correct');
-    console.log('2. Check if the machine ID CT0700026 is valid');
+    console.log('2. Check if the machine ID CT0700046 is valid');
     console.log('3. Ensure the API endpoints are correct');
     console.log('4. Contact Chitu support if credentials are valid but still failing');
   }

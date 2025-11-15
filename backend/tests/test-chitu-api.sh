@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Chitu API Testing Script for Exhibition Machine
-# Machine: CT0700026 (CT-sjk360)
+# Machine: CT0700046 (CT-sjk360)
 
 API_URL="http://localhost:3001"
 
@@ -19,8 +19,8 @@ curl -X GET "$API_URL/api/chitu/machines" \
   -H "Content-Type: application/json" | jq .
 
 # 3. Get Specific Machine Details
-echo -e "\n3️⃣ Getting CT0700026 Details..."
-curl -X GET "$API_URL/api/chitu/machines/CT0700026" \
+echo -e "\n3️⃣ Getting CT0700046 Details..."
+curl -X GET "$API_URL/api/chitu/machines/CT0700046" \
   -H "Content-Type: application/json" | jq .
 
 # 4. Test File Upload (without printing)
@@ -41,7 +41,7 @@ curl -X POST "$API_URL/api/chitu/print" \
   -H "Content-Type: application/json" \
   -d '{
     "image": "data:image/png;base64,'$TEST_IMAGE'",
-    "machineId": "CT0700026",
+    "machineId": "CT0700046",
     "phoneModel": "iPhone 15 Pro",
     "sessionId": "test-session-001",
     "dimensions": {

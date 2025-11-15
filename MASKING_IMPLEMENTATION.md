@@ -76,7 +76,7 @@ ctx.drawImage(maskCanvas, 0, 0);
 
 ### Visual Test
 1. Start frontend: `cd frontend && npm run dev`
-2. Go to: `http://localhost:3000/editor?machine=CT0700026`
+2. Go to: `http://localhost:3000/editor?machine=CT0700046`
 3. Upload an image
 4. Click "Print" to export
 5. Check browser console logs:

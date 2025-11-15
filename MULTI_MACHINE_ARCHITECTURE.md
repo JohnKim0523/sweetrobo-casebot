@@ -5,7 +5,7 @@ Support multiple phone case printing machines with concurrent users, each access
 
 ## User Flow
 1. User scans QR code on specific machine
-2. QR code contains: `https://yoursite.com/editor?machine=CT0700026`
+2. QR code contains: `https://yoursite.com/editor?machine=CT0700046`
 3. Web app loads with that machine pre-selected
 4. User creates design
 5. Order sent to that specific machine
@@ -107,7 +107,7 @@ interface PrintOrder {
 #### Machine Registry
 ```typescript
 interface MachineInfo {
-  code: string;           // CT0700026
+  code: string;           // CT0700046
   deviceId: string;       // Encrypted ID
   name: string;
   location?: string;

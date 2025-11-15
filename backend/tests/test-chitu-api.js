@@ -6,7 +6,7 @@ const config = {
   appId: 'ct0feee2e5ad8b1913',
   appSecret: 'c1f1d8de63ed4a08b252f54d0df5eced',
   baseUrl: 'https://www.gzchitu.cn',
-  testMachineId: 'CT0700026',
+  testMachineId: 'CT0700046',
   testMachineModel: 'CT-sjk360'
 };
 

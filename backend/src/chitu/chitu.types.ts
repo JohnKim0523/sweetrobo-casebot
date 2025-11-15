@@ -28,7 +28,7 @@ export interface Machine {
   merchant_id: string;
   name: string;
   device_id: string;  // Encrypted ID
-  device_code: string;  // Plain text code (e.g., CT0700026)
+  device_code: string;  // Plain text code (e.g., CT0700046)
   machine_model: string;
   online_status: boolean;
   device_key: string;

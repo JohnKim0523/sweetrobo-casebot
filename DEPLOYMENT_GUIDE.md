@@ -89,7 +89,7 @@ CHITU_MQTT_USERNAME=your_chitu_app_id
 CHITU_MQTT_PASSWORD=your_mqtt_password
 
 # Available Machines
-AVAILABLE_MACHINES=CT0700026
+AVAILABLE_MACHINES=CT0700046
 
 # Security Tokens
 ADMIN_AUTH_TOKEN=your-secure-admin-token

@@ -161,7 +161,7 @@ export class ChituService {
         merchant_id: m.mer_id,
         name: m.name,
         device_id: m.device_id,  // Encrypted ID
-        device_code: m.device_code,  // Plain text code (e.g., CT0700026)
+        device_code: m.device_code,  // Plain text code (e.g., CT0700046)
         machine_model: m.machine_model,
         online_status: m.online_status === 'online',
         device_key: m.device_key,
@@ -189,7 +189,7 @@ export class ChituService {
   /**
    * Get machine details by device_code (plain text)
    * Required fields: appid, device_code
-   * Use this when you have the plain text machine code (e.g., CT0700026)
+   * Use this when you have the plain text machine code (e.g., CT0700046)
    */
   async getMachineDetailsByCode(deviceCode: string): Promise<MachineDetails> {
     console.log(`\n🔍 Getting details for device_code: ${deviceCode}`);
@@ -542,7 +542,7 @@ export class ChituService {
       });
 
       // Step 2: Get details for our specific machine if available
-      const targetMachineCode = this.configService.get<string>('AVAILABLE_MACHINES', 'CT0700026');
+      const targetMachineCode = this.configService.get<string>('AVAILABLE_MACHINES', 'CT0700046');
       const targetMachine = machines.machines.find(m => m.device_code === targetMachineCode);
 
       if (targetMachine) {

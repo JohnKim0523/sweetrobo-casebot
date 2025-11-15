@@ -33,7 +33,7 @@ async function testCreateOrder() {
   // Order parameters
   const orderParams = {
     appid: config.appId,
-    device_id: 'Veg9SyJvSNdW4q3bLS/MuA==',  // CT0700026's encrypted ID from machineList
+    device_id: 'Veg9SyJvSNdW4q3bLS/MuA==',  // CT0700046's encrypted ID from machineList
     product_id: 'dZesWMYqBIuCwV1qr6Ugxw==',  // From API example
     pay_type: 'nayax',  // or 'ict' based on machine config
     image_url: 'https://print-gz.oss-accelerate.aliyuncs.com/20250918005929722424.tif'  // Test TIF image
@@ -45,7 +45,7 @@ async function testCreateOrder() {
   console.log('\n📤 Creating print order...');
   console.log('Parameters:');
   console.log(`  appid: ${orderParams.appid}`);
-  console.log(`  device_id: ${orderParams.device_id} (CT0700026)`);
+  console.log(`  device_id: ${orderParams.device_id} (CT0700046)`);
   console.log(`  product_id: ${orderParams.product_id}`);
   console.log(`  pay_type: ${orderParams.pay_type}`);
   console.log(`  image_url: ${orderParams.image_url}`);
@@ -84,7 +84,7 @@ async function testCreateOrder() {
         console.log('The machineCreateOrder API is not yet active');
       } else if (response.data.msg?.includes('机器离线')) {
         console.log('\n⚠️ Machine is offline');
-        console.log('Turn on machine CT0700026 to test orders');
+        console.log('Turn on machine CT0700046 to test orders');
       } else if (response.data.msg?.includes('签名错误')) {
         console.log('\n❌ Signature error');
         console.log('Check signature generation algorithm');

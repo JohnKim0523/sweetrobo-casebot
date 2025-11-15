@@ -64,12 +64,12 @@ export default function SelectModel() {
     const machineId = router.query.machineId as string;
 
     // Navigate to editor with model and preserve machineId if present
-    // If no machineId, use default test machine (CT0700026) for public testing
+    // If no machineId, use default test machine (CT0700046) for public testing
     if (machineId) {
       router.push(`/editor?machineId=${machineId}&model=${model.id}`);
     } else {
       // Use test machine ID for public demos
-      router.push(`/editor?machineId=CT0700026&model=${model.id}&test=demo`);
+      router.push(`/editor?machineId=CT0700046&model=${model.id}&test=demo`);
     }
   };
 

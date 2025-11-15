@@ -39,15 +39,15 @@ async function testChituIntegration() {
       const machines = listResponse.data.machines || [];
       console.log(`✅ Found ${machines.length} machines`);
 
-      const ct0700026 = machines.find(m => m.device_code === 'CT0700026');
-      if (ct0700026) {
-        console.log('\n🎉 CT0700026 FOUND!');
-        console.log('   Name:', ct0700026.name);
-        console.log('   Online:', ct0700026.online_status ? 'Yes' : 'No');
-        console.log('   Model:', ct0700026.machine_model);
-        console.log('   Device ID:', ct0700026.device_id);
+      const CT0700046 = machines.find(m => m.device_code === 'CT0700046');
+      if (CT0700046) {
+        console.log('\n🎉 CT0700046 FOUND!');
+        console.log('   Name:', CT0700046.name);
+        console.log('   Online:', CT0700046.online_status ? 'Yes' : 'No');
+        console.log('   Model:', CT0700046.machine_model);
+        console.log('   Device ID:', CT0700046.device_id);
       } else {
-        console.log('⚠️ CT0700026 not in list');
+        console.log('⚠️ CT0700046 not in list');
       }
     } else {
       console.log('❌ Failed to get machines:', listResponse.status);
@@ -57,10 +57,10 @@ async function testChituIntegration() {
     }
 
     // Test 3: Get specific machine details
-    console.log('\n3️⃣ Getting CT0700026 details through backend...');
+    console.log('\n3️⃣ Getting CT0700046 details through backend...');
 
     const detailsResponse = await axios.get(
-      `${backendUrl}/api/chitu/machine/CT0700026`,
+      `${backendUrl}/api/chitu/machine/CT0700046`,
       {
         timeout: 10000,
         validateStatus: () => true
@@ -94,7 +94,7 @@ async function testChituIntegration() {
     console.log('   (This will fail if machine is offline)');
 
     const orderData = {
-      device_code: 'CT0700026',
+      device_code: 'CT0700046',
       image_url: 'https://example.com/test-image.tif',
       product_id: 'test_phone_case',
       pay_type: 'nayax'
@@ -134,7 +134,7 @@ async function testChituIntegration() {
   console.log('\n' + '='.repeat(70));
   console.log('📊 SUMMARY');
   console.log('='.repeat(70));
-  console.log('1. Machine CT0700026 is bound to your appId ✅');
+  console.log('1. Machine CT0700046 is bound to your appId ✅');
   console.log('2. Machine is currently OFFLINE ⚠️');
   console.log('3. Once machine is online, you can send print orders');
   console.log('4. Integration follows cotton candy machine pattern');

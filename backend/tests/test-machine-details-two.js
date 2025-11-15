@@ -6,7 +6,7 @@ async function testMachineDetailsTwo() {
 
   // Test with different machine codes
   const testCodes = [
-    'CT0700026',  // Your original code
+    'CT0700046',  // Your original code
     'CT0300026',  // Found in API
     'CT0302763',  // Example from documentation (cotton candy)
   ];

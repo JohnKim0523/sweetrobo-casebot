@@ -106,7 +106,7 @@ export class PrintProcessor {
 
       console.log(`🎯 Using Product ID: ${productId}`);
 
-      // Check if machineId is a device code (like CT0700026) or encrypted device_id
+      // Check if machineId is a device code (like CT0700046) or encrypted device_id
       // Device codes start with CT and are plain text
       const isDeviceCode = data.machineId.startsWith('CT') && !data.machineId.includes('==');
 

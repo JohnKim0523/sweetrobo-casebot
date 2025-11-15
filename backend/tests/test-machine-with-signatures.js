@@ -7,7 +7,7 @@ async function testWithExpectedSignatures() {
   // Each machine code expects a different signature
   const tests = [
     {
-      device_code: 'CT0700026',
+      device_code: 'CT0700046',
       sign: 'fed77c49526f543a9085b725af8b3537580e12d3334284bb013b9a915528e907'
     },
     {

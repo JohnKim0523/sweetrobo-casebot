@@ -279,7 +279,7 @@ export class ChituController {
 
   /**
    * Upload QR code to machine
-   * Body: { machineId: "CT0700026", url: "https://yourapp.com/editor?machine=CT0700026" }
+   * Body: { machineId: "CT0700046", url: "https://yourapp.com/editor?machine=CT0700046" }
    */
   @Post('qr-code')
   async uploadQRCode(@Body() body: {
@@ -310,7 +310,7 @@ export class ChituController {
 
   /**
    * TEST ENDPOINT: Simulate payment confirmation
-   * Body: { machineId: "CT0700026", jobId: "job_123", amount: 25.99 }
+   * Body: { machineId: "CT0700046", jobId: "job_123", amount: 25.99 }
    * This simulates what would happen when a user pays at the physical machine
    */
   @Post('test/payment')

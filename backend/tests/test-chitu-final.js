@@ -6,7 +6,7 @@ const config = {
   appId: 'ct0feee2e5ad8b1913',  // From marshmallow parameters
   appSecret: 'c1f1d8de63ed4a08b252f54d0df5eced',  // From marshmallow parameters
   baseUrl: 'https://www.gzchitu.cn',
-  testMachineId: 'CT0700026',  // Exhibition hall machine - READ ONLY
+  testMachineId: 'CT0700046',  // Exhibition hall machine - READ ONLY
   testMachineModel: 'CT-sjk360'
 };
 

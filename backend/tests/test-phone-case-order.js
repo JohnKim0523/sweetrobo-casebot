@@ -4,13 +4,13 @@ const crypto = require('crypto');
 // Test creating a phone case print order
 async function testPhoneCaseOrder() {
   console.log('🖨️ TESTING PHONE CASE PRINT ORDER\n');
-  console.log('Machine: CT0700026 (Phone Case Printer)');
+  console.log('Machine: CT0700046 (Phone Case Printer)');
   console.log('=' .repeat(60));
 
   const config = {
     appId: 'ct0feee2e5ad8b1913',
     appSecret: 'c1f1d8de63ed4a08b252f54d0df5eced',
-    machineCode: 'CT0700026',
+    machineCode: 'CT0700046',
     baseUrl: 'https://www.gzchitu.cn'
   };
 
