@@ -11,7 +11,6 @@ import { AiModule } from './ai/ai.module';
 import { AdminModule } from './admin/admin.module';
 import { MqttModule } from './mqtt/mqtt.module';
 import { WebsocketModule } from './websocket/websocket.module';
-import { QueueModule } from './queue/queue.module';
 import { VertexAIController } from './vertexai.controller';
 import { DatabaseModule } from './database/database.module';
 
@@ -49,7 +48,6 @@ import { DatabaseModule } from './database/database.module';
     AdminModule,
     MqttModule,
     WebsocketModule,
-    QueueModule,
   ],
   controllers: [AppController, VertexAIController],
   providers: [

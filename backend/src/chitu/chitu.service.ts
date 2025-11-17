@@ -11,6 +11,7 @@ import {
   CreateOrderResponse,
   ProductCatalogRequest,
   ProductCatalogResponse,
+  PhoneModel,
 } from './chitu.types';
 
 @Injectable()
@@ -445,6 +446,221 @@ export class ChituService {
   async uploadQRCodeByCode(deviceCode: string, qrcodeUrl: string): Promise<{ success: boolean; message: string }> {
     const deviceId = await this.getDeviceIdFromCode(deviceCode);
     return this.uploadQRCode(deviceId, qrcodeUrl);
+  }
+
+  /**
+   * Check if machine is online and ready to print
+   * Step 1 of the correct workflow
+   */
+  async checkMachineStatus(deviceCode: string): Promise<{ ready: boolean; message: string; details?: MachineDetails }> {
+    console.log(`\n🔍 Checking machine status for: ${deviceCode}`);
+
+    try {
+      const machineDetails = await this.getMachineDetailsByCode(deviceCode);
+
+      if (!machineDetails.online_status) {
+        return {
+          ready: false,
+          message: 'Machine is offline',
+          details: machineDetails,
+        };
+      }
+
+      if (machineDetails.working_status !== 'idle') {
+        return {
+          ready: false,
+          message: `Machine is not idle, current status: ${machineDetails.working_status}`,
+          details: machineDetails,
+        };
+      }
+
+      console.log(`✅ Machine is online and ready`);
+      return {
+        ready: true,
+        message: 'Machine is online and ready',
+        details: machineDetails,
+      };
+    } catch (error) {
+      console.error(`❌ Failed to check machine status:`, error.message);
+      return {
+        ready: false,
+        message: `Failed to check machine status: ${error.message}`,
+      };
+    }
+  }
+
+  /**
+   * Find product by phone model name and verify inventory
+   * Step 2-3 of the correct workflow
+   */
+  async findProductAndVerifyInventory(
+    deviceCode: string,
+    phoneModelName: string
+  ): Promise<{
+    available: boolean;
+    message: string;
+    product?: PhoneModel;
+    deviceId?: string;
+  }> {
+    console.log(`\n📦 Finding product for phone model: ${phoneModelName}`);
+
+    try {
+      // Get device_id for the catalog request
+      const deviceId = await this.getDeviceIdFromCode(deviceCode);
+
+      // Get product catalog
+      const catalog = await this.getProductCatalog({
+        device_id: deviceId,
+        type: 'diy',
+        status: 1,  // Active products only
+        page: 1,
+        limit: 100,
+      });
+
+      if (!catalog.list || catalog.list.length === 0) {
+        return {
+          available: false,
+          message: 'No products available for this machine',
+        };
+      }
+
+      // Search for the phone model across all brands
+      let foundProduct: PhoneModel | undefined;
+
+      for (const brand of catalog.list) {
+        foundProduct = brand.modelList.find(model =>
+          model.name_en.toLowerCase().includes(phoneModelName.toLowerCase()) ||
+          model.name_cn.includes(phoneModelName)
+        );
+
+        if (foundProduct) {
+          console.log(`✅ Found product: ${foundProduct.name_en} (${foundProduct.name_cn})`);
+          console.log(`📊 Stock: ${foundProduct.stock}`);
+          console.log(`🔑 Product ID: ${foundProduct.product_id}`);
+          break;
+        }
+      }
+
+      if (!foundProduct) {
+        return {
+          available: false,
+          message: `Phone model "${phoneModelName}" not found in machine's product catalog`,
+        };
+      }
+
+      // Check inventory
+      if (foundProduct.stock <= 0) {
+        return {
+          available: false,
+          message: `Product "${foundProduct.name_en}" is out of stock`,
+          product: foundProduct,
+          deviceId,
+        };
+      }
+
+      console.log(`✅ Product is available with sufficient stock`);
+      return {
+        available: true,
+        message: 'Product found and in stock',
+        product: foundProduct,
+        deviceId,
+      };
+    } catch (error) {
+      console.error(`❌ Failed to verify product:`, error.message);
+      return {
+        available: false,
+        message: `Failed to verify product: ${error.message}`,
+      };
+    }
+  }
+
+  /**
+   * Complete workflow for creating a print order
+   * Follows the correct process:
+   * 1. Check machine status
+   * 2. Get product information
+   * 3. Verify inventory
+   * 4. Image processing (handled by caller)
+   * 5. Create order
+   */
+  async createPrintOrderWithValidation(params: {
+    deviceCode: string;
+    phoneModelName: string;
+    imageUrl: string;
+    orderNo?: string;
+    printCount?: number;
+    sessionId?: string;
+  }): Promise<{ success: boolean; orderId?: string; message: string; details?: any }> {
+    console.log(`\n🚀 Starting validated print order workflow`);
+    console.log(`📱 Device: ${params.deviceCode}`);
+    console.log(`📱 Phone Model: ${params.phoneModelName}`);
+
+    try {
+      // Step 1: Check machine status
+      const statusCheck = await this.checkMachineStatus(params.deviceCode);
+      if (!statusCheck.ready) {
+        return {
+          success: false,
+          message: statusCheck.message,
+          details: { step: 'status_check', ...statusCheck },
+        };
+      }
+
+      // Step 2-3: Find product and verify inventory
+      const productCheck = await this.findProductAndVerifyInventory(
+        params.deviceCode,
+        params.phoneModelName
+      );
+
+      if (!productCheck.available || !productCheck.product) {
+        return {
+          success: false,
+          message: productCheck.message,
+          details: { step: 'product_check', ...productCheck },
+        };
+      }
+
+      // Step 4: Image processing is assumed to be done by caller
+      // Image must be in TIF format at this point
+
+      // Step 5: Create order with validated product_id
+      console.log(`\n📝 Creating order with validated product_id: ${productCheck.product.product_id}`);
+
+      const orderResult = await this.createOrder({
+        deviceId: productCheck.deviceId!,
+        productId: productCheck.product.product_id,
+        imageUrl: params.imageUrl,
+        orderNo: params.orderNo,
+        printCount: params.printCount,
+        sessionId: params.sessionId,
+      });
+
+      if (orderResult.success) {
+        console.log(`✅ Order created successfully: ${orderResult.orderId}`);
+        return {
+          success: true,
+          orderId: orderResult.orderId,
+          message: 'Order created successfully',
+          details: {
+            product: productCheck.product,
+            machine: statusCheck.details,
+          },
+        };
+      } else {
+        return {
+          success: false,
+          message: orderResult.message,
+          details: { step: 'order_creation', ...orderResult },
+        };
+      }
+    } catch (error) {
+      console.error(`❌ Print order workflow failed:`, error.message);
+      return {
+        success: false,
+        message: `Print order workflow failed: ${error.message}`,
+        details: { error: error.message },
+      };
+    }
   }
 
   /**

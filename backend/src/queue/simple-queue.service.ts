@@ -249,12 +249,17 @@ export class SimpleQueueService {
         console.log(`✅ Image uploaded as TIF: ${imageUrl}`);
       }
 
-      // Create Chitu order (if machineId and productId are available)
-      if (job.data.machineId && job.data.productId && imageUrl) {
+      // Create Chitu order with validated workflow
+      // This workflow will:
+      // 1. Check machine status
+      // 2. Get product list from machine
+      // 3. Verify inventory
+      // 4. Create order with correct product_id
+      if (job.data.machineId && job.data.phoneModel && imageUrl) {
         console.log(`📦 Creating Chitu order...`);
-        const orderResult = await this.chituService.createOrderByCode({
+        const orderResult = await this.chituService.createPrintOrderWithValidation({
           deviceCode: job.data.machineId,
-          productId: job.data.productId,
+          phoneModelName: job.data.phoneModel,
           imageUrl: imageUrl,
           orderNo: job.id,
           printCount: 1,
@@ -263,12 +268,17 @@ export class SimpleQueueService {
 
         if (orderResult.success) {
           console.log(`✅ Chitu order created: ${orderResult.orderId}`);
+          console.log(`📦 Product used: ${orderResult.details?.product?.name_en}`);
+          console.log(`🔑 Product ID: ${orderResult.details?.product?.product_id}`);
           job.data.chituOrderId = orderResult.orderId;
         } else {
           throw new Error(`Chitu order creation failed: ${orderResult.message}`);
         }
       } else {
-        console.log(`⚠️ Skipping Chitu order creation - missing machineId or productId`);
+        console.log(`⚠️ Skipping Chitu order creation - missing required data`);
+        console.log(`   machineId: ${job.data.machineId ? '✅' : '❌'}`);
+        console.log(`   phoneModel: ${job.data.phoneModel ? '✅' : '❌'}`);
+        console.log(`   imageUrl: ${imageUrl ? '✅' : '❌'}`);
       }
 
       // Mark as completed
