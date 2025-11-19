@@ -289,8 +289,13 @@ export class ChituService {
       console.log(`✅ Found ${data.count} total products`);
       console.log(`📋 Brands: ${data.list.length}`);
 
+      // Map 'id' field to 'product_id' for consistency with our TypeScript interface
       data.list.forEach(brand => {
         console.log(`  - ${brand.name_en} (${brand.name_cn}): ${brand.modelList.length} models`);
+        brand.modelList = brand.modelList.map(model => ({
+          ...model,
+          product_id: model.product_id || (model as any).id,  // Use id if product_id doesn't exist
+        }));
       });
     }
 
@@ -509,25 +514,35 @@ export class ChituService {
       const deviceId = await this.getDeviceIdFromCode(deviceCode);
 
       // Get product catalog
+      // NOTE: CT0700046 uses type='default', not 'diy'
       const catalog = await this.getProductCatalog({
         device_id: deviceId,
-        type: 'diy',
+        type: 'default',  // Changed from 'diy' to 'default' - machine has products under 'default'
         status: 1,  // Active products only
         page: 1,
         limit: 100,
       });
 
       if (!catalog.list || catalog.list.length === 0) {
+        console.log('❌ Catalog is empty or undefined');
+        console.log('Catalog data:', JSON.stringify(catalog, null, 2));
         return {
           available: false,
           message: 'No products available for this machine',
         };
       }
 
+      console.log(`🔍 Searching for "${phoneModelName}" in ${catalog.list.length} brand(s)`);
+
       // Search for the phone model across all brands
       let foundProduct: PhoneModel | undefined;
 
       for (const brand of catalog.list) {
+        console.log(`  Checking brand: ${brand.name_en} with ${brand.modelList.length} models`);
+        brand.modelList.forEach(model => {
+          console.log(`    - Model: ${model.name_en}, product_id: ${model.product_id}`);
+        });
+
         foundProduct = brand.modelList.find(model =>
           model.name_en.toLowerCase().includes(phoneModelName.toLowerCase()) ||
           model.name_cn.includes(phoneModelName)
@@ -542,6 +557,7 @@ export class ChituService {
       }
 
       if (!foundProduct) {
+        console.log(`❌ Phone model "${phoneModelName}" not found after searching all brands`);
         return {
           available: false,
           message: `Phone model "${phoneModelName}" not found in machine's product catalog`,
