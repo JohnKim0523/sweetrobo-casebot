@@ -292,10 +292,20 @@ export class ChituService {
       // Map 'id' field to 'product_id' for consistency with our TypeScript interface
       data.list.forEach(brand => {
         console.log(`  - ${brand.name_en} (${brand.name_cn}): ${brand.modelList.length} models`);
-        brand.modelList = brand.modelList.map(model => ({
-          ...model,
-          product_id: model.product_id || (model as any).id,  // Use id if product_id doesn't exist
-        }));
+        brand.modelList = brand.modelList.map(model => {
+          const originalId = (model as any).id;
+          const mappedProductId = model.product_id || originalId;
+
+          // Log the ID mapping for debugging
+          if (originalId && !model.product_id) {
+            console.log(`    Mapped id -> product_id: ${originalId} for ${model.name_en}`);
+          }
+
+          return {
+            ...model,
+            product_id: mappedProductId,
+          };
+        });
       });
     }
 
@@ -534,19 +544,53 @@ export class ChituService {
 
       console.log(`🔍 Searching for "${phoneModelName}" in ${catalog.list.length} brand(s)`);
 
+      // Normalize search term for better matching
+      const normalizeString = (str: string) => {
+        return str
+          .toLowerCase()
+          .replace(/\s+/g, ' ')  // Normalize whitespace
+          .trim();
+      };
+
+      const normalizedSearch = normalizeString(phoneModelName);
+      console.log(`🔍 Normalized search term: "${normalizedSearch}"`);
+
       // Search for the phone model across all brands
       let foundProduct: PhoneModel | undefined;
 
       for (const brand of catalog.list) {
         console.log(`  Checking brand: ${brand.name_en} with ${brand.modelList.length} models`);
+
+        // Log all models for debugging
         brand.modelList.forEach(model => {
-          console.log(`    - Model: ${model.name_en}, product_id: ${model.product_id}`);
+          console.log(`    - Model: ${model.name_en} (${model.name_cn}), Stock: ${model.stock}, ID: ${model.product_id}`);
         });
 
-        foundProduct = brand.modelList.find(model =>
-          model.name_en.toLowerCase().includes(phoneModelName.toLowerCase()) ||
-          model.name_cn.includes(phoneModelName)
-        );
+        // Try multiple matching strategies
+        foundProduct = brand.modelList.find(model => {
+          const normalizedNameEn = normalizeString(model.name_en || '');
+          const normalizedNameCn = normalizeString(model.name_cn || '');
+
+          // Strategy 1: Exact match (normalized)
+          if (normalizedNameEn === normalizedSearch || normalizedNameCn === normalizedSearch) {
+            console.log(`    ✅ Exact match found: ${model.name_en}`);
+            return true;
+          }
+
+          // Strategy 2: Contains match
+          if (normalizedNameEn.includes(normalizedSearch) || normalizedNameCn.includes(normalizedSearch)) {
+            console.log(`    ✅ Partial match found: ${model.name_en}`);
+            return true;
+          }
+
+          // Strategy 3: Search term contains model name (for cases like "iPhone 14" matching "iPhone 14 Plus")
+          if (normalizedSearch.includes(normalizedNameEn) || normalizedSearch.includes(normalizedNameCn)) {
+            console.log(`    ✅ Reverse match found: ${model.name_en}`);
+            return true;
+          }
+
+          return false;
+        });
 
         if (foundProduct) {
           console.log(`✅ Found product: ${foundProduct.name_en} (${foundProduct.name_cn})`);
@@ -558,6 +602,7 @@ export class ChituService {
 
       if (!foundProduct) {
         console.log(`❌ Phone model "${phoneModelName}" not found after searching all brands`);
+        console.log(`💡 Tip: Make sure the product exists in the machine's catalog and has stock > 0`);
         return {
           available: false,
           message: `Phone model "${phoneModelName}" not found in machine's product catalog`,
@@ -708,9 +753,24 @@ export class ChituService {
 
     if (response.status === 200) {
       console.log(`✅ Order created successfully`);
+      console.log(`📦 Full response data:`, JSON.stringify(response.data, null, 2));
+
+      // Extract order_id from nested result object
+      const orderId = response.data?.result?.orderId ||
+                      response.data?.order_id ||
+                      response.data?.orderId ||
+                      response.data?.id;
+
+      if (orderId) {
+        console.log(`✅ Order ID extracted: ${orderId}`);
+      } else {
+        console.log(`⚠️ Warning: order_id not found in response`);
+        console.log(`   Response structure:`, JSON.stringify(response.data, null, 2));
+      }
+
       return {
         success: true,
-        orderId: response.data?.order_id,
+        orderId: orderId,
         message: response.msg || 'Order created successfully',
       };
     } else {
