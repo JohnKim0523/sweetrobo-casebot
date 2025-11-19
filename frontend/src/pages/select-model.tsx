@@ -25,23 +25,13 @@ export default function SelectModel() {
 
     console.log('🧹 Model selection page loaded from external source - clearing tab-session associations');
 
-    const machineId = router.query.machineId as string;
+    const machineId = router.query.machineId as string || 'CT0700046';
 
-    // Clear all tab-session keys for this machine (production mode)
+    // Clear all tab-session keys for this machine
     // This breaks the association between machine+model and a session ID
-    if (machineId) {
-      Object.keys(sessionStorage).forEach(key => {
-        if (key.startsWith(`tab-session-${machineId}-`)) {
-          console.log(`🗑️ Clearing session association: ${key}`);
-          sessionStorage.removeItem(key);
-        }
-      });
-    }
-
-    // Clear all demo-tab-session keys (demo mode)
     Object.keys(sessionStorage).forEach(key => {
-      if (key.startsWith('demo-tab-session-')) {
-        console.log(`🗑️ Clearing demo session association: ${key}`);
+      if (key.startsWith(`tab-session-${machineId}-`)) {
+        console.log(`🗑️ Clearing session association: ${key}`);
         sessionStorage.removeItem(key);
       }
     });
@@ -64,13 +54,9 @@ export default function SelectModel() {
     const machineId = router.query.machineId as string;
 
     // Navigate to editor with model and preserve machineId if present
-    // If no machineId, use default test machine (CT0700046) for public testing
-    if (machineId) {
-      router.push(`/editor?machineId=${machineId}&model=${model.id}`);
-    } else {
-      // Use test machine ID for public demos
-      router.push(`/editor?machineId=CT0700046&model=${model.id}&test=demo`);
-    }
+    // If no machineId, use default test machine (CT0700046) for testing
+    const finalMachineId = machineId || 'CT0700046';
+    router.push(`/editor?machineId=${finalMachineId}&model=${model.id}`);
   };
 
   return (

@@ -284,7 +284,11 @@ export default function Editor() {
 
   // AI Editing states
   const [showAIModal, setShowAIModal] = useState(false);
-  const [aiModalTab, setAiModalTab] = useState<'custom' | 'text' | 'adjustments' | 'quick'>('custom'); // AI modal tabs
+  const [aiModalTab, setAiModalTab] = useState<'custom' | 'quick'>('custom'); // AI modal tabs (removed text and adjustments)
+
+  // Stickers modal states
+  const [showStickersModal, setShowStickersModal] = useState(false);
+  const [stickersModalTab, setStickersModalTab] = useState<'text' | 'stickers' | 'filters'>('stickers'); // Stickers modal tabs
 
   // Text customization states
   const [textInput, setTextInput] = useState('');
@@ -326,6 +330,29 @@ export default function Editor() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [editHistory, setEditHistory] = useState<string[]>([]);
   const [cropHistory, setCropHistory] = useState<string[]>([]);
+
+  // AI Edit Counter - persisted to sessionStorage
+  const [aiEditCount, setAiEditCount] = useState<number>(() => {
+    // Initialize from sessionStorage on mount
+    if (typeof window === 'undefined') return 0;
+
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlSessionId = urlParams.get('session');
+
+      if (!urlSessionId) return 0;
+
+      const savedCount = sessionStorage.getItem(`ai-edit-count-${urlSessionId}`);
+      const count = savedCount ? parseInt(savedCount, 10) : 0;
+      console.log(`📊 AI Edit Counter initialized: ${count}/3 for session ${urlSessionId}`);
+      return count;
+    } catch (error) {
+      console.error('Failed to load AI edit count:', error);
+      return 0;
+    }
+  });
+  const MAX_AI_EDITS = 3;
+
   const [drawingMode, setDrawingMode] = useState<boolean>(false);
 
   // Comprehensive undo/redo system - stores full canvas state
@@ -384,7 +411,7 @@ export default function Editor() {
       const keysToCheck = [];
       for (let i = 0; i < sessionStorage.length; i++) {
         const key = sessionStorage.key(i);
-        if (key && (key.startsWith('tab-session-') || key.startsWith('demo-tab-session-'))) {
+        if (key && key.startsWith('tab-session-')) {
           keysToCheck.push(key);
         }
       }
@@ -395,12 +422,11 @@ export default function Editor() {
       const modelParam = urlParams.get('model');
 
       const currentProductionKey = machine && modelParam ? `tab-session-${machine}-${modelParam}` : null;
-      const currentDemoKey = modelParam && !machine ? `demo-tab-session-${modelParam}` : null;
 
       // Remove all session keys except current one
       let cleanedCount = 0;
       keysToCheck.forEach(key => {
-        if (key !== currentProductionKey && key !== currentDemoKey) {
+        if (key !== currentProductionKey) {
           sessionStorage.removeItem(key);
           cleanedCount++;
         }
@@ -443,18 +469,14 @@ export default function Editor() {
           const tabSessionKey = `tab-session-${machine}-${modelParam}`;
           existingValidSession = sessionStorage.getItem(tabSessionKey);
           console.log('🔍 Checking for existing session in tab storage:', existingValidSession);
-        } else if (modelParam && !machine) {
-          const demoTabSessionKey = `demo-tab-session-${modelParam}`;
-          existingValidSession = sessionStorage.getItem(demoTabSessionKey);
-          console.log('🔍 Checking for existing demo session:', existingValidSession);
         }
 
         // If we found an existing valid session, redirect to it
-        if (existingValidSession) {
+        if (existingValidSession && machine && modelParam) {
           console.log('✅ Found existing valid session, redirecting to restore it:', existingValidSession);
 
           // Always set the session info
-          setMachineId(machine || ('demo-' + modelParam));
+          setMachineId(machine);
           setSessionId(existingValidSession);
 
           // Check if the existing session is locked (on waiting/thank you page)
@@ -521,8 +543,8 @@ export default function Editor() {
           // Production flow - redirect without session to generate new one
           router.replace(`/editor?machineId=${machine}&model=${modelParam}`);
         } else if (modelParam && !machine) {
-          // Demo flow - redirect without session to generate new one
-          router.replace(`/editor?model=${modelParam}`);
+          // No machine ID - use default test machine
+          router.replace(`/editor?machineId=CT0700046&model=${modelParam}`);
         } else {
           // No valid params - redirect to model selection
           router.replace('/select-model');
@@ -654,10 +676,11 @@ export default function Editor() {
       console.log('🏭 Production flow - machine:', machine, 'model:', modelParam);
 
       // Check if we already generated a session for this page instance
-      if ((window as any).__sessionGenerated) {
-        console.log('📱 Session already generated for this page, using:', session);
+      if ((window as any).__sessionGenerated && (window as any).__generatedSessionId) {
+        const generatedSession = (window as any).__generatedSessionId;
+        console.log('📱 Session already generated for this page, using:', generatedSession);
         setMachineId(machine);
-        setSessionId(session);
+        setSessionId(generatedSession);
         setIsCheckingSession(false);
         return;
       }
@@ -723,6 +746,7 @@ export default function Editor() {
         }
 
         (window as any).__sessionGenerated = true;
+        (window as any).__generatedSessionId = existingTabSession;
 
         // Update URL to match the tab's session
         router.replace(
@@ -750,6 +774,7 @@ export default function Editor() {
       // Store in sessionStorage (survives refresh, unique per tab)
       sessionStorage.setItem(tabSessionKey, productionSession);
       (window as any).__sessionGenerated = true;
+      (window as any).__generatedSessionId = productionSession;
 
       // Update URL
       router.replace(
@@ -769,117 +794,10 @@ export default function Editor() {
       return;
     }
 
-    // Check if we're in model selection flow (demo mode - no machine ID)
+    // If no machine ID provided, use default test machine
     if (modelParam && !machine) {
-      console.log('📱 Demo mode - model:', modelParam);
-
-      if ((window as any).__demoSessionGenerated) {
-        console.log('📱 Demo session already generated, using:', session);
-        setMachineId('demo-' + modelParam);
-        setSessionId(session);
-        setIsCheckingSession(false);
-        return;
-      }
-
-      // Check for existing demo session in this tab
-      const demoTabSessionKey = `demo-tab-session-${modelParam}`;
-      const existingDemoSession = sessionStorage.getItem(demoTabSessionKey);
-
-      if (existingDemoSession) {
-        console.log('🔄 Found existing demo session for this tab (refresh):', existingDemoSession);
-
-        // CRITICAL: Check if this demo session is LOCKED (user submitted design)
-        const demoSessionLockKey = `session-locked-${existingDemoSession}`;
-        const isDemoSessionLocked = sessionStorage.getItem(demoSessionLockKey) === 'true';
-
-        if (isDemoSessionLocked) {
-          console.log('🔒 Demo session is LOCKED - preventing access to editor');
-          console.log('📄 This session has submitted a design and is on waiting/thank you page');
-
-          // Set states FIRST before any router operations
-          setIsSessionLocked(true);
-          setMachineId('demo-' + modelParam);
-          setSessionId(existingDemoSession);
-          setIsCheckingSession(false);
-
-          // Check which page state to restore
-          const pageState = sessionStorage.getItem(`page-state-${existingDemoSession}`);
-          console.log('📋 Demo page state from storage:', pageState);
-
-          if (pageState === 'preview') {
-            // Restore preview modal state
-            const previewImageData = sessionStorage.getItem(`preview-image-${existingDemoSession}`);
-            const submissionDataStr = sessionStorage.getItem(`submission-data-${existingDemoSession}`);
-
-            if (previewImageData && submissionDataStr) {
-              setPreviewImage(previewImageData);
-              (window as any).__submissionData = JSON.parse(submissionDataStr);
-              setShowPreviewModal(true);
-              console.log('📄 Restored to preview/confirmation page');
-            } else {
-              console.warn('⚠️ Preview state found but data missing');
-            }
-          } else if (pageState === 'waiting') {
-            setShowWaitingForPayment(true);
-            setShowThankYou(false);
-            console.log('📄 Restored to waiting for payment page');
-          } else if (pageState === 'thankyou') {
-            setShowWaitingForPayment(false);
-            setShowThankYou(true);
-            console.log('📄 Restored to thank you page');
-          } else {
-            console.error('⚠️ No valid page state found! pageState =', pageState);
-          }
-
-          // Fix the URL to match the correct session (but don't allow editor access)
-          // Use history.replaceState instead of router.replace to avoid triggering re-renders
-          const correctUrl = `/editor?model=${modelParam}&session=${existingDemoSession}`;
-          window.history.replaceState(null, '', correctUrl);
-          console.log('✅ Demo URL corrected to:', correctUrl);
-
-          return;
-        }
-
-        (window as any).__demoSessionGenerated = true;
-
-        router.replace(
-          {
-            pathname: '/editor',
-            query: { model: modelParam, session: existingDemoSession }
-          },
-          undefined,
-          { shallow: true }
-        );
-
-        setMachineId('demo-' + modelParam);
-        setSessionId(existingDemoSession);
-        setIsCheckingSession(false);
-        return;
-      }
-
-      // Generate new demo session
-      const modelSession = typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      console.log('🆕 Generating new demo session for this tab:', modelSession);
-
-      sessionStorage.setItem(demoTabSessionKey, modelSession);
-      (window as any).__demoSessionGenerated = true;
-
-      router.replace(
-        {
-          pathname: '/editor',
-          query: { model: modelParam, session: modelSession }
-        },
-        undefined,
-        { shallow: true }
-      );
-
-      console.log('✅ Demo URL updated with session:', modelSession);
-
-      setMachineId('demo-' + modelParam);
-      setSessionId(modelSession);
-      setIsCheckingSession(false);
+      console.log('⚠️ No machine ID - redirecting to use default test machine CT0700046');
+      router.replace(`/editor?machineId=CT0700046&model=${modelParam}`);
       return;
     }
 
@@ -898,12 +816,11 @@ export default function Editor() {
       return;
     }
 
-    // No machine ID and no model - redirect to model selection (demo mode)
-    // BUT: Don't redirect if we already have a session (demo mode with model parameter)
+    // No machine ID and no model - redirect to model selection with default machine
     const hasSession = session || modelParam;
     if ((!machine || machine === 'null' || machine === 'undefined' || machine === '') && !hasSession) {
-      console.log('🔄 No machine ID - redirecting to model selection');
-      router.push('/select-model');
+      console.log('🔄 No machine ID - redirecting to model selection with default machine');
+      router.push('/select-model?machineId=CT0700046');
       return;
     }
   }, []); // Run once on mount
@@ -929,9 +846,6 @@ export default function Editor() {
         sessionStorage.removeItem(tabSessionKey);
         console.log('🗑️ Cleared production session from storage:', tabSessionKey);
       } else if (modelParam) {
-        const demoTabSessionKey = `demo-tab-session-${modelParam}`;
-        sessionStorage.removeItem(demoTabSessionKey);
-        console.log('🗑️ Cleared demo session from storage:', demoTabSessionKey);
       }
 
       // Clear session lock and page state
@@ -942,16 +856,13 @@ export default function Editor() {
         console.log('🗑️ Cleared session lock and page state from storage');
       }
 
-      // Clear the page generation flag
+      // Clear the page generation flags
       delete (window as any).__sessionGenerated;
-      delete (window as any).__demoSessionGenerated;
+      delete (window as any).__generatedSessionId;
 
       // Redirect back to phone selection to start fresh
-      if (machine) {
-        router.push(`/select-model?machineId=${machine}`);
-      } else {
-        router.push('/select-model');
-      }
+      const finalMachine = machine || 'CT0700046';
+      router.push(`/select-model?machineId=${finalMachine}`);
     }, 30000); // 30 seconds
 
     return () => clearTimeout(resetTimer);
@@ -1145,7 +1056,7 @@ export default function Editor() {
             }
           }
 
-          sessionStorage.setItem(`canvas-state-${sessionId}`, JSON.stringify({
+          const stateToSave = JSON.stringify({
             canvasJSON: fullCanvasState,
             mainImageState: mainImageState,
             backgroundColor: canvasBackgroundColor,
@@ -1160,10 +1071,86 @@ export default function Editor() {
               viewportWidth: viewportWidth,
               viewportHeight: viewportHeight
             }
-          }));
+          });
+
+          sessionStorage.setItem(`canvas-state-${sessionId}`, stateToSave);
           console.log('💾 Canvas state persisted to sessionStorage' + (existingDimensions ? ' (dimensions preserved)' : ' (dimensions saved)'));
         } catch (err) {
-          console.error('❌ Failed to save canvas to sessionStorage:', err);
+          // Handle QuotaExceededError by cleaning up old sessions
+          if (err instanceof DOMException && err.name === 'QuotaExceededError') {
+            console.warn('⚠️ SessionStorage quota exceeded, cleaning up old sessions...');
+
+            // Get all canvas-state keys and sort by timestamp
+            const canvasStateKeys: Array<{ key: string; timestamp: number }> = [];
+            for (let i = 0; i < sessionStorage.length; i++) {
+              const key = sessionStorage.key(i);
+              if (key && key.startsWith('canvas-state-') && key !== `canvas-state-${sessionId}`) {
+                try {
+                  const data = sessionStorage.getItem(key);
+                  if (data) {
+                    const parsed = JSON.parse(data);
+                    canvasStateKeys.push({ key, timestamp: parsed.savedAt || 0 });
+                  }
+                } catch (e) {
+                  // If we can't parse it, mark it for removal (timestamp 0)
+                  canvasStateKeys.push({ key, timestamp: 0 });
+                }
+              }
+            }
+
+            // Sort by timestamp (oldest first) and remove old sessions
+            canvasStateKeys.sort((a, b) => a.timestamp - b.timestamp);
+
+            let removedCount = 0;
+            for (const item of canvasStateKeys) {
+              sessionStorage.removeItem(item.key);
+              removedCount++;
+              console.log('🗑️ Removed old canvas state:', item.key);
+
+              // Stop after removing a few - try to save again
+              if (removedCount >= 3) break;
+            }
+
+            console.log(`✅ Cleaned up ${removedCount} old session(s)`);
+
+            // Try saving again after cleanup
+            try {
+              const fullCanvasState = canvas.toJSON([
+                'selectable',
+                'hasControls',
+                'excludeFromExport',
+                'hasBorders',
+                'borderColor',
+                'src',
+                'filters',
+                'crossOrigin'
+              ]);
+
+              const stateToSave = JSON.stringify({
+                canvasJSON: fullCanvasState,
+                mainImageState: mainImageState,
+                backgroundColor: canvasBackgroundColor,
+                savedAt: Date.now(),
+                canvasDimensions: existingDimensions || {
+                  displayWidth: DISPLAY_WIDTH,
+                  displayHeight: DISPLAY_HEIGHT,
+                  exportWidth: EXPORT_WIDTH,
+                  exportHeight: EXPORT_HEIGHT,
+                  scaleFactor: SCALE_FACTOR,
+                  viewportWidth: viewportWidth,
+                  viewportHeight: viewportHeight
+                }
+              });
+
+              sessionStorage.setItem(`canvas-state-${sessionId}`, stateToSave);
+              console.log('✅ Canvas state saved after cleanup');
+            } catch (retryErr) {
+              console.error('❌ Failed to save even after cleanup. Storage may be completely full.');
+              // Continue without saving - app still functions, just won't persist on refresh
+            }
+          } else {
+            console.error('❌ Failed to save canvas to sessionStorage:', err);
+          }
         }
       }
 
@@ -1181,6 +1168,41 @@ export default function Editor() {
       console.error('Failed to save canvas state:', error);
     }
   }, [canvas, uploadedImage, canvasBackgroundColor]); // isRestoringState is now a ref, doesn't need to be in dependencies
+
+  // Helper function to increment AI edit counter and persist to sessionStorage
+  const incrementAIEditCount = useCallback(() => {
+    if (!sessionId) {
+      console.warn('⚠️ No session ID - cannot increment AI edit count');
+      return false;
+    }
+
+    const newCount = aiEditCount + 1;
+
+    if (newCount > MAX_AI_EDITS) {
+      console.warn(`⚠️ AI edit limit reached: ${aiEditCount}/${MAX_AI_EDITS}`);
+      return false;
+    }
+
+    console.log(`📊 Incrementing AI edit count: ${aiEditCount} → ${newCount}/${MAX_AI_EDITS}`);
+
+    // Update state
+    setAiEditCount(newCount);
+
+    // Persist to sessionStorage
+    try {
+      sessionStorage.setItem(`ai-edit-count-${sessionId}`, newCount.toString());
+      console.log(`💾 AI edit count saved to sessionStorage for session ${sessionId}`);
+    } catch (error) {
+      console.error('Failed to save AI edit count to sessionStorage:', error);
+    }
+
+    return true;
+  }, [sessionId, aiEditCount]);
+
+  // Helper function to check if AI edits are available
+  const canUseAIEdit = useCallback((): boolean => {
+    return aiEditCount < MAX_AI_EDITS;
+  }, [aiEditCount]);
 
   useEffect(() => {
     // Only initialize canvas when all conditions are met
@@ -3414,7 +3436,13 @@ export default function Editor() {
   
   const handleAIEdit = async () => {
     if (!canvas || !aiPrompt.trim()) return;
-    
+
+    // Check AI edit limit BEFORE processing
+    if (!canUseAIEdit()) {
+      alert(`🚫 You've used all ${MAX_AI_EDITS} free AI edits for this session.\n\nYour design has been saved and you can still:\n• Add text and stickers\n• Apply filters\n• Submit your design for printing`);
+      return;
+    }
+
     setIsProcessing(true);
     setAiError(null);
     
@@ -3441,45 +3469,33 @@ export default function Editor() {
         console.log('Saved image state to history with position:', uploadedImage.left, uploadedImage.top);
       }
       
-      // Export the FULL uploaded image (not cropped) for AI Edit
-      // This preserves the entire image context so Gemini can edit it properly
+      // Export the CURRENT IMAGE for AI Edit (not the entire canvas with whitespace)
+      // This ensures AI edits work on the actual image content only
+      // The result will be scaled to fill the canvas perfectly
+      console.log('🔍 AI Edit Export: Capturing current image from canvas');
+
       let imageData = '';
 
-      // Use the original file if available (best quality - no canvas conversion)
-      if (originalImageFile) {
-        console.log('🔍 AI Edit Export (using original file):');
-        console.log('  Original file:', originalImageFile.name, originalImageFile.size, 'bytes');
-
-        // Convert the original file directly to base64 - NO CANVAS CONVERSION
-        // This preserves 100% of the original image quality
-        const fileReader = new FileReader();
-        imageData = await new Promise<string>((resolve, reject) => {
-          fileReader.onload = (e) => {
-            if (e.target?.result) {
-              resolve(e.target.result as string);
-            } else {
-              reject(new Error('Failed to read file'));
-            }
-          };
-          fileReader.onerror = reject;
-          fileReader.readAsDataURL(originalImageFile);
-        });
-
-        console.log('✅ Using original file (zero quality loss)');
-      } else if (uploadedImage) {
-        // Fallback: Export from canvas (will have some quality loss)
-        console.log('⚠️ No original file, using canvas export (some quality loss)');
-        console.log('  Canvas image dimensions:', uploadedImage.width, 'x', uploadedImage.height);
-
+      if (uploadedImage) {
+        // Export just the uploaded image object (no whitespace)
+        console.log('  Exporting uploaded image object');
         imageData = uploadedImage.toDataURL({
           format: 'png',
           quality: 1.0,
           multiplier: 1,
         });
+        console.log('  Image dimensions:', uploadedImage.width, 'x', uploadedImage.height);
       } else {
-        console.warn('No uploaded image found, cannot perform AI edit');
-        return;
+        // Fallback: export entire canvas if no specific image found
+        console.warn('  No uploaded image object found, exporting entire canvas');
+        imageData = canvas.toDataURL({
+          format: 'png',
+          quality: 1.0,
+          multiplier: 1,
+        });
       }
+
+      console.log('✅ Using current image for AI edit (will be scaled to fill canvas)');
       
       // Call Vertex AI image edit API
       const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
@@ -3603,19 +3619,24 @@ export default function Editor() {
           targetTop = uploadedImage.top || targetTop;
           targetAngle = uploadedImage.angle || 0;
 
-          // Calculate the DISPLAYED size of the original image on canvas
-          const oldDisplayWidth = (uploadedImage.width || 1) * (uploadedImage.scaleX || 1);
-          const oldDisplayHeight = (uploadedImage.height || 1) * (uploadedImage.scaleY || 1);
+          // Calculate scale to FILL the canvas while maintaining aspect ratio
+          // Use the printable area dimensions (DISPLAY_WIDTH and DISPLAY_HEIGHT are already calculated)
+          const printableWidth = DISPLAY_WIDTH;
+          const printableHeight = DISPLAY_HEIGHT;
 
-          // Calculate scale needed to match that same display size
-          // This ensures the edited image appears at the same size, regardless of resolution changes
-          targetScaleX = oldDisplayWidth / (fabricImage.width || 1);
-          targetScaleY = oldDisplayHeight / (fabricImage.height || 1);
+          // Calculate scale to COVER (fill) the printable area while maintaining aspect ratio
+          // Using Math.max ensures the image fills the entire canvas (no black margins)
+          const scaleToFitWidth = printableWidth / (fabricImage.width || 1);
+          const scaleToFitHeight = printableHeight / (fabricImage.height || 1);
+          const uniformScale = Math.max(scaleToFitWidth, scaleToFitHeight); // Changed from Math.min to Math.max
+
+          targetScaleX = uniformScale;
+          targetScaleY = uniformScale; // Use same scale to maintain aspect ratio
 
           console.log('  Preserving original position:', targetLeft, targetTop);
-          console.log('  Original display size:', oldDisplayWidth, 'x', oldDisplayHeight);
           console.log('  New image size:', fabricImage.width, 'x', fabricImage.height);
-          console.log('  Calculated scale to match display size:', targetScaleX, targetScaleY);
+          console.log('  Canvas printable area:', printableWidth, 'x', printableHeight);
+          console.log('  Calculated uniform scale (FILL):', uniformScale);
           console.log('  Preserving original angle:', targetAngle);
 
           // Block automatic state saves during image replacement
@@ -3659,6 +3680,9 @@ export default function Editor() {
         canvas.setActiveObject(fabricImage);
         canvas.renderAll();
         setUploadedImage(fabricImage);
+
+        // Increment AI edit counter after successful edit
+        incrementAIEditCount();
 
         // CRITICAL: Update originalImageFile so next AI edit uses this edited version (sequential editing)
         // Convert the edited image data URL to a File object
@@ -3834,7 +3858,13 @@ export default function Editor() {
 
   const handleCreateAIImage = async () => {
     if (!canvas || !createPrompt.trim()) return;
-    
+
+    // Check AI edit limit BEFORE processing
+    if (!canUseAIEdit()) {
+      alert(`🚫 You've used all ${MAX_AI_EDITS} free AI edits for this session.\n\nYour design has been saved and you can still:\n• Add text and stickers\n• Apply filters\n• Submit your design for printing`);
+      return;
+    }
+
     setIsProcessing(true);
     setAiError(null);
     
@@ -3970,7 +4000,18 @@ export default function Editor() {
         canvas.setActiveObject(fabricImage);
         canvas.renderAll();
         setUploadedImage(fabricImage);
-        
+
+        // Increment AI edit counter after successful image generation
+        incrementAIEditCount();
+
+        // Clear restoration flag and save initial state for undo/redo
+        setTimeout(() => {
+          isRestoringState.current = false;
+          console.log('✅ Restoration flag cleared after AI image generation');
+          // Save the initial state to enable undo
+          saveCanvasState();
+        }, 100);
+
         // Add crop mode toggle functionality for AI generated images
         fabricImage.on('selected', () => {
           if (isCropMode && cropControls.current) {
@@ -4782,11 +4823,43 @@ export default function Editor() {
         <meta name="apple-touch-fullscreen" content="yes" />
         <meta name="format-detection" content="telephone=no" />
         <style dangerouslySetInnerHTML={{__html: `
-          * { 
+          * {
             -webkit-touch-callout: none !important;
             -webkit-user-select: none !important;
             -webkit-tap-highlight-color: transparent !important;
             user-select: none !important;
+          }
+
+          /* Critical: Ensure submit button is always accessible on mobile */
+          .pb-safe {
+            padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0.75rem)) !important;
+          }
+
+          /* Prevent virtual keyboard from hiding submit button */
+          @media screen and (max-height: 600px) {
+            .sticky.bottom-0 {
+              position: fixed !important;
+              bottom: 0 !important;
+              left: 0 !important;
+              right: 0 !important;
+              max-width: 32rem !important;
+              margin: 0 auto !important;
+            }
+          }
+
+          /* Ensure proper viewport height accounting for mobile browser chrome */
+          @supports (-webkit-touch-callout: none) {
+            .h-full {
+              height: -webkit-fill-available !important;
+            }
+          }
+
+          /* Additional safeguard for very small screens */
+          @media screen and (max-height: 500px) {
+            .sticky.bottom-0 {
+              position: fixed !important;
+              z-index: 9999 !important;
+            }
           }
         `}} />
       </Head>
@@ -5203,36 +5276,57 @@ export default function Editor() {
               <canvas ref={canvasRef} className="no-select" />
             </div>
 
+            {/* AI Edit Counter - Positioned above toolbar */}
+            {uploadedImage && (
+              <div className="flex-shrink-0 px-3 py-1.5">
+                <div className="flex items-center justify-center gap-2 bg-purple-50 px-3 py-2 rounded-lg border border-purple-200">
+                  <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  </svg>
+                  <span className={`text-sm font-semibold ${aiEditCount >= MAX_AI_EDITS ? 'text-red-600' : 'text-purple-600'}`}>
+                    {MAX_AI_EDITS - aiEditCount} AI edits left
+                  </span>
+                </div>
+              </div>
+            )}
+
             {/* Bottom Toolbar - Attached below canvas */}
             {uploadedImage && (
               <div className="flex-shrink-0 px-3 py-1">
                 <div className="flex justify-between items-center gap-2 w-full">
-              {/* Edit with AI Button */}
-              <button
-                onClick={() => {
-                  // Save initial states before opening modal
-                  setInitialBWState(isBlackAndWhite);
-                  setInitialBgColor(canvasBackgroundColor);
-                  setInitialTextColor(textColor);
-                  setShowAIModal(true);
-                }}
-                className="h-11 px-3 bg-white font-medium rounded-lg flex items-center justify-center gap-1 text-sm shadow-lg"
-                style={{
-                  background: 'white',
-                  color: 'transparent',
-                  backgroundImage: 'linear-gradient(135deg, #a855f7, #ec4899)',
-                  WebkitBackgroundClip: 'text',
-                  backgroundClip: 'text'
-                }}
-              >
-                <span style={{
-                  backgroundImage: 'linear-gradient(135deg, #a855f7, #ec4899)',
-                  WebkitBackgroundClip: 'text',
-                  backgroundClip: 'text',
-                  color: 'transparent'
-                }}>✨</span>
-                <span>Edit with AI</span>
-              </button>
+              {/* Left buttons group - AI Edit and Stickers */}
+              <div className="flex items-center gap-2">
+                {/* AI Edit Button */}
+                <button
+                  onClick={() => {
+                    setInitialBWState(isBlackAndWhite);
+                    setInitialBgColor(canvasBackgroundColor);
+                    setInitialTextColor(textColor);
+                    setShowAIModal(true);
+                  }}
+                  className="h-11 px-3 bg-white font-medium rounded-lg flex items-center justify-center text-sm shadow-lg whitespace-nowrap"
+                  style={{
+                    background: 'white',
+                    color: 'transparent',
+                    backgroundImage: 'linear-gradient(135deg, #a855f7, #ec4899)',
+                    WebkitBackgroundClip: 'text',
+                    backgroundClip: 'text'
+                  }}
+                >
+                  <span>AI Edit</span>
+                </button>
+
+                {/* Stickers Button */}
+                <button
+                  onClick={() => {
+                    setInitialTextColor(textColor);
+                    setShowStickersModal(true);
+                  }}
+                  className="h-11 px-3 bg-white font-medium rounded-lg flex items-center justify-center text-sm shadow-lg"
+                >
+                  <span className="text-gray-700">Stickers</span>
+                </button>
+              </div>
 
               {/* Middle buttons group */}
               <div className="flex items-center gap-2">
@@ -5430,32 +5524,158 @@ export default function Editor() {
               </button>
             </div>
 
+            {/* Content Area */}
+            <div className="flex-1 p-4 overflow-y-auto">
+              <div>
+                {/* AI Prompt Textarea */}
+                <textarea
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  placeholder="Describe your edit (e.g., 'Make it look like oil painting')..."
+                  className="w-full px-3 py-2 bg-gray-50 rounded-lg border border-gray-300 focus:border-purple-500 focus:outline-none text-gray-900 text-sm mb-4"
+                  rows={3}
+                  disabled={isProcessing}
+                />
+
+                <p className="text-xs text-gray-500 mb-2">Or choose a quick action:</p>
+
+                {/* Quick Action Buttons Grid - 3x2 */}
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setAiPrompt('Make it look like oil painting')}
+                    className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                    disabled={isProcessing}
+                  >
+                    <span className="text-xl">🎨</span>
+                    <span className="text-gray-700 font-medium">Oil Painting</span>
+                  </button>
+                  <button
+                    onClick={() => setAiPrompt('Convert to cartoon style')}
+                    className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                    disabled={isProcessing}
+                  >
+                    <span className="text-xl">🎭</span>
+                    <span className="text-gray-700 font-medium">Cartoon Style</span>
+                  </button>
+                  <button
+                    onClick={() => setAiPrompt('Make it vintage')}
+                    className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                    disabled={isProcessing}
+                  >
+                    <span className="text-xl">📷</span>
+                    <span className="text-gray-700 font-medium">Vintage</span>
+                  </button>
+                  <button
+                    onClick={() => setAiPrompt('Add sunset lighting')}
+                    className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                    disabled={isProcessing}
+                  >
+                    <span className="text-xl">🌅</span>
+                    <span className="text-gray-700 font-medium">Sunset</span>
+                  </button>
+                  <button
+                    onClick={() => setAiPrompt('Apply watercolor effect')}
+                    className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                    disabled={isProcessing}
+                  >
+                    <span className="text-xl">💧</span>
+                    <span className="text-gray-700 font-medium">Watercolor</span>
+                  </button>
+                  <button
+                    onClick={() => setAiPrompt('Add dramatic cinematic lighting')}
+                    className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
+                    disabled={isProcessing}
+                  >
+                    <span className="text-xl">🎬</span>
+                    <span className="text-gray-700 font-medium">Cinematic</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Buttons */}
+            <div className="p-4 flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  // Handle AI edit
+                  handleAIEdit();
+                }}
+                className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2"
+                disabled={isProcessing || !aiPrompt.trim()}
+              >
+                {isProcessing ? (
+                  <>
+                    <span className="animate-spin">⚙️</span>
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>&#10003;</span>
+                    <span>Apply</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setShowAIModal(false);
+                  setAiPrompt('');
+                  setAiError(null);
+                }}
+                className="w-full py-3 bg-white text-gray-700 rounded-xl font-semibold border border-gray-300 flex items-center justify-center gap-2"
+                disabled={isProcessing}
+              >
+                <span>&times;</span>
+                <span>Cancel</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stickers & Effects Modal */}
+      {showStickersModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-white flex flex-col rounded-2xl shadow-2xl max-h-[90vh]">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-200 relative">
+              <h2 className="text-gray-900 text-base font-semibold">Stickers & Effects</h2>
+              <button
+                onClick={() => {
+                  // Revert text color to initial state if changed
+                  if (textColor !== initialTextColor) {
+                    setTextColor(initialTextColor);
+                  }
+                  // Reset custom text color icon
+                  setCustomTextColor(null);
+                  setShowStickersModal(false);
+                  setStickersModalTab('stickers');
+                  setTextInput('');
+                }}
+                className="absolute top-4 right-4 w-6 h-6 flex items-center justify-center text-gray-400 hover:text-gray-600"
+              >
+                <span className="text-2xl leading-none">&times;</span>
+              </button>
+            </div>
+
             {/* Tab Icons */}
             <div className="flex items-center justify-around p-4 border-b border-gray-200">
               <button
-                onClick={() => setAiModalTab('custom')}
-                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${aiModalTab === 'custom' ? 'bg-purple-100' : ''}`}
-              >
-                <span className="text-2xl">✨</span>
-                <span className="text-xs text-gray-700">Effects</span>
-              </button>
-              <button
-                onClick={() => setAiModalTab('text')}
-                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${aiModalTab === 'text' ? 'bg-purple-100' : ''}`}
+                onClick={() => setStickersModalTab('text')}
+                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${stickersModalTab === 'text' ? 'bg-purple-100' : ''}`}
               >
                 <span className="text-2xl">T</span>
                 <span className="text-xs text-gray-700">Text</span>
               </button>
               <button
-                onClick={() => setAiModalTab('adjustments')}
-                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${aiModalTab === 'adjustments' ? 'bg-purple-100' : ''}`}
+                onClick={() => setStickersModalTab('stickers')}
+                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${stickersModalTab === 'stickers' ? 'bg-purple-100' : ''}`}
               >
                 <span className="text-2xl">🎨</span>
                 <span className="text-xs text-gray-700">Stickers</span>
               </button>
               <button
-                onClick={() => setAiModalTab('quick')}
-                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${aiModalTab === 'quick' ? 'bg-purple-100' : ''}`}
+                onClick={() => setStickersModalTab('filters')}
+                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${stickersModalTab === 'filters' ? 'bg-purple-100' : ''}`}
               >
                 <span className="text-2xl">☰</span>
                 <span className="text-xs text-gray-700">Filters</span>
@@ -5464,172 +5684,8 @@ export default function Editor() {
 
             {/* Content Area */}
             <div className="flex-1 p-4 overflow-y-auto">
-              {/* Custom AI Edit Tab */}
-              {aiModalTab === 'custom' && (
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Custom AI Edit</h3>
-
-                  {/* Quick Action Buttons Grid */}
-                  <div className="grid grid-cols-2 gap-3 mb-4">
-                    <button
-                      onClick={() => setAiPrompt('Make it look like oil painting')}
-                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                      disabled={isProcessing}
-                    >
-                      <span className="text-xl">🎨</span>
-                      <span className="text-gray-700 font-medium">Oil Painting</span>
-                    </button>
-                    <button
-                      onClick={() => setAiPrompt('Convert to cartoon style')}
-                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                      disabled={isProcessing}
-                    >
-                      <span className="text-xl">🎭</span>
-                      <span className="text-gray-700 font-medium">Cartoon Style</span>
-                    </button>
-                    <button
-                      onClick={() => setAiPrompt('Make it vintage')}
-                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                      disabled={isProcessing}
-                    >
-                      <span className="text-xl">📷</span>
-                      <span className="text-gray-700 font-medium">Vintage</span>
-                    </button>
-                    <button
-                      onClick={() => setAiPrompt('Add sunset lighting')}
-                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                      disabled={isProcessing}
-                    >
-                      <span className="text-xl">🌅</span>
-                      <span className="text-gray-700 font-medium">Sunset</span>
-                    </button>
-                    <button
-                      onClick={() => setAiPrompt('Apply watercolor effect')}
-                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                      disabled={isProcessing}
-                    >
-                      <span className="text-xl">💧</span>
-                      <span className="text-gray-700 font-medium">Watercolor</span>
-                    </button>
-                    <button
-                      onClick={() => setAiPrompt('Add dramatic cinematic lighting')}
-                      className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                      disabled={isProcessing}
-                    >
-                      <span className="text-xl">🎬</span>
-                      <span className="text-gray-700 font-medium">Cinematic</span>
-                    </button>
-                  </div>
-
-                  {/* Quick Effects Section */}
-                  <div className="mt-6 mb-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-xs font-semibold text-gray-700">Quick Effects</p>
-                      {(isBlackAndWhite || canvasBackgroundColor !== 'transparent') && (
-                        <button
-                          onClick={() => {
-                            setIsBlackAndWhite(false);
-                            setCanvasBackgroundColor('transparent');
-
-                            // Remove grayscale filter from image
-                            if (uploadedImage && canvas) {
-                              uploadedImage.filters = (uploadedImage.filters || []).filter((f: any) =>
-                                f.type !== 'Grayscale'
-                              );
-                              uploadedImage.applyFilters();
-                              canvas.backgroundColor = 'transparent';
-                              canvas.renderAll();
-                            }
-
-                            // Close modal immediately
-                            setShowAIModal(false);
-                            setAiModalTab('custom');
-                            setFiltersTouched(false);
-                          }}
-                          className="text-xs text-red-600 font-medium hover:text-red-700"
-                        >
-                          Remove Effects
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        onClick={() => {
-                          if (!uploadedImage || !canvas) return;
-                          const newValue = !isBlackAndWhite;
-                          setIsBlackAndWhite(newValue);
-                          setFiltersTouched(true);
-
-                          // Apply or remove grayscale filter
-                          if (newValue) {
-                            const filters = uploadedImage.filters || [];
-                            filters.push(new (fabric as any).filters.Grayscale());
-                            uploadedImage.filters = filters;
-                          } else {
-                            // Remove grayscale filter
-                            uploadedImage.filters = (uploadedImage.filters || []).filter((f: any) =>
-                              f.type !== 'Grayscale'
-                            );
-                          }
-                          uploadedImage.applyFilters();
-                          canvas.renderAll();
-
-                          // Save state after black & white filter is toggled
-                          setTimeout(() => saveCanvasState(), 100);
-                        }}
-                        className={`flex items-center gap-2 px-3 py-2 border rounded-lg transition text-sm ${
-                          isBlackAndWhite
-                            ? 'bg-purple-500 border-purple-500 text-white'
-                            : 'bg-white border-gray-300 hover:border-purple-500 hover:bg-purple-50 text-gray-700'
-                        }`}
-                        disabled={isProcessing}
-                      >
-                        <span className="text-xl">⚫⚪</span>
-                        <span className="font-medium">{isBlackAndWhite ? 'B&W Active' : 'Black & White'}</span>
-                      </button>
-                      <div className="relative">
-                        <input
-                          type="color"
-                          value={canvasBackgroundColor === 'transparent' ? '#FFFFFF' : canvasBackgroundColor}
-                          onChange={(e) => {
-                            setCanvasBackgroundColor(e.target.value);
-                            setFiltersTouched(false);
-                            // Clear AI inputs and close modal immediately
-                            setAiPrompt('');
-                            setTextInput('');
-                            setShowAIModal(false);
-                            setAiModalTab('custom');
-                          }}
-                          disabled={isProcessing}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                          style={{ zIndex: 10 }}
-                        />
-                        <div className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm pointer-events-none">
-                          <span className="text-xl">🎨</span>
-                          <span className="text-gray-700 font-medium">Background Color</span>
-                          <div
-                            className="w-5 h-5 rounded border border-gray-300 ml-1"
-                            style={{ backgroundColor: canvasBackgroundColor }}
-                          ></div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-gray-500 mb-2">Or describe your own edit:</p>
-                  <textarea
-                    value={aiPrompt}
-                    onChange={(e) => setAiPrompt(e.target.value)}
-                    placeholder="Enter your edit..."
-                    className="w-full px-3 py-2 bg-gray-50 rounded-lg border border-gray-300 focus:border-purple-500 focus:outline-none text-gray-900 text-sm"
-                    rows={3}
-                    disabled={isProcessing}
-                  />
-                </div>
-              )}
-
               {/* Text Tab */}
-              {aiModalTab === 'text' && (
+              {stickersModalTab === 'text' && (
                 <div>
                   {/* Text Templates */}
                   <div className="grid grid-cols-2 gap-3 mb-4">
@@ -5823,7 +5879,7 @@ export default function Editor() {
               )}
 
               {/* Stickers Tab */}
-              {aiModalTab === 'adjustments' && (
+              {stickersModalTab === 'stickers' && (
                 <div className="flex flex-col h-full">
                   <h3 className="text-sm font-semibold text-gray-900 mb-3">Stickers</h3>
 
@@ -5891,9 +5947,8 @@ export default function Editor() {
                             canvas.renderAll();
                             console.log('Image added to canvas');
 
-                            setShowAIModal(false);
-                            setAiModalTab('custom');
-                            setFiltersTouched(false);
+                            setShowStickersModal(false);
+                            setStickersModalTab('stickers');
                             console.log('Modal closed');
                           };
 
@@ -5962,8 +6017,8 @@ export default function Editor() {
                               canvas.add(fabricImage);
                               canvas.setActiveObject(fabricImage);
                               canvas.renderAll();
-                              setShowAIModal(false);
-                              setAiModalTab('custom');
+                              setShowStickersModal(false);
+                              setStickersModalTab('stickers');
                             };
 
                             // Set the source to trigger loading
@@ -6139,10 +6194,9 @@ export default function Editor() {
                               canvas.add(stickerObj);
                               canvas.setActiveObject(stickerObj);
                               canvas.renderAll();
-                              setShowAIModal(false);
-                              setAiModalTab('custom');
+                              setShowStickersModal(false);
+                              setStickersModalTab('stickers');
                               setStickerSearch('');
-                              setFiltersTouched(false);
                             }}
                             className="flex flex-col items-center gap-1 p-2 bg-white border border-gray-300 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition"
                           >
@@ -6157,10 +6211,97 @@ export default function Editor() {
               )}
 
               {/* Filters Tab */}
-              {aiModalTab === 'quick' && (
+              {stickersModalTab === 'filters' && (
                 <div className="flex flex-col h-full">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-900">Manual Adjustments</h3>
+                    <h3 className="text-sm font-semibold text-gray-900">Quick Effects</h3>
+                  </div>
+
+                  {/* Black & White and Background Color */}
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-3">
+                      {(isBlackAndWhite || canvasBackgroundColor !== 'transparent') && (
+                        <button
+                          onClick={() => {
+                            setIsBlackAndWhite(false);
+                            setCanvasBackgroundColor('transparent');
+
+                            // Remove grayscale filter from image
+                            if (uploadedImage && canvas) {
+                              uploadedImage.filters = (uploadedImage.filters || []).filter((f: any) =>
+                                f.type !== 'Grayscale'
+                              );
+                              uploadedImage.applyFilters();
+                              canvas.backgroundColor = 'transparent';
+                              canvas.renderAll();
+                            }
+
+                            // Close modal immediately
+                            setShowStickersModal(false);
+                            setStickersModalTab('filters');
+                          }}
+                          className="text-xs text-red-600 font-medium hover:text-red-700"
+                        >
+                          Remove Effects
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 mb-6">
+                      <button
+                        onClick={() => {
+                          if (!uploadedImage || !canvas) return;
+                          const newValue = !isBlackAndWhite;
+                          setIsBlackAndWhite(newValue);
+
+                          // Apply or remove grayscale filter
+                          if (newValue) {
+                            const filters = uploadedImage.filters || [];
+                            filters.push(new (fabric as any).filters.Grayscale());
+                            uploadedImage.filters = filters;
+                          } else {
+                            // Remove grayscale filter
+                            uploadedImage.filters = (uploadedImage.filters || []).filter((f: any) =>
+                              f.type !== 'Grayscale'
+                            );
+                          }
+                          uploadedImage.applyFilters();
+                          canvas.renderAll();
+
+                          // Save state after black & white filter is toggled
+                          setTimeout(() => saveCanvasState(), 100);
+                        }}
+                        className={`flex items-center gap-2 px-3 py-2 border rounded-lg transition text-sm ${
+                          isBlackAndWhite
+                            ? 'bg-purple-500 border-purple-500 text-white'
+                            : 'bg-white border-gray-300 hover:border-purple-500 hover:bg-purple-50 text-gray-700'
+                        }`}
+                      >
+                        <span className="text-xl">⚫⚪</span>
+                        <span className="font-medium">{isBlackAndWhite ? 'B&W Active' : 'Black & White'}</span>
+                      </button>
+                      <div className="relative">
+                        <input
+                          type="color"
+                          value={canvasBackgroundColor === 'transparent' ? '#FFFFFF' : canvasBackgroundColor}
+                          onChange={(e) => {
+                            setCanvasBackgroundColor(e.target.value);
+                            // Clear and close modal immediately
+                            setShowStickersModal(false);
+                            setStickersModalTab('filters');
+                          }}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          style={{ zIndex: 10 }}
+                        />
+                        <div className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm pointer-events-none">
+                          <span className="text-xl">🎨</span>
+                          <span className="text-gray-700 font-medium">Background Color</span>
+                          <div
+                            className="w-5 h-5 rounded border border-gray-300 ml-1"
+                            style={{ backgroundColor: canvasBackgroundColor }}
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Filters List - Scrollable */}
@@ -6315,13 +6456,8 @@ export default function Editor() {
                     <div className="mt-4 flex flex-col gap-2">
                       <button
                         onClick={() => {
-                          // Clear AI inputs
-                          setAiPrompt('');
-                          setTextInput('');
-                          // Reset custom text color icon
-                          setCustomTextColor(null);
-                          setShowAIModal(false);
-                          setAiModalTab('custom');
+                          setShowStickersModal(false);
+                          setStickersModalTab('filters');
                           setFiltersTouched(false);
                         }}
                         className="w-full py-2.5 px-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-semibold rounded-lg hover:from-purple-600 hover:to-pink-600 transition-all shadow-sm flex items-center justify-center gap-2"
@@ -6349,70 +6485,45 @@ export default function Editor() {
               )}
             </div>
 
-            {/* Buttons - Hide on Stickers and Filters tabs */}
-            {aiModalTab !== 'adjustments' && aiModalTab !== 'quick' && (
+            {/* Buttons - Only show on Text tab */}
+            {stickersModalTab === 'text' && (
               <div className="p-4 flex flex-col gap-2">
                 <button
                   onClick={() => {
-                    if (aiModalTab === 'text') {
-                      // Handle text addition
-                      if (!canvas || !fabric || !textInput.trim()) return;
+                    // Handle text addition
+                    if (!canvas || !fabric || !textInput.trim()) return;
 
-                      const text = new fabric.IText(textInput, {
-                        left: CONTROL_PADDING + DISPLAY_WIDTH / 2,
-                        top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
-                        fontFamily: fontFamily,
-                        fontSize: fontSize,
-                        fontWeight: textBold ? 'bold' : 'normal',
-                        fontStyle: textItalic ? 'italic' : 'normal',
-                        underline: textUnderline,
-                        fill: textColor,
-                        textAlign: textAlign,
-                        originX: 'center',
-                        originY: 'center',
-                      });
+                    const text = new fabric.IText(textInput, {
+                      left: CONTROL_PADDING + DISPLAY_WIDTH / 2,
+                      top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
+                      fontFamily: fontFamily,
+                      fontSize: fontSize,
+                      fontWeight: textBold ? 'bold' : 'normal',
+                      fontStyle: textItalic ? 'italic' : 'normal',
+                      underline: textUnderline,
+                      fill: textColor,
+                      textAlign: textAlign,
+                      originX: 'center',
+                      originY: 'center',
+                    });
 
-                      canvas.add(text);
-                      canvas.setActiveObject(text);
-                      canvas.renderAll();
+                    canvas.add(text);
+                    canvas.setActiveObject(text);
+                    canvas.renderAll();
 
-                      // Close modal and reset
-                      setShowAIModal(false);
-                      setAiModalTab('custom');
-                      setTextInput('');
-                      setTextTemplate(null);
-                      setFiltersTouched(false);
-                      // Reset custom text color icon
-                      setCustomTextColor(null);
-                    } else if (aiModalTab === 'custom' && filtersTouched) {
-                      // Quick Effects were used or removed - just close the modal
-                      // Clear AI inputs
-                      setAiPrompt('');
-                      setTextInput('');
-                      // Reset custom text color icon
-                      setCustomTextColor(null);
-                      setShowAIModal(false);
-                      setAiModalTab('custom');
-                      setFiltersTouched(false);
-                    } else {
-                      // Handle AI edit
-                      handleAIEdit();
-                    }
+                    // Close modal and reset
+                    setShowStickersModal(false);
+                    setStickersModalTab('stickers');
+                    setTextInput('');
+                    setTextTemplate(null);
+                    // Reset custom text color icon
+                    setCustomTextColor(null);
                   }}
                   className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2"
-                  disabled={isProcessing || (aiModalTab === 'custom' && !aiPrompt.trim() && !isBlackAndWhite && canvasBackgroundColor === '#FFFFFF') || (aiModalTab === 'text' && !textInput.trim())}
+                  disabled={!textInput.trim()}
                 >
-                  {isProcessing ? (
-                    <>
-                      <span className="animate-spin">⚙️</span>
-                      <span>Processing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>&#10003;</span>
-                      <span>Apply</span>
-                    </>
-                  )}
+                  <span>&#10003;</span>
+                  <span>Apply</span>
                 </button>
                 <button
                   onClick={() => {
@@ -6422,15 +6533,11 @@ export default function Editor() {
                     }
                     // Reset custom text color icon
                     setCustomTextColor(null);
-                    setShowAIModal(false);
-                    setAiModalTab('custom');
-                    setAiPrompt('');
+                    setShowStickersModal(false);
+                    setStickersModalTab('stickers');
                     setTextInput('');
-                    setAiError(null);
-                    setFiltersTouched(false);
                   }}
                   className="w-full py-3 bg-white text-gray-700 rounded-xl font-semibold border border-gray-300 flex items-center justify-center gap-2"
-                  disabled={isProcessing}
                 >
                   <span>&times;</span>
                   <span>Cancel</span>
