@@ -47,7 +47,7 @@ export const PHONE_MODELS: PhoneModel[] = [
     },
     thumbnailPath: '/phone-models/thumbnails/iphone16pro.png',
     printMaskPath: '/phone-models/print-masks/iphone16pro-print.png',
-    chituProductId: 'jdv3DGpk66EXwbz2YA+OaQ==',
+    chituProductId: '/iyaWMeTY2/h3v3uTPE8FQ==',  // Updated from actual Chitu API
     available: true,
   },
   {
@@ -63,7 +63,7 @@ export const PHONE_MODELS: PhoneModel[] = [
     },
     thumbnailPath: '/phone-models/thumbnails/iphone16plus.png',
     printMaskPath: '/phone-models/print-masks/iphone16plus-print.png',
-    chituProductId: 'T7LN7JlJamvRPFs1TNEMwQ==',
+    chituProductId: 'YGD+rqQayOiYTejlYUp0Gw==',  // Updated from actual Chitu API
     available: true,
   },
   {
@@ -97,7 +97,7 @@ export const PHONE_MODELS: PhoneModel[] = [
     },
     thumbnailPath: '/phone-models/thumbnails/iphone15promax.png',
     printMaskPath: '/phone-models/print-masks/iphone15promax-print.png',
-    chituProductId: 'UyUHwf52iS2kiEnZjeJEsA==',
+    chituProductId: 'UP1cSl9FG5W+NpG3GAAogw==',  // Updated from actual Chitu API
     available: true,
   },
   {
@@ -195,7 +195,7 @@ export const PHONE_MODELS: PhoneModel[] = [
     },
     thumbnailPath: '/phone-models/thumbnails/iphone14plus.png',
     printMaskPath: '/phone-models/print-masks/iphone14plus-print.png',
-    chituProductId: 'wxI4sjth7RtKAeiKaJ7Ffw==',
+    chituProductId: 'wpotFSzVd8lb97o1ByE7Ag==',  // Updated from actual Chitu API
     available: true,
   },
   {
@@ -261,7 +261,7 @@ export const PHONE_MODELS: PhoneModel[] = [
     },
     thumbnailPath: '/phone-models/thumbnails/iphone13.png',
     printMaskPath: '/phone-models/print-masks/iphone13-print.png',
-    chituProductId: 'kVpboboQhqZ/4Fgaw4IArQ==',
+    chituProductId: 'Hkncdn30v/eqEWR59MV6wA==',  // Updated from actual Chitu API
     available: true,
   },
   {
@@ -367,9 +367,25 @@ export const PHONE_MODELS: PhoneModel[] = [
 
   // ========== SAMSUNG GALAXY SERIES ==========
   {
+    id: 'samsung-a21',
+    brand: 'Samsung',
+    model: 'A21',
+    displayName: 'Galaxy A21',
+    dimensions: {
+      widthMM: 75.3,
+      heightMM: 163.7,
+      widthPX: 753,    // Estimated from device specs
+      heightPX: 1637,  // Estimated from device specs
+    },
+    thumbnailPath: '/phone-models/thumbnails/samsung-a21.png',
+    printMaskPath: '/phone-models/print-masks/samsung-a21-print.png',
+    chituProductId: 'BjMk29q2u91y9TtDKT+uHw==',  // From Chitu API
+    available: true,
+  },
+  {
     id: 'samsung-s25-ultra',
     brand: 'Samsung',
-    model: 'Galaxy S25 Ultra',
+    model: 'S25 Ultra',
     displayName: 'Galaxy S25 Ultra',
     dimensions: {
       widthMM: 77.6,
@@ -380,12 +396,12 @@ export const PHONE_MODELS: PhoneModel[] = [
     thumbnailPath: '/phone-models/thumbnails/samsung-s25ultra.png',
     printMaskPath: '/phone-models/print-masks/samsung-s25ultra-print.png',
     chituProductId: 'uiUfYstc+86J1NR/GinSiw==',
-    available: true,
+    available: false,  // Not in machine stock
   },
   {
     id: 'samsung-a06',
     brand: 'Samsung',
-    model: 'Galaxy A06',
+    model: 'A06',
     displayName: 'Galaxy A06',
     dimensions: {
       widthMM: 78.4,
@@ -396,12 +412,12 @@ export const PHONE_MODELS: PhoneModel[] = [
     thumbnailPath: '/phone-models/thumbnails/samsung-a06.png',
     printMaskPath: '/phone-models/print-masks/samsung-a06-print.png',
     chituProductId: 'aVBczjYYo6vEk+Onf7PDSA==',
-    available: true,
+    available: false,  // Not in machine stock
   },
   {
     id: 'samsung-a16-5g',
     brand: 'Samsung',
-    model: 'Galaxy A16 5G',
+    model: 'A16 5G',
     displayName: 'Galaxy A16 5G',
     dimensions: {
       widthMM: 78.5,
@@ -412,7 +428,7 @@ export const PHONE_MODELS: PhoneModel[] = [
     thumbnailPath: '/phone-models/thumbnails/samsung-a16-5g.png',
     printMaskPath: '/phone-models/print-masks/samsung-a16-5g-print.png',
     chituProductId: '4Ui1sj/3mG5mYseKSue6nQ==',
-    available: true,
+    available: false,  // Not in machine stock
   },
 ];
 

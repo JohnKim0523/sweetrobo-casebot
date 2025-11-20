@@ -296,9 +296,11 @@ export class ChituService {
           const originalId = (model as any).id;
           const mappedProductId = model.product_id || originalId;
 
-          // Log the ID mapping for debugging
+          // Log the ID mapping and stock for debugging
           if (originalId && !model.product_id) {
-            console.log(`    Mapped id -> product_id: ${originalId} for ${model.name_en}`);
+            console.log(`    Mapped id -> product_id: ${originalId} for ${model.name_en} (Stock: ${model.stock})`);
+          } else {
+            console.log(`    ${model.name_en} - product_id: ${mappedProductId} (Stock: ${model.stock})`);
           }
 
           return {
@@ -523,15 +525,44 @@ export class ChituService {
       // Get device_id for the catalog request
       const deviceId = await this.getDeviceIdFromCode(deviceCode);
 
-      // Get product catalog
-      // NOTE: CT0700046 uses type='default', not 'diy'
-      const catalog = await this.getProductCatalog({
-        device_id: deviceId,
-        type: 'default',  // Changed from 'diy' to 'default' - machine has products under 'default'
-        status: 1,  // Active products only
-        page: 1,
-        limit: 100,
+      // Get product catalog from BOTH types and merge them
+      // Some machines have products under 'default', others under 'diy', some have both
+      const [defaultCatalog, diyCatalog] = await Promise.all([
+        this.getProductCatalog({
+          device_id: deviceId,
+          type: 'default',
+          status: 1,  // Active products only
+          page: 1,
+          limit: 100,
+        }),
+        this.getProductCatalog({
+          device_id: deviceId,
+          type: 'diy',
+          status: 1,  // Active products only
+          page: 1,
+          limit: 100,
+        }),
+      ]);
+
+      // Merge both catalogs - combine brand lists
+      const allBrands = [...(defaultCatalog.list || []), ...(diyCatalog.list || [])];
+
+      // Remove duplicates by brand ID and merge model lists from duplicate brands
+      const brandMap = new Map();
+      allBrands.forEach(brand => {
+        if (brandMap.has(brand.id)) {
+          // Brand exists, merge model lists
+          const existing = brandMap.get(brand.id);
+          existing.modelList = [...existing.modelList, ...brand.modelList];
+        } else {
+          brandMap.set(brand.id, { ...brand });
+        }
       });
+
+      const catalog = {
+        count: defaultCatalog.count + diyCatalog.count,
+        list: Array.from(brandMap.values()),
+      };
 
       if (!catalog.list || catalog.list.length === 0) {
         console.log('❌ Catalog is empty or undefined');
