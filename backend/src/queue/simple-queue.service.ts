@@ -2,6 +2,7 @@ import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { S3Service } from '../s3/s3.service';
 import { ChituService } from '../chitu/chitu.service';
+import { OrderMappingService } from '../order-mapping/order-mapping.service';
 
 export interface PrintJobData {
   sessionId: string;
@@ -54,6 +55,7 @@ export class SimpleQueueService {
     private readonly s3Service: S3Service,
     @Inject(forwardRef(() => ChituService))
     private readonly chituService: ChituService,
+    private readonly orderMappingService: OrderMappingService,
   ) {
     // Load available machines from environment or use defaults
     const machinesEnv = process.env.AVAILABLE_MACHINES;
@@ -271,6 +273,17 @@ export class SimpleQueueService {
           console.log(`📦 Product used: ${orderResult.details?.product?.name_en}`);
           console.log(`🔑 Product ID: ${orderResult.details?.product?.product_id}`);
           job.data.chituOrderId = orderResult.orderId;
+
+          // Register mapping between our jobId and Chitu's orderId
+          // This allows MQTT status updates to be routed to the correct frontend client
+          if (orderResult.orderId) {
+            this.orderMappingService.registerMapping(
+              job.id,
+              orderResult.orderId,
+              job.data.machineId
+            );
+            console.log(`🗺️ Registered order mapping: ${job.id} <-> ${orderResult.orderId}`);
+          }
         } else {
           throw new Error(`Chitu order creation failed: ${orderResult.message}`);
         }

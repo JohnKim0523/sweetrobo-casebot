@@ -13,6 +13,7 @@ import { MqttModule } from './mqtt/mqtt.module';
 import { WebsocketModule } from './websocket/websocket.module';
 import { VertexAIController } from './vertexai.controller';
 import { DatabaseModule } from './database/database.module';
+import { OrderMappingModule } from './order-mapping/order-mapping.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { DatabaseModule } from './database/database.module';
     AdminModule,
     MqttModule,
     WebsocketModule,
+    OrderMappingModule,
   ],
   controllers: [AppController, VertexAIController],
   providers: [

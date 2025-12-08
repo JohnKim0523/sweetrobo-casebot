@@ -19,30 +19,56 @@ export class S3Service {
   }
 
   async uploadImage(buffer: Buffer, key: string, convertToTif: boolean = false): Promise<string> {
-    let finalBuffer = buffer;
-    let contentType = 'image/png';
-    let finalKey = key;
-
-    // Convert to TIF if requested (for Chitu printer compatibility)
+    // For Chitu printer: Upload BOTH PNG and TIF with same base filename
+    // PNG for display on machine, TIF for printing
     if (convertToTif) {
       console.log('🔄 Converting image to TIF format for Chitu printer...');
-      finalBuffer = await sharp(buffer)
+
+      // Get base key without extension
+      const baseKey = key.replace(/\.(png|jpg|jpeg|tif)$/i, '');
+      const pngKey = `${baseKey}.png`;
+      const tifKey = `${baseKey}.tif`;
+
+      // 1. Upload PNG for display (original, no rotation)
+      console.log('📤 Uploading PNG for machine display...');
+      const pngParams = {
+        Bucket: this.bucketName,
+        Key: pngKey,
+        Body: buffer,
+        ContentType: 'image/png',
+      };
+      await this.s3.upload(pngParams).promise();
+      console.log('✅ PNG uploaded:', pngKey);
+
+      // 2. Create TIF for printing (rotated 90° clockwise)
+      console.log('🔄 Creating TIF with 90° clockwise rotation...');
+      const tifBuffer = await sharp(buffer)
+        .rotate(90) // Rotate 90° clockwise
         .tiff({
           compression: 'lzw', // LZW compression for smaller file size
           quality: 100,       // Maximum quality
         })
         .toBuffer();
-      contentType = 'image/tiff';
-      finalKey = key.replace(/\.(png|jpg|jpeg)$/i, '.tif');
-      console.log('✅ Converted to TIF format');
+
+      const tifParams = {
+        Bucket: this.bucketName,
+        Key: tifKey,
+        Body: tifBuffer,
+        ContentType: 'image/tiff',
+      };
+      const tifResult = await this.s3.upload(tifParams).promise();
+      console.log('✅ TIF uploaded (rotated 90°):', tifKey);
+
+      // Return TIF URL (used for printing)
+      return tifResult.Location;
     }
 
+    // Regular upload (no TIF conversion)
     const params = {
       Bucket: this.bucketName,
-      Key: finalKey,
-      Body: finalBuffer,
-      ContentType: contentType,
-      // ACL removed - bucket has ACLs disabled
+      Key: key,
+      Body: buffer,
+      ContentType: 'image/png',
     };
 
     const result = await this.s3.upload(params).promise();

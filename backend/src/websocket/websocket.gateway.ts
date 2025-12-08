@@ -89,13 +89,22 @@ export class WebsocketGateway implements OnGatewayConnection, OnGatewayDisconnec
   handleOrderStatus(data: any) {
     console.log('📦 Broadcasting order status:', data);
 
-    // Broadcast to clients watching this specific order
+    // Broadcast to clients watching this specific order by orderNo
     if (data.orderNo) {
+      console.log(`📡 Broadcasting to order:${data.orderNo}`);
       this.server.to(`order:${data.orderNo}`).emit('order:status', data);
+    }
+
+    // Also broadcast to jobId room if different from orderNo
+    // This ensures the frontend receives the update even if subscribed with jobId
+    if (data.jobId && data.jobId !== data.orderNo) {
+      console.log(`📡 Broadcasting to order:${data.jobId}`);
+      this.server.to(`order:${data.jobId}`).emit('order:status', data);
     }
 
     // Broadcast to clients watching this machine
     if (data.machineId) {
+      console.log(`📡 Broadcasting to machine:${data.machineId}`);
       this.server.to(`machine:${data.machineId}`).emit('order:status', data);
     }
 

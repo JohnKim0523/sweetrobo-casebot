@@ -17,12 +17,67 @@ const DEFAULT_SCALE_FACTOR = 2.2;
 const DEFAULT_WIDTH_MM = 100;
 const DEFAULT_HEIGHT_MM = 185;
 
+// Dynamic model data structure (matches what select-model.tsx stores)
+interface DynamicPhoneModelData {
+  id: string;
+  brand: string;
+  model: string;
+  displayName: string;
+  product_id: string;
+  print_img?: string;    // Cutout mask URL from Chitu API
+  show_img?: string;     // Thumbnail URL from Chitu API
+  dimensions?: {
+    widthMM: number;
+    heightMM: number;
+    widthPX: number;
+    heightPX: number;
+  } | null;
+  thumbnailPath?: string;
+  printMaskPath?: string;
+}
+
 export default function Editor() {
   const router = useRouter();
-  const { model: modelId } = router.query;
-  
-  // Get phone model configuration
-  const phoneModel = modelId ? getPhoneModel(modelId as string) : null;
+  const { model: modelId, demo: demoParam } = router.query;
+
+  // Check if we're in demo mode (no machineId, demo=true in URL)
+  const isDemoMode = demoParam === 'true' || (!router.query.machineId && router.isReady);
+
+  // Get phone model configuration - DYNAMIC FIRST, then fallback to hardcoded
+  // This allows the editor to work with ANY model from the Chitu API
+  const [dynamicModelData, setDynamicModelData] = useState<DynamicPhoneModelData | null>(null);
+
+  // Load dynamic model data from sessionStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const storedData = sessionStorage.getItem('selectedPhoneModelData');
+        if (storedData) {
+          const parsed = JSON.parse(storedData);
+          console.log('📱 Loaded dynamic model data from sessionStorage:', parsed);
+          setDynamicModelData(parsed);
+        }
+      } catch (error) {
+        console.error('❌ Failed to parse dynamic model data:', error);
+      }
+    }
+  }, []);
+
+  // Try hardcoded model first (for backward compatibility), then use dynamic data
+  const hardcodedModel = modelId ? getPhoneModel(modelId as string) : null;
+
+  // Create a unified phone model object that works for both hardcoded and dynamic models
+  const phoneModel = hardcodedModel || (dynamicModelData ? {
+    id: dynamicModelData.id,
+    brand: dynamicModelData.brand,
+    model: dynamicModelData.model,
+    displayName: dynamicModelData.displayName,
+    dimensions: dynamicModelData.dimensions || undefined,
+    thumbnailPath: dynamicModelData.thumbnailPath,
+    printMaskPath: dynamicModelData.printMaskPath || dynamicModelData.print_img,
+    chituProductId: dynamicModelData.product_id,
+    available: true,
+  } as PhoneModel : null);
 
   // Initialize state variables first
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -134,24 +189,28 @@ export default function Editor() {
   // STEP 1: Fixed UI element heights (these never change)
   const CONTAINER_MAX_WIDTH = 384; // max-w-sm constraint
   const FIXED_HEADER_HEIGHT = 60; // Header at top (fixed)
-  const FIXED_SUBMIT_HEIGHT = 90; // Submit button at bottom (fixed)
-  const FIXED_EDIT_BUTTONS_HEIGHT = 60; // Edit buttons (fixed physical size)
+  const FIXED_SUBMIT_HEIGHT = 90; // Submit button at bottom (sticky)
+  const FIXED_RIGHT_SIDEBAR_WIDTH = 70; // Right sidebar with tools (w-[70px])
   const SAFETY_BUFFER = 20; // Extra buffer to ensure no overlap
+  // NOTE: Edit buttons now on RIGHT side, not taking vertical space
+  // NOTE: AI counter now in header, not taking vertical space
 
   // STEP 2: Calculate total space needed for ALL UI elements except canvas
-  const TOTAL_UI_HEIGHT = FIXED_HEADER_HEIGHT + FIXED_EDIT_BUTTONS_HEIGHT + FIXED_SUBMIT_HEIGHT + SAFETY_BUFFER;
+  // Only header and submit button take vertical space now
+  const TOTAL_UI_HEIGHT = FIXED_HEADER_HEIGHT + FIXED_SUBMIT_HEIGHT + SAFETY_BUFFER;
 
   // STEP 3: Calculate space available ONLY for canvas
-  // Layout: [Header] [Canvas] [Edit Buttons] [Submit Button]
+  // Layout: [Header] [Canvas + Right Sidebar] [Submit Button]
   const SPACE_FOR_CANVAS_ONLY = viewportHeight - TOTAL_UI_HEIGHT;
 
-  // STEP 4: Calculate available width (accounting for container constraints)
+  // STEP 4: Calculate available width (accounting for container constraints AND right sidebar)
   const AVAILABLE_WIDTH = Math.min(viewportWidth, CONTAINER_MAX_WIDTH);
-  const AVAILABLE_WIDTH_FOR_CANVAS = AVAILABLE_WIDTH - 20; // Small padding
+  // Subtract right sidebar width (70px) + padding (20px) when image is uploaded
+  const AVAILABLE_WIDTH_FOR_CANVAS = uploadedImage ? (AVAILABLE_WIDTH - FIXED_RIGHT_SIDEBAR_WIDTH - 20) : (AVAILABLE_WIDTH - 20);
 
-  // STEP 5: Get phone model dimensions
-  const modelWidthMM = phoneModel?.dimensions.widthMM || DEFAULT_WIDTH_MM;
-  const modelHeightMM = phoneModel?.dimensions.heightMM || DEFAULT_HEIGHT_MM;
+  // STEP 5: Get phone model dimensions (handle dynamic models with no local dimensions)
+  const modelWidthMM = phoneModel?.dimensions?.widthMM || DEFAULT_WIDTH_MM;
+  const modelHeightMM = phoneModel?.dimensions?.heightMM || DEFAULT_HEIGHT_MM;
 
   // STEP 6: Calculate scale factors to fit in available canvas space
   const scaleX = AVAILABLE_WIDTH_FOR_CANVAS / modelWidthMM;
@@ -167,8 +226,9 @@ export default function Editor() {
   const DISPLAY_HEIGHT = savedCanvasDimensions?.displayHeight ?? Math.round(modelHeightMM * SCALE_FACTOR);
 
   // Export dimensions (actual size for printing)
-  const EXPORT_WIDTH = savedCanvasDimensions?.exportWidth ?? (phoneModel ? phoneModel.dimensions.widthPX : Math.round(DEFAULT_WIDTH_MM * 11.81));
-  const EXPORT_HEIGHT = savedCanvasDimensions?.exportHeight ?? (phoneModel ? phoneModel.dimensions.heightPX : Math.round(DEFAULT_HEIGHT_MM * 11.81));
+  // For dynamic models from Chitu API, phoneModel.dimensions may not exist - use defaults
+  const EXPORT_WIDTH = savedCanvasDimensions?.exportWidth ?? (phoneModel?.dimensions?.widthPX || Math.round(DEFAULT_WIDTH_MM * 11.81));
+  const EXPORT_HEIGHT = savedCanvasDimensions?.exportHeight ?? (phoneModel?.dimensions?.heightPX || Math.round(DEFAULT_HEIGHT_MM * 11.81));
 
   // Canvas dimensions - add small padding to ensure borders are fully visible
   const CANVAS_TOTAL_WIDTH = AVAILABLE_WIDTH;
@@ -236,24 +296,6 @@ export default function Editor() {
     }
   }, [router.query.restore, canvas, fabric]);
 
-  // Debug log to monitor scaling
-  console.log('Dynamic Canvas Scaling:', {
-    viewport: { width: viewportWidth, height: viewportHeight },
-    fixedElements: {
-      header: FIXED_HEADER_HEIGHT,
-      submit: FIXED_SUBMIT_HEIGHT,
-      editButtons: FIXED_EDIT_BUTTONS_HEIGHT,
-      totalUIHeight: TOTAL_UI_HEIGHT
-    },
-    calculated: {
-      spaceForCanvasOnly: SPACE_FOR_CANVAS_ONLY
-    },
-    model: { widthMM: modelWidthMM, heightMM: modelHeightMM },
-    scaleFactor: SCALE_FACTOR,
-    display: { width: DISPLAY_WIDTH, height: DISPLAY_HEIGHT },
-    canvas: { width: CANVAS_TOTAL_WIDTH, height: CANVAS_TOTAL_HEIGHT }
-  });
-
   const [machineId, setMachineId] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTimestamp, setSessionTimestamp] = useState<number | null>(null);
@@ -285,6 +327,10 @@ export default function Editor() {
   // AI Editing states
   const [showAIModal, setShowAIModal] = useState(false);
   const [aiModalTab, setAiModalTab] = useState<'custom' | 'quick'>('custom'); // AI modal tabs (removed text and adjustments)
+
+  // AI Upload Drawer state (for upload screen)
+  const [showAIUploadDrawer, setShowAIUploadDrawer] = useState(false);
+  const [isAIDrawerClosing, setIsAIDrawerClosing] = useState(false);
 
   // Stickers modal states
   const [showStickersModal, setShowStickersModal] = useState(false);
@@ -359,6 +405,10 @@ export default function Editor() {
   const [canvasHistory, setCanvasHistory] = useState<string[]>([]);
   const [canvasRedoStack, setCanvasRedoStack] = useState<string[]>([]); // Redo stack for going forward
   const isRestoringState = useRef(false); // Prevent saving during restore (using ref to avoid triggering re-renders)
+  const isDeletingImage = useRef(false); // Prevent saving during delete operations
+
+  // Hide editing buttons during object manipulation for more freedom
+  const [hideEditButtons, setHideEditButtons] = useState(false);
 
   const [drawnMask, setDrawnMask] = useState<string | null>(null);
   const [isManipulating, setIsManipulating] = useState<boolean>(false);
@@ -543,8 +593,8 @@ export default function Editor() {
           // Production flow - redirect without session to generate new one
           router.replace(`/editor?machineId=${machine}&model=${modelParam}`);
         } else if (modelParam && !machine) {
-          // No machine ID - use default test machine
-          router.replace(`/editor?machineId=CT0700046&model=${modelParam}`);
+          // Demo mode - continue without machine ID
+          router.replace(`/editor?model=${modelParam}`);
         } else {
           // No valid params - redirect to model selection
           router.replace('/select-model');
@@ -794,10 +844,14 @@ export default function Editor() {
       return;
     }
 
-    // If no machine ID provided, use default test machine
+    // DEMO MODE: If no machine ID provided, allow editor to load in demo mode (no printing)
     if (modelParam && !machine) {
-      console.log('⚠️ No machine ID - redirecting to use default test machine CT0700046');
-      router.replace(`/editor?machineId=CT0700046&model=${modelParam}`);
+      console.log('🎮 DEMO MODE: No machine ID - editor will run in demo mode (printing disabled)');
+      // Generate a demo session ID
+      const demoSessionId = `demo_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      setSessionId(demoSessionId);
+      setIsCheckingSession(false);
+      console.log('✅ Demo session created:', demoSessionId);
       return;
     }
 
@@ -816,57 +870,29 @@ export default function Editor() {
       return;
     }
 
-    // No machine ID and no model - redirect to model selection with default machine
+    // No machine ID and no model - redirect to model selection (DEMO MODE)
     const hasSession = session || modelParam;
     if ((!machine || machine === 'null' || machine === 'undefined' || machine === '') && !hasSession) {
-      console.log('🔄 No machine ID - redirecting to model selection with default machine');
-      router.push('/select-model?machineId=CT0700046');
+      console.log('🔄 No machine ID and no model - redirecting to demo mode model selection');
+      router.push('/select-model');
       return;
     }
   }, []); // Run once on mount
 
-  // Auto-reset session after thank you page is shown (for production multi-user flow)
+  // Thank you page behavior:
+  // - User stays on thank you page permanently until order is complete
+  // - Real-time status updates show: Paid → Printing → Completed (Ready for pickup)
+  // - NO auto-redirect - user must scan QR code again for new session
+  // - New customers at machine get independent sessions via QR code scan
   useEffect(() => {
     if (!showThankYou) return;
 
-    console.log('⏰ Starting session auto-reset timer (30 seconds)...');
+    console.log('📋 Thank you page displayed - user will stay here until order is complete');
+    console.log('📋 To start a new session, user must scan QR code again');
 
-    // After 30 seconds on thank you page, automatically reset to allow next user
-    const resetTimer = setTimeout(() => {
-      console.log('🔄 Auto-resetting session for next user...');
-
-      // Extract current parameters
-      const urlParams = new URLSearchParams(window.location.search);
-      const machine = urlParams.get('machineId');
-      const modelParam = urlParams.get('model');
-
-      // Clear sessionStorage for this tab to force new session generation
-      if (machine && modelParam) {
-        const tabSessionKey = `tab-session-${machine}-${modelParam}`;
-        sessionStorage.removeItem(tabSessionKey);
-        console.log('🗑️ Cleared production session from storage:', tabSessionKey);
-      } else if (modelParam) {
-      }
-
-      // Clear session lock and page state
-      if (sessionId) {
-        sessionStorage.removeItem(`session-locked-${sessionId}`);
-        sessionStorage.removeItem(`session-lock-timestamp-${sessionId}`);
-        sessionStorage.removeItem(`page-state-${sessionId}`);
-        console.log('🗑️ Cleared session lock and page state from storage');
-      }
-
-      // Clear the page generation flags
-      delete (window as any).__sessionGenerated;
-      delete (window as any).__generatedSessionId;
-
-      // Redirect back to phone selection to start fresh
-      const finalMachine = machine || 'CT0700046';
-      router.push(`/select-model?machineId=${finalMachine}`);
-    }, 30000); // 30 seconds
-
-    return () => clearTimeout(resetTimer);
-  }, [showThankYou, router]);
+    // No auto-redirect - user stays on this page
+    // Status updates come via WebSocket (order:status events)
+  }, [showThankYou]);
 
   // TEST MODE: Check for test parameter when on waiting page
   useEffect(() => {
@@ -908,7 +934,8 @@ export default function Editor() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+    // Use dynamic backend URL based on current origin (works on any network/IP)
+    const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || window.location.origin.replace(':3000', ':3001');
 
     console.log('🔌 Connecting to WebSocket:', BACKEND_URL);
 
@@ -944,8 +971,10 @@ export default function Editor() {
       console.log('📦 Order status update:', data);
 
       // CRITICAL: Verify this update is for OUR order (prevent multi-user conflicts)
-      if (data.orderNo !== jobId) {
-        console.log(`⚠️ Ignoring update for different order: ${data.orderNo} (ours: ${jobId})`);
+      // Check both orderNo and jobId fields since backend now includes our jobId mapping
+      const isOurOrder = data.orderNo === jobId || data.jobId === jobId;
+      if (!isOurOrder) {
+        console.log(`⚠️ Ignoring update for different order: orderNo=${data.orderNo}, jobId=${data.jobId} (ours: ${jobId})`);
         return;
       }
 
@@ -999,50 +1028,68 @@ export default function Editor() {
   const cropControls = useRef<any>(null);
 
   // Save current canvas state to history
-  const saveCanvasState = useCallback(() => {
-    if (!canvas || isRestoringState.current || !uploadedImage) {
+  const saveCanvasState = useCallback((imageOverride?: fabric.Image) => {
+    // Use imageOverride if provided (for AI generation), otherwise use uploadedImage state
+    const imageToSave = imageOverride || uploadedImage;
+
+    console.log('📞 saveCanvasState called', {
+      hasCanvas: !!canvas,
+      isRestoring: isRestoringState.current,
+      isDeleting: isDeletingImage.current,
+      hasImage: !!imageToSave,
+      isOverride: !!imageOverride
+    });
+
+    if (!canvas || isRestoringState.current || isDeletingImage.current || !imageToSave) {
       if (isRestoringState.current) {
         console.log('🚫 State save blocked - restoration in progress');
       }
-      return; // Don't save during undo/restore
+      if (isDeletingImage.current) {
+        console.log('🚫 State save blocked - deletion in progress');
+      }
+      if (!canvas) {
+        console.log('🚫 State save blocked - no canvas');
+      }
+      if (!imageToSave) {
+        console.log('🚫 State save blocked - no uploaded image');
+      }
+      return; // Don't save during undo/restore/delete
     }
 
     try {
-      // Save a snapshot of the main image's transformation AND image source
-      // We need the source to restore after AI edits replace the image
-      const imageSrc = (uploadedImage as any).getSrc ? (uploadedImage as any).getSrc() : (uploadedImage as any)._element?.src;
-
+      // Save only transformation data to history (NOT image source - too large!)
+      // Image source is stored in sessionStorage for page refresh persistence only
       const mainImageState = {
-        src: imageSrc, // Store image source for AI edit undo
-        left: uploadedImage.left,
-        top: uploadedImage.top,
-        scaleX: uploadedImage.scaleX,
-        scaleY: uploadedImage.scaleY,
-        angle: uploadedImage.angle,
-        flipX: uploadedImage.flipX,
-        flipY: uploadedImage.flipY,
-        opacity: uploadedImage.opacity,
-        originX: uploadedImage.originX,
-        originY: uploadedImage.originY,
-        filters: uploadedImage.filters ? [...uploadedImage.filters] : [],
+        left: imageToSave.left,
+        top: imageToSave.top,
+        scaleX: imageToSave.scaleX,
+        scaleY: imageToSave.scaleY,
+        angle: imageToSave.angle,
+        flipX: imageToSave.flipX,
+        flipY: imageToSave.flipY,
+        opacity: imageToSave.opacity,
+        originX: imageToSave.originX,
+        originY: imageToSave.originY,
+        filters: imageToSave.filters ? [...imageToSave.filters] : [],
         backgroundColor: canvasBackgroundColor // Store background color for undo
       };
 
       const stateString = JSON.stringify(mainImageState);
 
-      // CRITICAL: Save full canvas state to sessionStorage for refresh persistence
+      // CRITICAL: Save canvas state to sessionStorage for refresh persistence
+      // On mobile, we NEVER store base64 images - they're too large (1-3MB each)
       if (sessionId) {
         try {
-          const fullCanvasState = canvas.toJSON([
-            'selectable',
-            'hasControls',
-            'excludeFromExport',
-            'hasBorders',
-            'borderColor',
-            'src',  // Critical for images!
-            'filters',
-            'crossOrigin'
-          ]);
+          // Detect mobile FIRST - before creating the large JSON
+          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+          // On mobile: exclude 'src' entirely to prevent huge strings
+          // On desktop: include 'src' for full refresh persistence
+          const propsToInclude = isMobile
+            ? ['selectable', 'hasControls', 'excludeFromExport', 'hasBorders', 'borderColor', 'filters', 'crossOrigin']
+            : ['selectable', 'hasControls', 'excludeFromExport', 'hasBorders', 'borderColor', 'src', 'filters', 'crossOrigin'];
+
+          const canvasStateToStore = canvas.toJSON(propsToInclude);
 
           // Get existing saved state to preserve dimensions if they already exist
           const existingSavedState = sessionStorage.getItem(`canvas-state-${sessionId}`);
@@ -1057,10 +1104,11 @@ export default function Editor() {
           }
 
           const stateToSave = JSON.stringify({
-            canvasJSON: fullCanvasState,
+            canvasJSON: canvasStateToStore,
             mainImageState: mainImageState,
             backgroundColor: canvasBackgroundColor,
             savedAt: Date.now(),
+            isMobile: isMobile, // Flag to know we're on mobile (no image persistence)
             // Preserve existing dimensions, or save new ones if this is the first save
             canvasDimensions: existingDimensions || {
               displayWidth: DISPLAY_WIDTH,
@@ -1113,25 +1161,26 @@ export default function Editor() {
 
             console.log(`✅ Cleaned up ${removedCount} old session(s)`);
 
-            // Try saving again after cleanup
+            // Try saving again after cleanup - exclude 'src' entirely on retry
             try {
-              const fullCanvasState = canvas.toJSON([
+              // Never include 'src' on retry - that's what caused the quota issue
+              const canvasStateToStore = canvas.toJSON([
                 'selectable',
                 'hasControls',
                 'excludeFromExport',
                 'hasBorders',
                 'borderColor',
-                'src',
                 'filters',
                 'crossOrigin'
               ]);
 
               const stateToSave = JSON.stringify({
-                canvasJSON: fullCanvasState,
+                canvasJSON: canvasStateToStore,
                 mainImageState: mainImageState,
                 backgroundColor: canvasBackgroundColor,
                 savedAt: Date.now(),
-                canvasDimensions: existingDimensions || {
+                isMobile: true, // Treated as mobile after quota error
+                canvasDimensions: {
                   displayWidth: DISPLAY_WIDTH,
                   displayHeight: DISPLAY_HEIGHT,
                   exportWidth: EXPORT_WIDTH,
@@ -1143,9 +1192,9 @@ export default function Editor() {
               });
 
               sessionStorage.setItem(`canvas-state-${sessionId}`, stateToSave);
-              console.log('✅ Canvas state saved after cleanup');
+              console.log('✅ Canvas state saved after cleanup (no images)');
             } catch (retryErr) {
-              console.error('❌ Failed to save even after cleanup. Storage may be completely full.');
+              console.error('❌ Failed to save even after cleanup. Continuing without persistence.');
               // Continue without saving - app still functions, just won't persist on refresh
             }
           } else {
@@ -1207,9 +1256,20 @@ export default function Editor() {
   useEffect(() => {
     // Only initialize canvas when all conditions are met
     if (!canvasRef.current || !fabric || isCheckingSession || isSessionLocked || showWaitingForPayment || showThankYou || canvas) {
+      console.log('🛑 Canvas initialization blocked:', {
+        hasCanvasRef: !!canvasRef.current,
+        hasFabric: !!fabric,
+        isCheckingSession,
+        isSessionLocked,
+        showWaitingForPayment,
+        showThankYou,
+        hasCanvas: !!canvas
+      });
       return;
     }
-    
+
+    console.log('✅ All conditions met - initializing canvas');
+
     const fabricCanvas = new fabric.Canvas(canvasRef.current, {
         width: CANVAS_TOTAL_WIDTH,   // Full width with padding
         height: CANVAS_TOTAL_HEIGHT,  // Full height with padding
@@ -2134,12 +2194,46 @@ export default function Editor() {
       };
   }, [fabric, isCheckingSession, isSessionLocked, showWaitingForPayment, showThankYou]); // Removed isCropMode to prevent re-initialization
 
+  // Resize canvas dynamically when viewport or layout changes
+  useEffect(() => {
+    if (!canvas || !uploadedImage) return;
+
+    // Update canvas dimensions to fit current layout
+    canvas.setDimensions({
+      width: CANVAS_TOTAL_WIDTH,
+      height: CANVAS_TOTAL_HEIGHT
+    });
+
+    // Update the uploaded image position and scale to fit new dimensions
+    const newScale = SCALE_FACTOR;
+    const newLeft = CONTROL_PADDING + (DISPLAY_WIDTH / 2);
+    const newTop = VERTICAL_PADDING + (DISPLAY_HEIGHT / 2);
+
+    uploadedImage.set({
+      left: newLeft,
+      top: newTop
+    });
+
+    canvas.renderAll();
+    console.log('📐 Canvas resized:', {
+      width: CANVAS_TOTAL_WIDTH,
+      height: CANVAS_TOTAL_HEIGHT,
+      displayWidth: DISPLAY_WIDTH,
+      displayHeight: DISPLAY_HEIGHT,
+      scaleFactor: SCALE_FACTOR
+    });
+  }, [canvas, uploadedImage, CANVAS_TOTAL_WIDTH, CANVAS_TOTAL_HEIGHT, DISPLAY_WIDTH, DISPLAY_HEIGHT, SCALE_FACTOR, CONTROL_PADDING, VERTICAL_PADDING]);
+
   // Separate useEffect to add undo event listeners after canvas is ready
   useEffect(() => {
     if (!canvas || !saveCanvasState) return;
 
     const handleModified = () => {
-      setTimeout(() => saveCanvasState(), 100);
+      console.log('🔄 Object modified event fired');
+      setTimeout(() => {
+        console.log('🔄 Calling saveCanvasState after modification');
+        saveCanvasState();
+      }, 100);
     };
 
     const handleAdded = (e: any) => {
@@ -2177,6 +2271,51 @@ export default function Editor() {
       console.log('🧹 Undo event listeners cleaned up');
     };
   }, [canvas, saveCanvasState]);
+
+  // Hide/show editing buttons during object manipulation for more freedom
+  useEffect(() => {
+    if (!canvas) return;
+
+    const handleObjectMoving = () => {
+      setHideEditButtons(true);
+    };
+
+    const handleObjectScaling = () => {
+      setHideEditButtons(true);
+    };
+
+    const handleObjectRotating = () => {
+      setHideEditButtons(true);
+    };
+
+    const handleMouseUp = () => {
+      setHideEditButtons(false);
+    };
+
+    const handleSelectionCleared = () => {
+      setHideEditButtons(false);
+    };
+
+    // Hide buttons during any object manipulation
+    canvas.on('object:moving', handleObjectMoving);
+    canvas.on('object:scaling', handleObjectScaling);
+    canvas.on('object:rotating', handleObjectRotating);
+
+    // Show buttons when manipulation ends
+    canvas.on('mouse:up', handleMouseUp);
+    canvas.on('selection:cleared', handleSelectionCleared);
+
+    console.log('✅ Hide/show button event listeners attached');
+
+    return () => {
+      canvas.off('object:moving', handleObjectMoving);
+      canvas.off('object:scaling', handleObjectScaling);
+      canvas.off('object:rotating', handleObjectRotating);
+      canvas.off('mouse:up', handleMouseUp);
+      canvas.off('selection:cleared', handleSelectionCleared);
+      console.log('🧹 Hide/show button event listeners cleaned up');
+    };
+  }, [canvas]);
 
   // Restore canvas state from sessionStorage on page refresh (separate from preview restoration)
   useEffect(() => {
@@ -2868,34 +3007,21 @@ export default function Editor() {
                     });
 
                     // Include all necessary properties for proper serialization
-                    // Especially important for images which need src, filters, etc.
-                    const fullCanvasState = canvas.toJSON([
-                      'selectable',
-                      'hasControls',
-                      'excludeFromExport',
-                      'hasBorders',
-                      'borderColor',
-                      'src',  // Critical for images!
-                      'filters',
-                      'crossOrigin'
-                    ]);
-                    console.log('📊 Canvas JSON objects:', fullCanvasState.objects?.length);
-                    console.log('📊 Canvas JSON object types:', fullCanvasState.objects?.map((o: any) => o.type));
+                    // On mobile: exclude 'src' to prevent quota errors (base64 images are 1-3MB)
+                    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                    const propsToInclude = isMobile
+                      ? ['selectable', 'hasControls', 'excludeFromExport', 'hasBorders', 'borderColor', 'filters', 'crossOrigin']
+                      : ['selectable', 'hasControls', 'excludeFromExport', 'hasBorders', 'borderColor', 'src', 'filters', 'crossOrigin'];
 
-                    // Debug: Check if image src is actually saved (case-insensitive)
-                    const imageObjs = fullCanvasState.objects?.filter((o: any) => o.type?.toLowerCase() === 'image');
-                    console.log('📊 Image objects in JSON:', imageObjs?.map((img: any) => ({
-                      type: img.type,
-                      hasSrc: !!img.src,
-                      srcLength: img.src?.length,
-                      srcPreview: img.src?.substring(0, 50)
-                    })));
+                    const fullCanvasState = canvas.toJSON(propsToInclude);
+                    console.log('📊 Canvas JSON objects:', fullCanvasState.objects?.length, isMobile ? '(mobile - no src)' : '(desktop - with src)');
 
                     sessionStorage.setItem(`canvas-state-${currentSessionId}`, JSON.stringify({
                       canvasJSON: fullCanvasState,
                       mainImageState: initialState,
                       backgroundColor: canvasBackgroundColor,
                       savedAt: Date.now(),
+                      isMobile: isMobile,
                       canvasDimensions: {
                         displayWidth: DISPLAY_WIDTH,
                         displayHeight: DISPLAY_HEIGHT,
@@ -3867,29 +3993,16 @@ export default function Editor() {
 
     setIsProcessing(true);
     setAiError(null);
-    
+
+    // Set restoration flag to prevent saving canvas state during AI image replacement
+    // This prevents the removal of the old image from triggering a save
+    isRestoringState.current = true;
+    console.log('🔒 Blocking state saves during AI image generation');
+
     try {
-      // Save current image state to history BEFORE creating new image
-      if (uploadedImage) {
-        // Save just the image object's data as a data URL
-        const imageSrc = uploadedImage.toDataURL({
-          format: 'png',
-          multiplier: 1,
-        });
-        
-        const imageState = {
-          src: imageSrc,
-          left: uploadedImage.left,
-          top: uploadedImage.top,
-          scaleX: uploadedImage.scaleX,
-          scaleY: uploadedImage.scaleY,
-          angle: uploadedImage.angle,
-          flipX: uploadedImage.flipX,
-          flipY: uploadedImage.flipY,
-        };
-        setEditHistory(prev => [...prev, JSON.stringify(imageState)]);
-        console.log('Saved image state to history before AI create with position:', uploadedImage.left, uploadedImage.top);
-      }
+      // REMOVED: Don't save old image to history when generating brand new AI image
+      // History will start fresh with the newly generated image
+      // This prevents undo from bringing back the old deleted image
       // Call backend AI create API
       // Use relative URL if on same domain, otherwise use configured backend
       const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
@@ -3955,6 +4068,9 @@ export default function Editor() {
       const loadTimeout = setTimeout(() => {
         console.error('⏱️ Generated image load timeout');
         setIsProcessing(false);
+        // Re-enable state saves on timeout
+        isRestoringState.current = false;
+        console.log('🔓 State saves re-enabled after timeout');
         alert('⏱️ Image loading timed out. Please try again.');
       }, 30000);
 
@@ -3971,6 +4087,7 @@ export default function Editor() {
         
         // Remove current image if exists
         if (uploadedImage) {
+          console.log('🗑️ Removing old image during AI generation (state saves blocked)');
           canvas.remove(uploadedImage);
         }
 
@@ -3999,18 +4116,21 @@ export default function Editor() {
         canvas.add(fabricImage);
         canvas.setActiveObject(fabricImage);
         canvas.renderAll();
+        console.log('➕ New AI image added to canvas');
         setUploadedImage(fabricImage);
 
         // Increment AI edit counter after successful image generation
         incrementAIEditCount();
 
         // Clear restoration flag and save initial state for undo/redo
+        // Pass fabricImage directly to avoid React async state update issues
         setTimeout(() => {
           isRestoringState.current = false;
-          console.log('✅ Restoration flag cleared after AI image generation');
-          // Save the initial state to enable undo
-          saveCanvasState();
-        }, 100);
+          console.log('🔓 State saves re-enabled after AI image generation complete');
+          // Save the initial state to enable undo (pass fabricImage directly!)
+          console.log('💾 Saving initial state of new AI image');
+          saveCanvasState(fabricImage);
+        }, 200);
 
         // Add crop mode toggle functionality for AI generated images
         fabricImage.on('selected', () => {
@@ -4032,6 +4152,9 @@ export default function Editor() {
         console.error('Failed to load generated image:', error);
         setAiError('Failed to load generated image');
         setIsProcessing(false);
+        // Re-enable state saves on error
+        isRestoringState.current = false;
+        console.log('🔓 State saves re-enabled after image load error');
         alert('❌ Failed to load generated image. Please try again.');
       };
 
@@ -4049,6 +4172,9 @@ export default function Editor() {
       // Show alert and reset state
       setIsProcessing(false);
       setCreatePrompt('');
+      // Re-enable state saves on error
+      isRestoringState.current = false;
+      console.log('🔓 State saves re-enabled after AI generation error');
       alert('❌ Failed to generate image. Please try again.');
     }
   };
@@ -4220,6 +4346,13 @@ export default function Editor() {
   };
 
   const handleSubmit = async () => {
+    // DEMO MODE: Block submission if no machine ID
+    if (!machineId) {
+      console.log('🎮 Demo Mode: Cannot submit - no machine connected');
+      alert('Demo Mode: Printing is disabled. Please scan a machine QR code to print.');
+      return;
+    }
+
     if (canvas) {
       // Prevent double-clicks
       if (isUploading) {
@@ -4271,8 +4404,11 @@ export default function Editor() {
         // APPLY MASKING: Composite design with print mask to create camera cutouts
         let dataURL = designDataURL;
 
-        if (phoneModel?.printMaskPath) {
-          console.log('🎭 Applying print mask:', phoneModel.printMaskPath);
+        // Get print mask from either phone-models.ts or Chitu API (stored in sessionStorage)
+        const printMaskUrl = phoneModel?.printMaskPath || sessionStorage.getItem('selectedPhoneModelPrintImg');
+
+        if (printMaskUrl) {
+          console.log('🎭 Applying print mask:', printMaskUrl);
 
           // Load the print mask (BLACK = design area, WHITE/TRANSPARENT = cutouts)
           const maskImage = new Image();
@@ -4283,10 +4419,11 @@ export default function Editor() {
             maskImage.onload = () => {
               console.log('✅ Print mask loaded:', maskImage.width, 'x', maskImage.height);
 
-              // Use exact phone model dimensions from Chitu template
-              const finalWidth = phoneModel.dimensions.widthPX;
-              const finalHeight = phoneModel.dimensions.heightPX;
-              console.log('🎯 Compositing at:', finalWidth, 'x', finalHeight);
+              // Use phone model dimensions if available, otherwise use mask image dimensions
+              // This handles dynamic models from Chitu API that don't have local dimension data
+              const finalWidth = phoneModel?.dimensions?.widthPX || maskImage.width;
+              const finalHeight = phoneModel?.dimensions?.heightPX || maskImage.height;
+              console.log('🎯 Compositing at:', finalWidth, 'x', finalHeight, phoneModel?.dimensions ? '(from model)' : '(from mask image)');
 
               // Create a temporary canvas for compositing at mask resolution
               const tempCanvas = document.createElement('canvas');
@@ -4323,7 +4460,7 @@ export default function Editor() {
               console.warn('⚠️ Failed to load print mask, using unmasked design');
               resolve(); // Continue without mask if it fails to load
             };
-            maskImage.src = phoneModel.printMaskPath;
+            maskImage.src = printMaskUrl;
           });
         }
         
@@ -4440,6 +4577,17 @@ export default function Editor() {
 
         // Store preview data in global window object (too large for sessionStorage)
         // NOTE: Masking is NOW ENABLED - design has camera cutouts applied
+        // Get dynamic product_id (fetched from API) or fallback to hardcoded
+        const dynamicProductId = sessionStorage.getItem('selectedPhoneModelProductId');
+        const finalProductId = dynamicProductId || phoneModel?.chituProductId;
+
+        console.log('📦 Product ID selection:', {
+          dynamicFromAPI: dynamicProductId,
+          hardcodedFallback: phoneModel?.chituProductId,
+          finalUsed: finalProductId,
+          source: dynamicProductId ? 'API (dynamic)' : 'phone-models.ts (hardcoded)'
+        });
+
         // Preview data for confirmation page
         const previewData = {
           designImage: dataURL, // Masked design WITH camera cutouts applied
@@ -4452,12 +4600,13 @@ export default function Editor() {
             sessionId: sessionId || `session_${Date.now()}`,
             phoneModel: phoneModel?.displayName || 'Default Phone Case',
             phoneModelId: phoneModel?.id || 'default',
-            productId: phoneModel?.chituProductId, // Chitu product_id for this phone model
+            // Use DYNAMIC product_id from sessionStorage (fetched from API), not hardcoded
+            productId: finalProductId,
             dimensions: {
               widthPX: EXPORT_WIDTH,
               heightPX: EXPORT_HEIGHT,
-              widthMM: phoneModel?.dimensions.widthMM || DEFAULT_WIDTH_MM,
-              heightMM: phoneModel?.dimensions.heightMM || DEFAULT_HEIGHT_MM
+              widthMM: phoneModel?.dimensions?.widthMM || DEFAULT_WIDTH_MM,
+              heightMM: phoneModel?.dimensions?.heightMM || DEFAULT_HEIGHT_MM
             }
           }
         };
@@ -4474,14 +4623,22 @@ export default function Editor() {
         // Show preview modal instead of navigating
         setShowPreviewModal(true);
 
-        // Persist preview modal state and data in sessionStorage
+        // Persist preview modal state in sessionStorage
         // NOTE: We do NOT lock the session here - preview is just a modal overlay
         // Session only gets locked when user submits and goes to waiting/payment page
+        // NOTE: We do NOT store images or canvas data in sessionStorage - they're too large (1-2MB each)
+        // All data is already stored in React state and window.__submissionData
         if (sessionId) {
-          sessionStorage.setItem(`page-state-${sessionId}`, 'preview');
-          sessionStorage.setItem(`preview-image-${sessionId}`, dataURL);
-          sessionStorage.setItem(`submission-data-${sessionId}`, JSON.stringify(previewData.submissionData));
-          console.log('💾 Persisted preview page state and data to sessionStorage for session:', sessionId);
+          try {
+            sessionStorage.setItem(`page-state-${sessionId}`, 'preview');
+            // Do NOT store submissionData - it contains base64 images that are too large
+            // All necessary data is in React state (previewImage) and window object (__submissionData)
+            console.log('💾 Persisted preview page state to sessionStorage for session:', sessionId);
+            console.log('📦 Submission data stored in memory (window.__submissionData) - too large for sessionStorage');
+          } catch (error) {
+            console.error('⚠️ Failed to persist preview state to sessionStorage:', error);
+            // Continue anyway - the preview will still work from React state and window object
+          }
         } else {
           console.error('❌ Cannot persist preview state - sessionId is null!');
         }
@@ -4681,14 +4838,16 @@ export default function Editor() {
               </svg>
             </div>
 
-            <h1 className="text-3xl font-bold text-gray-900 mb-4">Thank you!</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">
+              {orderStatus?.status === 'completed' ? 'All Done!' : 'Thank you!'}
+            </h1>
 
             <p className="text-base text-gray-600 mb-8 leading-relaxed">
-              {thankYouMessage}
-            </p>
-
-            <p className="text-sm text-gray-500 mb-6">
-              Return to the machine to complete your payment and start printing.
+              {orderStatus?.status === 'completed'
+                ? 'Your custom phone case is ready for pickup!'
+                : orderStatus?.status === 'printing'
+                ? 'Your design is being printed right now...'
+                : 'Your order has been received and is being processed.'}
             </p>
 
             {/* Order Status Display */}
@@ -4736,9 +4895,31 @@ export default function Editor() {
                       {orderStatus.status === 'printing' && <span className="text-2xl">🖨️</span>}
                       {orderStatus.status === 'failed' && <span className="text-2xl">❌</span>}
                       {orderStatus.status === 'pending' && <span className="text-2xl">⏳</span>}
-                      {orderStatus.status === 'paid' && <span className="text-2xl">📦</span>}
-                      <p className="text-lg font-bold capitalize">{orderStatus.status}</p>
+                      {orderStatus.status === 'paid' && <span className="text-2xl">⏳</span>}
+                      <p className="text-lg font-bold">
+                        {orderStatus.status === 'completed' ? 'Ready for Pickup!' :
+                         orderStatus.status === 'printing' ? 'Printing...' :
+                         orderStatus.status === 'failed' ? 'Print Failed' :
+                         orderStatus.status === 'pending' ? 'Preparing...' :
+                         orderStatus.status === 'paid' ? 'Preparing...' :
+                         orderStatus.status}
+                      </p>
                     </div>
+                    {orderStatus.status === 'completed' && (
+                      <p className="text-sm text-green-700 mt-2 font-medium">
+                        Your phone case is ready! Please collect it from the machine.
+                      </p>
+                    )}
+                    {orderStatus.status === 'printing' && (
+                      <p className="text-sm text-blue-700 mt-2">
+                        Your design is being printed. Please wait...
+                      </p>
+                    )}
+                    {orderStatus.status === 'failed' && (
+                      <p className="text-sm text-red-700 mt-2">
+                        Something went wrong. Please contact staff for assistance.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -4860,6 +5041,62 @@ export default function Editor() {
               position: fixed !important;
               z-index: 9999 !important;
             }
+          }
+
+          /* Slide up animation for drawer */
+          @keyframes slideUp {
+            from {
+              transform: translateY(100%);
+            }
+            to {
+              transform: translateY(0);
+            }
+          }
+
+          /* Slide down animation for drawer */
+          @keyframes slideDown {
+            from {
+              transform: translateY(0);
+            }
+            to {
+              transform: translateY(100%);
+            }
+          }
+
+          /* Fade in animation for backdrop */
+          @keyframes fadeIn {
+            from {
+              opacity: 0;
+            }
+            to {
+              opacity: 1;
+            }
+          }
+
+          /* Fade out animation for backdrop */
+          @keyframes fadeOut {
+            from {
+              opacity: 1;
+            }
+            to {
+              opacity: 0;
+            }
+          }
+
+          .animate-slide-up {
+            animation: slideUp 0.3s ease-out;
+          }
+
+          .animate-slide-down {
+            animation: slideDown 0.3s ease-out;
+          }
+
+          .animate-fade-in {
+            animation: fadeIn 0.3s ease-out;
+          }
+
+          .animate-fade-out {
+            animation: fadeOut 0.3s ease-out;
           }
         `}} />
       </Head>
@@ -5157,20 +5394,29 @@ export default function Editor() {
               </div>
             )}
 
-            {/* Beautiful card overlay when no image */}
+            {/* Upload card overlay - NO SCROLLING, fixed layout */}
             {!uploadedImage && !hasRestoredImage && (
-              <div className="absolute inset-0 z-30 bg-white">
-                <div className="h-full w-full flex flex-col px-4 py-3">
-                  {/* Header - Fixed at top */}
-                  <div className="flex items-center gap-3 mb-4 relative">
+              <div className="absolute inset-0 z-30 bg-white flex flex-col">
+                {/* Header - Fixed at top */}
+                <div className="flex-shrink-0 px-4 py-3">
+                  <div className="flex items-center gap-3 relative">
                     <img src="/icons/sweetrobo-logo.gif" alt="SweetRobo" className="w-16 h-16 object-contain" />
                     <div className="flex-1">
                       <h1 className="text-base font-bold text-gray-900">Case Bot App</h1>
-                      <p className="text-xs text-gray-500">Create amazing images with artificial intelligence</p>
+                      <p className="text-xs text-gray-500">Upload or Create amazing images with AI</p>
                     </div>
-                    {/* Back button to model selection */}
+                    {/* Back button - Preserve machineId dynamically */}
                     <button
-                      onClick={() => router.push('/')}
+                      onClick={() => {
+                        const machineId = router.query.machineId as string;
+                        if (machineId) {
+                          // Always preserve the machineId when going back
+                          router.push(`/select-model?machineId=${machineId}`);
+                        } else {
+                          // Fallback to select-model without machineId (demo mode)
+                          router.push('/select-model');
+                        }
+                      }}
                       className="absolute top-0 right-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all"
                       title="Change phone model"
                     >
@@ -5179,91 +5425,185 @@ export default function Editor() {
                       </svg>
                     </button>
                   </div>
+                </div>
 
-                  {/* Upload Section - Expands to fill available space */}
-                  <div className="flex-1 flex items-center justify-center mb-4">
-                    <div {...getRootProps()} className="w-full h-full max-h-[40vh] min-h-[200px] border-2 border-dashed border-purple-300 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer active:border-purple-400 active:bg-purple-50 transition-all bg-white"
-                      onClick={() => {
-                        // Manually trigger file input when upload area is clicked
-                        const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-                        if (input) input.click();
-                      }}
-                    >
-                      <input {...getInputProps()} />
-                      <div className="w-12 h-12 mx-auto mb-2 rounded-full flex items-center justify-center relative" style={{ background: 'linear-gradient(135deg, #a78bfa, #ec4899)', padding: '2px' }}>
-                        <div className="w-full h-full bg-white rounded-full flex items-center justify-center">
-                          <span className="text-2xl font-light" style={{
-                            background: 'linear-gradient(135deg, #a78bfa, #ec4899)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            backgroundClip: 'text',
-                            display: 'block',
-                            lineHeight: '1',
-                            marginTop: '-1px',
-                            textAlign: 'center'
-                          }}>+</span>
-                        </div>
+                {/* Upload Area - Dynamically sized to fill space */}
+                <div className="flex-1 px-4 flex items-center justify-center" style={{ minHeight: 0 }}>
+                  <div
+                    {...getRootProps()}
+                    className="w-full h-full max-h-full border-2 border-dashed border-purple-300 rounded-2xl flex flex-col items-center justify-center text-center cursor-pointer active:border-purple-400 active:bg-purple-50 transition-all bg-white"
+                    onClick={() => {
+                      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+                      if (input) input.click();
+                    }}
+                  >
+                    <input {...getInputProps()} />
+                    <div className="w-12 h-12 mx-auto mb-2 rounded-full flex items-center justify-center relative" style={{ background: 'linear-gradient(135deg, #a78bfa, #ec4899)', padding: '2px' }}>
+                      <div className="w-full h-full bg-white rounded-full flex items-center justify-center">
+                        <span className="text-2xl font-light" style={{
+                          background: 'linear-gradient(135deg, #a78bfa, #ec4899)',
+                          WebkitBackgroundClip: 'text',
+                          WebkitTextFillColor: 'transparent',
+                          backgroundClip: 'text',
+                          display: 'block',
+                          lineHeight: '1',
+                          marginTop: '-1px',
+                          textAlign: 'center'
+                        }}>+</span>
                       </div>
-                      <p className="text-gray-700 font-medium mb-1 text-base">Add your image here</p>
-                      <p className="text-xs text-gray-500">Upload from camera roll</p>
                     </div>
+                    <p className="text-gray-700 font-medium mb-1 text-base">Add your image here</p>
+                    <p className="text-xs text-gray-500">Upload from camera roll</p>
+                  </div>
+                </div>
+
+                {/* AI Generate Button - Fixed at bottom (triggers drawer) */}
+                <div className="flex-shrink-0 px-4 pb-3 pt-2">
+                  <button
+                    onClick={() => setShowAIUploadDrawer(true)}
+                    className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-2xl flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] transition-all"
+                  >
+                    <div className="w-5 h-5 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+                      <span className="text-xs">✨</span>
+                    </div>
+                    <span>Generate with AI</span>
+                    <span className="text-xs bg-white bg-opacity-20 px-2 py-0.5 rounded-full">AI</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* AI Upload Drawer - Slides up/down with animated backdrop */}
+            {showAIUploadDrawer && (
+              <div
+                className={`fixed inset-0 z-40 flex items-end ${isAIDrawerClosing ? 'animate-fade-out' : 'animate-fade-in'}`}
+                onClick={() => {
+                  // Prevent closing while processing
+                  if (isProcessing) return;
+
+                  setIsAIDrawerClosing(true);
+                  setTimeout(() => {
+                    setShowAIUploadDrawer(false);
+                    setIsAIDrawerClosing(false);
+                  }, 300); // Match animation duration
+                }}
+              >
+                {/* Backdrop - Blur with fade animation */}
+                <div className={`absolute inset-0 backdrop-blur-sm ${isAIDrawerClosing ? 'animate-fade-out' : 'animate-fade-in'}`}></div>
+
+                {/* Drawer Content */}
+                <div
+                  className={`relative w-full max-w-sm mx-auto bg-white rounded-t-3xl shadow-2xl ${isAIDrawerClosing ? 'animate-slide-down' : 'animate-slide-up'}`}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    maxHeight: '70vh'
+                  }}
+                >
+                  {/* Handle bar */}
+                  <div className="flex justify-center pt-3 pb-2">
+                    <div className="w-10 h-1 bg-gray-300 rounded-full"></div>
                   </div>
 
-                  {/* AI Generate Section - Fixed at bottom with white card */}
-                  <div className="bg-white rounded-2xl p-4 shadow-lg space-y-2.5" onClick={(e) => e.stopPropagation()}>
+                  {/* Drawer Header */}
+                  <div className="px-4 pb-3 flex items-center justify-between border-b border-gray-200">
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
                         <span className="text-white text-xs">✨</span>
                       </div>
-                      <span className="font-semibold text-gray-900 text-sm">Generate AI Image</span>
-                      <span className="ml-auto bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs px-2.5 py-0.5 rounded-full font-semibold">AI</span>
+                      <h2 className="font-bold text-gray-900">Generate AI Image</h2>
+                      {/* AI Counter Badge */}
+                      <div className="flex items-center gap-1 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200">
+                        <svg className="w-3 h-3 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                        </svg>
+                        <span className={`text-xs font-semibold ${aiEditCount >= MAX_AI_EDITS ? 'text-red-600' : 'text-purple-600'}`}>
+                          {MAX_AI_EDITS - aiEditCount} AI attempts left
+                        </span>
+                      </div>
                     </div>
+                    <button
+                      onClick={() => {
+                        // Prevent closing while processing
+                        if (isProcessing) return;
 
+                        setIsAIDrawerClosing(true);
+                        setTimeout(() => {
+                          setShowAIUploadDrawer(false);
+                          setIsAIDrawerClosing(false);
+                        }, 300);
+                      }}
+                      disabled={isProcessing}
+                      className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* Drawer Body - Scrollable if needed */}
+                  <div className="px-4 py-4 space-y-3 overflow-y-auto" style={{ maxHeight: 'calc(70vh - 120px)' }}>
                     <input
                       type="text"
                       placeholder="Describe your image..."
                       value={createPrompt}
                       onChange={(e) => setCreatePrompt(e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-purple-500 text-sm text-gray-900"
+                      disabled={isProcessing}
+                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-purple-500 text-sm text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
 
                     <button
-                      onClick={handleCreateAIImage}
+                      onClick={async () => {
+                        // Call the AI generation function
+                        await handleCreateAIImage();
+
+                        // Only close drawer AFTER generation is complete (success or error)
+                        // isProcessing will be false by now if generation succeeded/failed
+                        if (!isProcessing) {
+                          setIsAIDrawerClosing(true);
+                          setTimeout(() => {
+                            setShowAIUploadDrawer(false);
+                            setIsAIDrawerClosing(false);
+                          }, 300);
+                        }
+                      }}
                       disabled={!createPrompt.trim() || isProcessing}
                       className="w-full py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98] text-sm"
                     >
-                      {isProcessing ? 'Generating...' : 'Generate Image'}
+                      {isProcessing ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>Generating...</span>
+                        </div>
+                      ) : 'Generate Image'}
                     </button>
 
                     {/* Quick Prompts */}
                     <div className="pt-2">
-                      <p className="text-xs text-gray-500 mb-1.5">Quick prompts:</p>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        <button type="button" onClick={(e) => { e.stopPropagation(); console.log('Setting prompt to: Sunset landscape'); setCreatePrompt('Sunset landscape'); }} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
-                          <span className="text-lg mb-0.5">🌅</span>
-                          <span className="text-[10px] text-gray-600">Sunset</span>
-                        </button>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); console.log('Setting prompt to: Cartoon Cat'); setCreatePrompt('Cartoon Cat'); }} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
-                          <span className="text-lg mb-0.5">🐱</span>
-                          <span className="text-[10px] text-gray-600">Cartoon Cat</span>
-                        </button>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); console.log('Setting prompt to: Abstract Art'); setCreatePrompt('Abstract Art'); }} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
-                          <span className="text-lg mb-0.5">🎨</span>
-                          <span className="text-[10px] text-gray-600">Abstract Art</span>
-                        </button>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); console.log('Setting prompt to: Space Galaxy'); setCreatePrompt('Space Galaxy'); }} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
-                          <span className="text-lg mb-0.5">🌌</span>
-                          <span className="text-[10px] text-gray-600">Space/Galaxy</span>
-                        </button>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); console.log('Setting prompt to: Cherry Blossom'); setCreatePrompt('Cherry Blossom'); }} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
-                          <span className="text-lg mb-0.5">🌸</span>
-                          <span className="text-[10px] text-gray-600">Cherry Blossom</span>
-                        </button>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); console.log('Setting prompt to: Retro Synthwave'); setCreatePrompt('Retro Synthwave'); }} className="flex flex-col items-center p-1.5 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100">
-                          <span className="text-lg mb-0.5">🌆</span>
-                          <span className="text-[10px] text-gray-600">Retro Synthwave</span>
-                        </button>
+                      <p className="text-xs text-gray-500 mb-2">Quick prompts:</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { emoji: '🌅', label: 'Sunset', prompt: 'Sunset landscape' },
+                          { emoji: '🐱', label: 'Cartoon Cat', prompt: 'Cartoon Cat' },
+                          { emoji: '🎨', label: 'Abstract Art', prompt: 'Abstract Art' },
+                          { emoji: '🌌', label: 'Space', prompt: 'Space Galaxy' },
+                          { emoji: '🌸', label: 'Cherry Blossom', prompt: 'Cherry Blossom' },
+                          { emoji: '🌆', label: 'Synthwave', prompt: 'Retro Synthwave' },
+                        ].map((item) => (
+                          <button
+                            key={item.label}
+                            type="button"
+                            onClick={() => setCreatePrompt(item.prompt)}
+                            disabled={isProcessing}
+                            className="flex flex-col items-center p-2 border border-gray-200 rounded-lg bg-gray-50 active:bg-gray-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <span className="text-2xl mb-1">{item.emoji}</span>
+                            <span className="text-[10px] text-gray-600">{item.label}</span>
+                          </button>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -5271,105 +5611,176 @@ export default function Editor() {
               </div>
             )}
 
-            {/* Canvas Section - No centering, attached to header */}
-            <div className="flex-shrink-0 relative">
-              <canvas ref={canvasRef} className="no-select" />
+            {/* Main Content Area - Canvas + Right Sidebar */}
+            <div className="flex-1 flex min-h-0 relative">
+              {/* Canvas Section - Takes remaining space */}
+              <div className="flex-1 flex items-center justify-center">
+                <canvas ref={canvasRef} className="no-select" />
+              </div>
+
+              {/* Right Sidebar - Vertical Tools (Fixed to right edge) */}
+              {uploadedImage && !hideEditButtons && (
+                <div className="fixed right-0 top-[80px] bottom-[90px] w-[70px] bg-transparent flex flex-col gap-2.5 py-3 items-center z-40 overflow-y-auto">
+                  {/* AI Edit Button with Counter */}
+                  <button
+                    onClick={() => {
+                      setInitialBWState(isBlackAndWhite);
+                      setInitialBgColor(canvasBackgroundColor);
+                      setInitialTextColor(textColor);
+                      setShowAIModal(true);
+                    }}
+                    className="flex-shrink-0 flex flex-col items-center gap-0.5 relative"
+                    title="AI Edit"
+                  >
+                    <div className="w-11 h-11 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-sm">
+                      <span className="text-white text-sm font-bold">AI</span>
+                    </div>
+                    <span className="text-[9px] text-gray-600 text-center">AI Edit</span>
+                    {/* Counter badge */}
+                    <div className="absolute -top-1 -right-1 bg-purple-100 rounded-full px-1.5 py-0.5 min-w-[18px] flex items-center justify-center">
+                      <span className={`text-[9px] font-semibold whitespace-nowrap ${aiEditCount >= MAX_AI_EDITS ? 'text-red-600' : 'text-purple-600'}`}>
+                        {MAX_AI_EDITS - aiEditCount}
+                      </span>
+                    </div>
+                  </button>
+
+                  {/* Stickers/Text Button */}
+                  <button
+                    onClick={() => {
+                      setInitialTextColor(textColor);
+                      setShowStickersModal(true);
+                    }}
+                    className="flex-shrink-0 flex flex-col items-center gap-0.5"
+                    title="Stickers & Text"
+                  >
+                    <div className="w-11 h-11 bg-white rounded-full flex items-center justify-center shadow-sm">
+                      <span className="text-xl">🎨</span>
+                    </div>
+                    <span className="text-[9px] text-gray-600 text-center">Stickers</span>
+                  </button>
+
+                  {/* Rotate Left */}
+                  <button
+                    onClick={() => {
+                      if (uploadedImage && canvas) {
+                        const angle = uploadedImage.angle - 90;
+                        uploadedImage.rotate(angle);
+                        uploadedImage.controls = normalControls.current;
+                        canvas.discardActiveObject();
+                        canvas.setActiveObject(uploadedImage);
+                        canvas.renderAll();
+                        canvas.requestRenderAll();
+                      }
+                    }}
+                    className="flex-shrink-0 flex flex-col items-center gap-0.5"
+                    title="Rotate Left"
+                  >
+                    <div className="w-11 h-11 bg-white rounded-full flex items-center justify-center shadow-sm">
+                      <span className="text-xl text-black">↺</span>
+                    </div>
+                    <span className="text-[9px] text-gray-600 text-center">Rotate L</span>
+                  </button>
+
+                  {/* Rotate Right */}
+                  <button
+                    onClick={() => {
+                      if (uploadedImage && canvas) {
+                        const angle = uploadedImage.angle + 90;
+                        uploadedImage.rotate(angle);
+                        uploadedImage.controls = normalControls.current;
+                        canvas.discardActiveObject();
+                        canvas.setActiveObject(uploadedImage);
+                        canvas.renderAll();
+                        canvas.requestRenderAll();
+                      }
+                    }}
+                    className="flex-shrink-0 flex flex-col items-center gap-0.5"
+                    title="Rotate Right"
+                  >
+                    <div className="w-11 h-11 bg-white rounded-full flex items-center justify-center shadow-sm">
+                      <span className="text-xl text-black">↻</span>
+                    </div>
+                    <span className="text-[9px] text-gray-600 text-center">Rotate R</span>
+                  </button>
+
+                  {/* Crop */}
+                  <button
+                    onClick={() => {
+                      if (uploadedImage && uploadedImage.type === 'image') {
+                        const imageDataUrl = uploadedImage.toDataURL({
+                          format: 'png',
+                          multiplier: 2,
+                          quality: 1.0
+                        });
+                        (window as any).currentCropTarget = uploadedImage;
+                        const img = new Image();
+                        img.onload = () => {
+                          cropperImageRef.current = img;
+                          const viewportHeight = window.innerHeight;
+                          const viewportWidth = window.innerWidth;
+                          const reservedHeight = 284;
+                          const maxHeight = viewportHeight - reservedHeight;
+                          const maxWidth = Math.min(viewportWidth - 32, 500);
+                          const imgWidth = img.width;
+                          const imgHeight = img.height;
+                          const scaleX = maxWidth / imgWidth;
+                          const scaleY = maxHeight / imgHeight;
+                          const scale = Math.min(scaleX, scaleY, 1);
+                          const displayWidth = Math.round(imgWidth * scale);
+                          const displayHeight = Math.round(imgHeight * scale);
+                          setCropperDimensions({ width: displayWidth, height: displayHeight });
+                          setShowCropper(true);
+                        };
+                        img.src = imageDataUrl;
+                      }
+                    }}
+                    className="flex-shrink-0 flex flex-col items-center gap-0.5"
+                    title="Crop"
+                  >
+                    <div className="w-11 h-11 bg-white rounded-full flex items-center justify-center shadow-sm">
+                      <img src="/icons/crop.png" alt="Crop" className="w-4 h-4" />
+                    </div>
+                    <span className="text-[9px] text-gray-600 text-center">Crop</span>
+                  </button>
+
+                  {/* Delete */}
+                  <button
+                    onClick={() => {
+                      if (!canvas) return;
+                      const activeObject = canvas.getActiveObject();
+                      if (activeObject) {
+                        if (activeObject === uploadedImage) {
+                          setShowDeleteConfirmation(true);
+                        } else {
+                          canvas.remove(activeObject);
+                          canvas.discardActiveObject();
+                          canvas.renderAll();
+                        }
+                      } else {
+                        if (uploadedImage) {
+                          setShowDeleteConfirmation(true);
+                        }
+                      }
+                    }}
+                    className="flex-shrink-0 flex flex-col items-center gap-0.5"
+                    title="Delete"
+                  >
+                    <div className="w-11 h-11 bg-white rounded-full flex items-center justify-center shadow-sm">
+                      <img src="/icons/delete.png" alt="Delete" className="w-4 h-4" />
+                    </div>
+                    <span className="text-[9px] text-gray-600 text-center">Delete</span>
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* AI Edit Counter - Positioned above toolbar */}
-            {uploadedImage && (
-              <div className="flex-shrink-0 px-3 py-1.5">
-                <div className="flex items-center justify-center gap-2 bg-purple-50 px-3 py-2 rounded-lg border border-purple-200">
-                  <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                  </svg>
-                  <span className={`text-sm font-semibold ${aiEditCount >= MAX_AI_EDITS ? 'text-red-600' : 'text-purple-600'}`}>
-                    {MAX_AI_EDITS - aiEditCount} AI edits left
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Bottom Toolbar - Attached below canvas */}
-            {uploadedImage && (
+            {/* Bottom Toolbar - REMOVED (all buttons moved to right side) */}
+            {false && uploadedImage && (
               <div className="flex-shrink-0 px-3 py-1">
                 <div className="flex justify-between items-center gap-2 w-full">
-              {/* Left buttons group - AI Edit and Stickers */}
-              <div className="flex items-center gap-2">
-                {/* AI Edit Button */}
-                <button
-                  onClick={() => {
-                    setInitialBWState(isBlackAndWhite);
-                    setInitialBgColor(canvasBackgroundColor);
-                    setInitialTextColor(textColor);
-                    setShowAIModal(true);
-                  }}
-                  className="h-11 px-3 bg-white font-medium rounded-lg flex items-center justify-center text-sm shadow-lg whitespace-nowrap"
-                  style={{
-                    background: 'white',
-                    color: 'transparent',
-                    backgroundImage: 'linear-gradient(135deg, #a855f7, #ec4899)',
-                    WebkitBackgroundClip: 'text',
-                    backgroundClip: 'text'
-                  }}
-                >
-                  <span>AI Edit</span>
-                </button>
-
-                {/* Stickers Button */}
-                <button
-                  onClick={() => {
-                    setInitialTextColor(textColor);
-                    setShowStickersModal(true);
-                  }}
-                  className="h-11 px-3 bg-white font-medium rounded-lg flex items-center justify-center text-sm shadow-lg"
-                >
-                  <span className="text-gray-700">Stickers</span>
-                </button>
-              </div>
-
-              {/* Middle buttons group */}
-              <div className="flex items-center gap-2">
-              {/* Rotate Left */}
-              <button
-                onClick={() => {
-                  if (uploadedImage && canvas) {
-                    const angle = uploadedImage.angle - 90;
-                    uploadedImage.rotate(angle);
-                    uploadedImage.controls = normalControls.current;
-                    canvas.discardActiveObject();
-                    canvas.setActiveObject(uploadedImage);
-                    canvas.renderAll();
-                    canvas.requestRenderAll();
-                  }
-                }}
-                className="w-11 h-11 bg-white rounded-lg flex flex-col items-center justify-center shadow-lg"
-              >
-                <span className="text-lg text-black">↺</span>
-                <span className="text-[8px] text-gray-600 -mt-1">90°</span>
-              </button>
-
-              {/* Rotate Right */}
-              <button
-                onClick={() => {
-                  if (uploadedImage && canvas) {
-                    const angle = uploadedImage.angle + 90;
-                    uploadedImage.rotate(angle);
-                    uploadedImage.controls = normalControls.current;
-                    canvas.discardActiveObject();
-                    canvas.setActiveObject(uploadedImage);
-                    canvas.renderAll();
-                    canvas.requestRenderAll();
-                  }
-                }}
-                className="w-11 h-11 bg-white rounded-lg flex flex-col items-center justify-center shadow-lg"
-              >
-                <span className="text-lg text-black">↻</span>
-                <span className="text-[8px] text-gray-600 -mt-1">90°</span>
-              </button>
-
-              {/* Crop Button */}
-              <button
+              {/* All buttons moved to right side - this toolbar is hidden */}
+              {/* Crop Button - HIDDEN (moved to right side) */}
+              {false && <button
                 onClick={() => {
                   if (uploadedImage && uploadedImage.type === 'image') {
                     const imageDataUrl = uploadedImage.toDataURL({
@@ -5413,59 +5824,35 @@ export default function Editor() {
                 className="w-11 h-11 bg-white rounded-lg flex items-center justify-center shadow-lg"
               >
                 <img src="/icons/crop.png" alt="Crop" className="w-5 h-5" />
-              </button>
-              </div>
+              </button>}
 
-              {/* Delete Button */}
-              <button
-                onClick={() => {
-                  if (!canvas) return;
-
-                  const activeObject = canvas.getActiveObject();
-
-                  if (activeObject) {
-                    // Something is selected
-                    if (activeObject === uploadedImage) {
-                      // The main image is selected - show confirmation modal
-                      setShowDeleteConfirmation(true);
-                    } else {
-                      // A text or other object is selected - just delete that object
-                      canvas.remove(activeObject);
-                      canvas.discardActiveObject();
-                      canvas.renderAll();
-                      console.log('Selected object deleted:', activeObject.type);
-                    }
-                  } else {
-                    // Nothing selected - show confirmation modal for main image
-                    if (uploadedImage) {
-                      setShowDeleteConfirmation(true);
-                    }
-                  }
-                }}
-                className="w-11 h-11 bg-white rounded-lg flex items-center justify-center shadow-lg"
-              >
-                <img src="/icons/delete.png" alt="Delete" className="w-5 h-5" />
-              </button>
+              {/* Delete Button - HIDDEN (moved to right side) */}
                 </div>
               </div>
             )}
 
-            {/* Spacer to push submit button to bottom */}
-            <div className="flex-1"></div>
+            {/* Submit Button - Always visible at bottom */}
+            <div className="flex-shrink-0 bg-white p-3" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
+              {/* Demo Mode Warning */}
+              {!machineId && (
+                <div className="mb-2 bg-yellow-50 border border-yellow-200 rounded-lg p-2">
+                  <p className="text-xs text-yellow-700 text-center">
+                    🎮 Demo Mode: Printing disabled (no machine connected)
+                  </p>
+                </div>
+              )}
 
-            {/* Submit Button - Fixed at bottom */}
-            <div className="flex-shrink-0 p-3">
-          <button
-            onClick={handleSubmit}
-            className="w-full font-semibold py-3 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
-            style={{
-              background: !uploadedImage || isUploading ? '#e5e7eb' : 'linear-gradient(135deg, #a855f7, #ec4899)',
-              color: !uploadedImage || isUploading ? '#9ca3af' : 'white',
-            }}
-            disabled={!uploadedImage || isUploading}
-          >
-            {isUploading ? 'Processing...' : 'Submit Image'}
-          </button>
+              <button
+                onClick={handleSubmit}
+                className="w-full font-semibold py-3 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
+                style={{
+                  background: !uploadedImage || isUploading || !machineId ? '#e5e7eb' : 'linear-gradient(135deg, #a855f7, #ec4899)',
+                  color: !uploadedImage || isUploading || !machineId ? '#9ca3af' : 'white',
+                }}
+                disabled={!uploadedImage || isUploading || !machineId}
+              >
+                {isUploading ? 'Processing...' : !machineId ? 'Demo Mode - Cannot Print' : 'Submit Image'}
+              </button>
             </div>
           </div>
         </div>
@@ -6876,6 +7263,10 @@ export default function Editor() {
                 onClick={() => {
                   if (!canvas) return;
 
+                  // Set deletion flag to prevent saveCanvasState from running during removal
+                  isDeletingImage.current = true;
+                  console.log('🗑️ Starting deletion, blocking state saves');
+
                   // Remove all objects except border and background
                   const objectsToRemove = canvas.getObjects().filter((obj: any) =>
                     !obj.excludeFromExport && obj.selectable !== false
@@ -6886,6 +7277,11 @@ export default function Editor() {
                   setUploadedImage(null);
                   setCropHistory([]);
                   setHasRestoredImage(false);
+
+                  // Clear undo/redo history when deleting everything
+                  setCanvasHistory([]);
+                  setCanvasRedoStack([]);
+                  console.log('🗑️ Cleared undo/redo history');
 
                   // Clear canvas state from sessionStorage to prevent restoration
                   if (sessionId) {
@@ -6905,6 +7301,13 @@ export default function Editor() {
                   setTextColor('#000000');
 
                   setShowDeleteConfirmation(false);
+
+                  // Re-enable state saves after deletion completes AND after all event handlers fire
+                  // handleRemoved has a 100ms setTimeout, so we wait 200ms to be safe
+                  setTimeout(() => {
+                    isDeletingImage.current = false;
+                    console.log('🗑️ Deletion complete, state saves re-enabled');
+                  }, 200);
                   console.log('Everything deleted, returning to upload page');
                 }}
                 className="w-full py-3 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 transition-colors"
@@ -6963,6 +7366,13 @@ export default function Editor() {
                     // Get submission data from window
                     const submissionData = (window as any).__submissionData;
 
+                    // DEMO MODE: Mark submission as demo (no Chitu order, S3 upload only)
+                    if (isDemoMode) {
+                      submissionData.isDemo = true;
+                      submissionData.machineId = null; // Ensure no machineId sent
+                      console.log('🎮 DEMO MODE: Submitting design (S3 only, no Chitu order)');
+                    }
+
                     // Submit to backend (S3 upload + print job)
                     const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
                     const response = await fetch(`${backendUrl}/api/chitu/print`, {
@@ -6993,17 +7403,25 @@ export default function Editor() {
                         sessionStorage.removeItem(`submission-data-${sessionId}`);
                       }
 
-                      // Show waiting for payment page (NOT thank you yet)
-                      setIsSessionLocked(true);
-                      setShowWaitingForPayment(true);
-                      setShowThankYou(false);
+                      // DEMO MODE: Skip waiting for payment, go straight to thank you
+                      if (isDemoMode) {
+                        setIsSessionLocked(true);
+                        setShowWaitingForPayment(false);
+                        setShowThankYou(true);
+                        console.log('🎮 DEMO MODE: Showing thank you page (no payment required)');
+                      } else {
+                        // Show waiting for payment page (NOT thank you yet)
+                        setIsSessionLocked(true);
+                        setShowWaitingForPayment(true);
+                        setShowThankYou(false);
+                      }
 
                       // Persist lock and page state in sessionStorage
                       if (sessionId) {
                         sessionStorage.setItem(`session-locked-${sessionId}`, 'true');
                         sessionStorage.setItem(`session-lock-timestamp-${sessionId}`, Date.now().toString());
-                        sessionStorage.setItem(`page-state-${sessionId}`, 'waiting');
-                        console.log('💾 Persisted waiting page state to sessionStorage');
+                        sessionStorage.setItem(`page-state-${sessionId}`, isDemoMode ? 'thankyou' : 'waiting');
+                        console.log('💾 Persisted page state to sessionStorage');
                       }
 
                       // Prevent back navigation
@@ -7027,7 +7445,7 @@ export default function Editor() {
                 disabled={isUploading}
                 className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 active:bg-purple-800 text-white font-semibold py-4 px-6 rounded-lg transition shadow-md"
               >
-                {isUploading ? 'Submitting...' : 'Submit Design'}
+                {isUploading ? 'Submitting...' : (isDemoMode ? 'Save Design (Demo)' : 'Submit Design')}
               </button>
               <button
                 onClick={(e) => {

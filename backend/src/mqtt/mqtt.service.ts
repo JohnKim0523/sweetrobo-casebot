@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as mqtt from 'mqtt';
 import * as crypto from 'crypto';
+import { OrderMappingService } from '../order-mapping/order-mapping.service';
 
 interface MachineStatusMessage {
   msgType: 'machineInfo' | 'cleanNozzle' | 'orderStatus';
@@ -24,7 +25,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   private readonly brokerUrl: string;
   private connected = false;
 
-  constructor(private eventEmitter: EventEmitter2) {
+  constructor(
+    private eventEmitter: EventEmitter2,
+    private orderMappingService: OrderMappingService,
+  ) {
     // Use WebSocket connection as shown in documentation
     // Note: The doc has a typo - it says "gzchittu.cn" but should be "gzchitu.cn"
     
@@ -224,10 +228,30 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     console.log(`   Payment Type: ${message.payType}`);
     console.log(`   Amount: ${message.amount}`);
 
+    // Try to find our internal jobId from either orderId or orderNo
+    // Chitu might send their orderId in either field
+    let jobId: string | undefined;
+    if (message.orderId) {
+      jobId = this.orderMappingService.getJobId(message.orderId);
+    }
+    if (!jobId && message.orderNo) {
+      jobId = this.orderMappingService.getJobId(message.orderNo);
+    }
+
+    if (jobId) {
+      console.log(`🗺️ Mapped Chitu order to our jobId: ${jobId}`);
+    } else {
+      console.log(`⚠️ No mapping found for Chitu orderId/orderNo - using raw values`);
+    }
+
     // Create detailed order update
+    // IMPORTANT: Include our jobId so frontend can match the subscription
     const orderUpdate = {
       orderId: message.orderId,
-      orderNo: message.orderNo,
+      orderNo: jobId || message.orderNo, // Use our jobId if mapped, else Chitu's orderNo
+      jobId: jobId, // Explicit jobId field for frontend matching
+      chituOrderId: message.orderId, // Keep original Chitu ID for reference
+      chituOrderNo: message.orderNo, // Keep original Chitu orderNo for reference
       machineId: message.machineId,
       status: message.status,
       payStatus: message.payStatus,
@@ -241,16 +265,16 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
     // Log payment completion
     if (message.payStatus === 'paid') {
-      console.log(`✅ Payment confirmed for order ${message.orderNo} - ${message.payType}`);
+      console.log(`✅ Payment confirmed for order ${jobId || message.orderNo} - ${message.payType}`);
     }
 
     // Log printing status
     if (message.status === 'printing') {
-      console.log(`🖨️ Order ${message.orderNo} is now printing`);
+      console.log(`🖨️ Order ${jobId || message.orderNo} is now printing`);
     } else if (message.status === 'completed') {
-      console.log(`✅ Order ${message.orderNo} completed successfully`);
+      console.log(`✅ Order ${jobId || message.orderNo} completed successfully`);
     } else if (message.status === 'failed') {
-      console.log(`❌ Order ${message.orderNo} failed`);
+      console.log(`❌ Order ${jobId || message.orderNo} failed`);
     }
   }
 
@@ -284,9 +308,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   simulatePaymentConfirmation(machineId: string, orderNo: string, amount: number = 25.99) {
     console.log(`🧪 TEST: Simulating payment confirmation for order ${orderNo}`);
 
+    // For test simulation, the orderNo IS our jobId, so we include it directly
     const testOrderStatus = {
       orderId: `test_${orderNo}`,
       orderNo: orderNo,
+      jobId: orderNo, // In test mode, orderNo is the jobId
       machineId: machineId,
       status: 'paid',
       payStatus: 'paid',

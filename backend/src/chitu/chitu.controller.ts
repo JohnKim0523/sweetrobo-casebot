@@ -85,23 +85,70 @@ export class ChituController {
 
   /**
    * Get product catalog (phone models) for a machine
-   * Query params: type=diy|default, status=0|1, page=1, limit=100
+   * Query params: type=diy|default|all, status=0|1, page=1, limit=100
+   * If type is not specified or 'all', fetches from both 'default' and 'diy' and merges
    */
   @Get('products/:deviceCode')
   async getProductCatalog(
     @Param('deviceCode') deviceCode: string,
-    @Query('type') type?: 'default' | 'diy',
+    @Query('type') type?: 'default' | 'diy' | 'all',
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     try {
+      const statusValue = status === '0' ? 0 : 1;
+      const pageValue = parseInt(page || '1', 10);
+      const limitValue = parseInt(limit || '100', 10);
+
+      // If type is 'all' or not specified, fetch from both types and merge
+      if (!type || type === 'all') {
+        const [defaultCatalog, diyCatalog] = await Promise.all([
+          this.chituService.getProductCatalogByCode(
+            deviceCode,
+            'default',
+            statusValue,
+            pageValue,
+            limitValue,
+          ),
+          this.chituService.getProductCatalogByCode(
+            deviceCode,
+            'diy',
+            statusValue,
+            pageValue,
+            limitValue,
+          ),
+        ]);
+
+        // Merge both catalogs - combine brand lists
+        const allBrands = [...(defaultCatalog.list || []), ...(diyCatalog.list || [])];
+
+        // Remove duplicates by brand ID and merge model lists from duplicate brands
+        const brandMap = new Map();
+        allBrands.forEach(brand => {
+          if (brandMap.has(brand.id)) {
+            // Brand exists, merge model lists
+            const existing = brandMap.get(brand.id);
+            existing.modelList = [...existing.modelList, ...brand.modelList];
+          } else {
+            brandMap.set(brand.id, { ...brand });
+          }
+        });
+
+        return {
+          success: true,
+          count: defaultCatalog.count + diyCatalog.count,
+          brands: Array.from(brandMap.values()),
+        };
+      }
+
+      // If specific type requested, use that
       const catalog = await this.chituService.getProductCatalogByCode(
         deviceCode,
-        type || 'diy',
-        status === '0' ? 0 : 1,
-        parseInt(page || '1', 10),
-        parseInt(limit || '100', 10),
+        type,
+        statusValue,
+        pageValue,
+        limitValue,
       );
       return {
         success: true,
