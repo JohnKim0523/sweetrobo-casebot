@@ -65,6 +65,19 @@ const DEMO_MODE_THUMBNAILS: Record<string, string> = {
   'samsung-a21': 'https://print-oss.gzchitu.cn/fd972202501150910565164.png',
 };
 
+// Machine status response type
+interface MachineStatus {
+  success: boolean;
+  online: boolean;
+  message: string;
+  machine: {
+    name: string;
+    code: string;
+    model: string;
+    address: string;
+  } | null;
+}
+
 export default function SelectModel() {
   const router = useRouter();
   const [selectedBrand, setSelectedBrand] = useState<string>('');
@@ -72,6 +85,11 @@ export default function SelectModel() {
   const [isLoadingInventory, setIsLoadingInventory] = useState(true);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
   const [isLoadingDimensions, setIsLoadingDimensions] = useState(false);
+
+  // Machine status state
+  const [machineStatus, setMachineStatus] = useState<MachineStatus | null>(null);
+  const [isCheckingMachine, setIsCheckingMachine] = useState(false);
+  const [machineOffline, setMachineOffline] = useState(false);
 
   // Check if we're in demo mode (no machineId)
   const isDemoMode = !router.query.machineId;
@@ -164,15 +182,16 @@ export default function SelectModel() {
     });
   }, [inventory, selectedBrand, isDemoMode, demoModels]);
 
-  // Fetch inventory from machine on page load (only if machineId is provided)
+  // Check machine status and fetch inventory on page load
   useEffect(() => {
-    const fetchInventory = async () => {
+    const checkMachineAndFetchInventory = async () => {
       const machineId = router.query.machineId as string;
 
       // If no machineId, enter demo mode (show curated models)
       if (!machineId) {
         console.log('🎮 DEMO MODE: No machine ID in URL - showing curated demo models');
         setIsLoadingInventory(false);
+        setIsCheckingMachine(false);
         setInventory(null); // null = demo mode
         // Auto-select first demo brand
         if (demoBrands.length > 0) {
@@ -181,12 +200,42 @@ export default function SelectModel() {
         return;
       }
 
+      // Step 1: Check if machine is online
+      console.log(`🔍 Checking machine status for: ${machineId}`);
+      setIsCheckingMachine(true);
+      setMachineOffline(false);
+
+      try {
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':3001') : 'http://localhost:3001');
+        const statusResponse = await fetch(`${backendUrl}/api/chitu/machine/${machineId}/status`);
+        const statusData: MachineStatus = await statusResponse.json();
+
+        console.log('📡 Machine status:', statusData);
+        setMachineStatus(statusData);
+
+        if (!statusData.online) {
+          console.warn('⚠️ Machine is offline:', statusData.message);
+          setMachineOffline(true);
+          setIsCheckingMachine(false);
+          setIsLoadingInventory(false);
+          return; // Don't fetch inventory if machine is offline
+        }
+
+        console.log('✅ Machine is online, fetching inventory...');
+      } catch (error) {
+        console.error('❌ Failed to check machine status:', error);
+        // Continue to fetch inventory even if status check fails
+        // (machine might still work, status endpoint might just be down)
+      }
+
+      setIsCheckingMachine(false);
+
+      // Step 2: Fetch inventory (only if machine is online or status check failed)
       console.log(`📦 Fetching inventory for machine: ${machineId}`);
       setIsLoadingInventory(true);
       setInventoryError(null);
 
       try {
-        // Use dynamic backend URL based on current origin (works on any network/IP)
         const backendUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':3001') : 'http://localhost:3001');
         const response = await fetch(`${backendUrl}/api/chitu/products/${machineId}?type=all&status=1`);
 
@@ -213,7 +262,7 @@ export default function SelectModel() {
 
     // Only fetch when router is ready
     if (router.isReady) {
-      fetchInventory();
+      checkMachineAndFetchInventory();
     }
   }, [router.isReady, router.query.machineId]);
 
@@ -545,6 +594,24 @@ export default function SelectModel() {
               </p>
             </div>
           )}
+
+          {/* Machine Offline Alert */}
+          {machineOffline && machineStatus && (
+            <div className="mt-2 bg-orange-50 border border-orange-200 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <div className="text-2xl">🔌</div>
+                <div className="flex-1">
+                  <p className="font-semibold text-orange-800">Machine Offline</p>
+                  <p className="text-sm text-orange-700 mt-1">
+                    {machineStatus.machine?.name || `Machine ${router.query.machineId}`} is currently offline.
+                  </p>
+                  <p className="text-sm text-orange-600 mt-2">
+                    Please try another machine or come back later.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Brand Tabs - only show when brands are loaded */}
@@ -572,8 +639,16 @@ export default function SelectModel() {
 
         {/* Phone Model Grid */}
         <div className="px-4 py-4">
-          {/* Loading Spinner */}
-          {isLoadingInventory && (
+          {/* Loading Spinner - Checking Machine */}
+          {isCheckingMachine && (
+            <div className="text-center py-12">
+              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+              <p className="text-gray-600 mt-4">Checking machine status...</p>
+            </div>
+          )}
+
+          {/* Loading Spinner - Loading Inventory */}
+          {!isCheckingMachine && isLoadingInventory && !machineOffline && (
             <div className="text-center py-12">
               <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
               <p className="text-gray-600 mt-4">Loading inventory...</p>
@@ -581,7 +656,7 @@ export default function SelectModel() {
           )}
 
           {/* No brands available */}
-          {!isLoadingInventory && brands.length === 0 && (
+          {!isLoadingInventory && !isCheckingMachine && !machineOffline && brands.length === 0 && (
             <div className="text-center py-8">
               <p className="text-gray-600">No products available</p>
             </div>

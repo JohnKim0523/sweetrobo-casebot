@@ -84,6 +84,35 @@ export class ChituController {
   }
 
   /**
+   * Check if machine is online and ready (for upfront status check)
+   * Returns online status before user starts designing
+   */
+  @Get('machine/:deviceCode/status')
+  async getMachineStatus(@Param('deviceCode') deviceCode: string) {
+    try {
+      const status = await this.chituService.checkMachineStatus(deviceCode);
+      return {
+        success: true,
+        online: status.ready,
+        message: status.message,
+        machine: status.details ? {
+          name: status.details.device_name,
+          code: status.details.device_code,
+          model: status.details.machine_model,
+          address: status.details.address,
+        } : null,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        online: false,
+        message: `Failed to check machine status: ${error.message}`,
+        machine: null,
+      };
+    }
+  }
+
+  /**
    * Get product catalog (phone models) for a machine
    * Query params: type=diy|default|all, status=0|1, page=1, limit=100
    * If type is not specified or 'all', fetches from both 'default' and 'diy' and merges
