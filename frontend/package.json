@@ -23,7 +23,7 @@
     "chalk": "^4.1.2",
     "cropperjs": "^1.6.2",
     "fabric": "^6.7.1",
-    "next": "15.4.4",
+    "next": "15.5.7",
     "posthog-js": "^1.260.1",
     "posthog-node": "^5.7.0",
     "process": "^0.11.10",
@@ -43,7 +43,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "15.4.4",
+    "eslint-config-next": "15.5.7",
     "lightningcss": "^1.30.2",
     "tailwindcss": "^4",
     "typescript": "^5"
