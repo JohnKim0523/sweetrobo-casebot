@@ -45,25 +45,58 @@ interface DynamicModel {
   printMaskPath?: string;
 }
 
-// Demo mode: Curated list of phone models for testing
-const DEMO_MODE_MODELS: string[] = [
-  'iphone-16-pro',
-  'iphone-16',
-  'iphone-15-pro-max',
-  'iphone-15',
-  'iphone-14-plus',
-  'samsung-a21',
-];
+// Demo mode: Complete list of all phone models available across all machines
+// Each model includes Chitu API URLs for show_img (thumbnail) and print_img (cutout template)
+interface DemoModel {
+  id: string;
+  brand: string;
+  model: string;
+  show_img: string;
+  print_img: string;
+}
 
-// Demo mode: Thumbnail URLs from Chitu API (for demo mode display)
-const DEMO_MODE_THUMBNAILS: Record<string, string> = {
-  'iphone-16-pro': 'https://print-oss.gzchitu.cn/iphone/iphone16pro.png',
-  'iphone-16': 'https://print-oss.gzchitu.cn/iphone/iphone16.png',
-  'iphone-15-pro-max': 'https://print-oss.gzchitu.cn/iphone/iphone15promax.png',
-  'iphone-15': 'https://print-oss.gzchitu.cn/iphone/iphone15.png',
-  'iphone-14-plus': 'https://print-oss.gzchitu.cn/iphone/iphone14plus.png',
-  'samsung-a21': 'https://print-oss.gzchitu.cn/fd972202501150910565164.png',
-};
+const DEMO_MODE_PRODUCTS: DemoModel[] = [
+  // ========== APPLE ==========
+  { id: 'iphone-16-pro', brand: 'Apple', model: 'iPhone 16 Pro', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone16pro.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone16pro-print.png' },
+  { id: 'iphone-16-plus', brand: 'Apple', model: 'iPhone 16 Plus', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone16plus.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone16plus-print.png' },
+  { id: 'iphone-16', brand: 'Apple', model: 'iPhone 16', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone16.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone16-print.png' },
+  { id: 'iphone-16e', brand: 'Apple', model: 'iPhone 16e', show_img: 'https://print-oss.gzchitu.cn/8e693202507280930015069.png', print_img: 'https://print-oss.gzchitu.cn/dd096202507280930141057.png' },
+  { id: 'iphone-15-pro-max', brand: 'Apple', model: 'iPhone 15 Pro Max', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone15promax.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone15promax-print.png' },
+  { id: 'iphone-15-pro', brand: 'Apple', model: 'iPhone 15 Pro', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone15pro.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone15pro-print.png' },
+  { id: 'iphone-15-plus', brand: 'Apple', model: 'iPhone 15 Plus', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone15plus.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone15plus-print.png' },
+  { id: 'iphone-15', brand: 'Apple', model: 'iPhone 15', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone15.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone15-print.png' },
+  { id: 'iphone-14-pro-max', brand: 'Apple', model: 'iPhone 14 Pro Max', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone14promax.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone14promax-print.png' },
+  { id: 'iphone-14-plus', brand: 'Apple', model: 'iPhone 14 Plus', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone14plus.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone14plus-print.png' },
+  { id: 'iphone-13-pro-max', brand: 'Apple', model: 'iPhone 13 Pro Max', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone13promax.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone13promax-print.png' },
+  { id: 'iphone-13-pro', brand: 'Apple', model: 'iPhone 13 Pro', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone13pro.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone13pro-print.png' },
+  { id: 'iphone-13', brand: 'Apple', model: 'iPhone 13', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone13.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone13-print.png' },
+  { id: 'iphone-12-pro-max', brand: 'Apple', model: 'iPhone 12 Pro Max', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone12promax.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone12promax-print.png' },
+  { id: 'iphone-12-pro', brand: 'Apple', model: 'iPhone 12 Pro', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone12pro.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone12pro-print.png' },
+  { id: 'iphone-12-mini', brand: 'Apple', model: 'iPhone 12 mini', show_img: 'https://print-oss.gzchitu.cn/iphone/iphone12mini.png', print_img: 'https://print-oss.gzchitu.cn/iphone/iphone12mini-print.png' },
+  { id: 'iphone-11-pro-max', brand: 'Apple', model: 'iPhone 11 Pro Max', show_img: 'https://print-oss.gzchitu.cn/3929920250515145327231.png', print_img: 'https://print-oss.gzchitu.cn/4e49820250515145345105.png' },
+  // ========== SAMSUNG ==========
+  { id: 'samsung-s25', brand: 'Samsung', model: 'S25', show_img: 'https://print-oss.gzchitu.cn/d4fcd202505071627593533.png', print_img: 'https://print-oss.gzchitu.cn/b0272202505071628182847.png' },
+  { id: 'samsung-s24', brand: 'Samsung', model: 'S24', show_img: 'https://print-oss.gzchitu.cn/9bf15202505071710473229.png', print_img: 'https://print-oss.gzchitu.cn/1b27e20250507171106356.png' },
+  { id: 'samsung-s24-fe', brand: 'Samsung', model: 'S24 FE', show_img: 'https://print-oss.gzchitu.cn/14d5b20241219092934477.png', print_img: 'https://print-oss.gzchitu.cn/2bba4202412190930043660.png' },
+  { id: 'samsung-s24-plus', brand: 'Samsung', model: 'S24 Plus/S24 Pro', show_img: 'https://print-oss.gzchitu.cn/767ac202501150941559681.png', print_img: 'https://print-oss.gzchitu.cn/d57d020250115094226992.png' },
+  { id: 'samsung-s23', brand: 'Samsung', model: 'S23', show_img: 'https://print-oss.gzchitu.cn/3f89d202501150936513451.png', print_img: 'https://print-oss.gzchitu.cn/c1f5920250115093625400.png' },
+  { id: 'samsung-s23-plus', brand: 'Samsung', model: 'S23 Plus', show_img: 'https://print-oss.gzchitu.cn/5ec0f202505071708135727.png', print_img: 'https://print-oss.gzchitu.cn/2ccd9202505071708322128.png' },
+  { id: 'samsung-a56', brand: 'Samsung', model: 'A56', show_img: 'https://print-oss.gzchitu.cn/98007202505071645335788.png', print_img: 'https://print-oss.gzchitu.cn/723a4202505071645567439.png' },
+  { id: 'samsung-a54', brand: 'Samsung', model: 'Galaxy A54', show_img: 'https://print-oss.gzchitu.cn/e2a98202505071654238374.png', print_img: 'https://print-oss.gzchitu.cn/adebb202505071654421599.png' },
+  { id: 'samsung-a36', brand: 'Samsung', model: 'A36', show_img: 'https://print-oss.gzchitu.cn/5c048202505191148459861.png', print_img: 'https://print-oss.gzchitu.cn/3d8b720250519114900963.png' },
+  { id: 'samsung-a35', brand: 'Samsung', model: 'A35', show_img: 'https://print-oss.gzchitu.cn/82f42202505191147248735.png', print_img: 'https://print-oss.gzchitu.cn/9c077202505191147424547.png' },
+  { id: 'samsung-a34', brand: 'Samsung', model: 'Galaxy A34', show_img: 'https://print-oss.gzchitu.cn/7201a202505071651287304.png', print_img: 'https://print-oss.gzchitu.cn/56ed1202505071651519991.png' },
+  { id: 'samsung-a21', brand: 'Samsung', model: 'A21', show_img: 'https://print-oss.gzchitu.cn/fd972202501150910565164.png', print_img: 'https://print-oss.gzchitu.cn/b6c43202501150911188475.png' },
+  { id: 'samsung-a16-5g', brand: 'Samsung', model: 'A16 5G', show_img: 'https://print-oss.gzchitu.cn/a5fe020241219092743756.png', print_img: 'https://print-oss.gzchitu.cn/79d99202412190928072825.png' },
+  { id: 'samsung-a14', brand: 'Samsung', model: 'A14', show_img: 'https://print-oss.gzchitu.cn/5782f202501141717374326.png', print_img: 'https://print-oss.gzchitu.cn/966ff202501141718116575.png' },
+  { id: 'samsung-s7', brand: 'Samsung', model: 'S7', show_img: 'https://print-oss.gzchitu.cn/9846e202501151132004130.png', print_img: 'https://print-oss.gzchitu.cn/7db6f202501151132581911.png' },
+  { id: 'samsung-f14-5g', brand: 'Samsung', model: 'F14 5G', show_img: 'https://print-oss.gzchitu.cn/4007e202412190956521842.png', print_img: 'https://print-oss.gzchitu.cn/7d326202412190957173054.png' },
+  // ========== OPPO ==========
+  { id: 'oppo-a38', brand: 'OPPO', model: 'OPPO A38', show_img: 'https://print-oss.gzchitu.cn/58977202504171556109004.png', print_img: 'https://print-oss.gzchitu.cn/29bb2202504171556356324.png' },
+  { id: 'realme-note60', brand: 'OPPO', model: 'Realme Note 60', show_img: 'https://print-oss.gzchitu.cn/760e5202504171412409089.png', print_img: 'https://print-oss.gzchitu.cn/0c56c202504171413031438.png' },
+  // ========== XIAOMI ==========
+  { id: 'xiaomi-civi3', brand: 'Xiaomi', model: 'Xiaomi Civi 3', show_img: 'https://print-oss.gzchitu.cn/c76a5202503101143452686.png', print_img: 'https://print-oss.gzchitu.cn/1e7c0202503101144053718.png' },
+];
 
 // Machine status response type
 interface MachineStatus {
@@ -94,16 +127,19 @@ export default function SelectModel() {
   // Check if we're in demo mode (no machineId)
   const isDemoMode = !router.query.machineId;
 
-  // Demo mode: Get curated models from phone-models.ts
+  // Demo mode: Get all demo models with Chitu images
   const demoModels = React.useMemo(() => {
     if (!isDemoMode) return [];
-    return PHONE_MODELS.filter(pm => DEMO_MODE_MODELS.includes(pm.id));
+    return DEMO_MODE_PRODUCTS;
   }, [isDemoMode]);
 
-  // Demo mode: Get brands from curated models
+  // Demo mode: Get brands from demo models (in specific order)
   const demoBrands = React.useMemo(() => {
     if (!isDemoMode) return [];
-    return Array.from(new Set(demoModels.map(m => m.brand)));
+    // Return brands in a specific order for better UX
+    const brandOrder = ['Apple', 'Samsung', 'OPPO', 'Xiaomi'];
+    const availableBrands = Array.from(new Set(demoModels.map(m => m.brand)));
+    return brandOrder.filter(b => availableBrands.includes(b));
   }, [isDemoMode, demoModels]);
 
   // Get brands dynamically - from API or demo mode
@@ -129,22 +165,28 @@ export default function SelectModel() {
   const currentModels: DynamicModel[] = React.useMemo(() => {
     if (!selectedBrand) return [];
 
-    // DEMO MODE: Use curated models from phone-models.ts
+    // DEMO MODE: Use all demo models with Chitu images
     if (isDemoMode) {
+      // Find matching PhoneModel for dimensions if available
       return demoModels
-        .filter(pm => pm.brand === selectedBrand)
-        .map(pm => ({
-          id: pm.id,
-          brand: pm.brand,
-          model: pm.model,
-          displayName: pm.displayName,
-          product_id: pm.chituProductId || `demo-${pm.id}`,
-          stock: 99, // Demo mode: always in stock
-          show_img: DEMO_MODE_THUMBNAILS[pm.id], // Use Chitu thumbnail
-          dimensions: pm.dimensions,
-          thumbnailPath: pm.thumbnailPath,
-          printMaskPath: pm.printMaskPath,
-        }));
+        .filter(dm => dm.brand === selectedBrand)
+        .map(dm => {
+          const matchedPhoneModel = findMatchingPhoneModel(dm.model, dm.brand);
+          return {
+            id: dm.id,
+            brand: dm.brand,
+            model: dm.model,
+            displayName: dm.model,
+            product_id: `demo-${dm.id}`,
+            stock: 99, // Demo mode: always in stock
+            show_img: dm.show_img,
+            print_img: dm.print_img,
+            // Use local dimensions if available, otherwise will be loaded from print_img
+            dimensions: matchedPhoneModel?.dimensions,
+            thumbnailPath: matchedPhoneModel?.thumbnailPath,
+            printMaskPath: matchedPhoneModel?.printMaskPath,
+          };
+        });
     }
 
     // REAL MODE: Use API inventory
@@ -686,21 +728,37 @@ export default function SelectModel() {
                       }
                     `}
                   >
-                    {/* Phone Case Thumbnail - centered */}
-                    <div className="h-32 w-full flex items-center justify-center mb-3">
+                    {/* Phone Case Thumbnail - centered with loading state */}
+                    <div className="h-32 w-full flex items-center justify-center mb-3 relative">
                       {model.show_img ? (
-                        <img
-                          src={model.show_img}
-                          alt={model.model}
-                          className="h-full w-auto object-contain"
-                          style={{ borderRadius: '9px', boxShadow: '0 0 0 1px black' }}
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                            e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                          }}
-                        />
+                        <>
+                          {/* Skeleton placeholder - shown while image loads */}
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="w-16 h-28 bg-gray-200 rounded-xl animate-pulse" />
+                          </div>
+                          {/* Actual image - fades in when loaded */}
+                          <img
+                            src={model.show_img}
+                            alt={model.model}
+                            className="h-full w-auto object-contain relative z-10 opacity-0 transition-opacity duration-300"
+                            style={{ borderRadius: '9px', boxShadow: '0 0 0 1px rgba(0,0,0,0.15)' }}
+                            onLoad={(e) => {
+                              e.currentTarget.classList.remove('opacity-0');
+                              e.currentTarget.classList.add('opacity-100');
+                              // Hide skeleton
+                              const skeleton = e.currentTarget.previousElementSibling as HTMLElement;
+                              if (skeleton) skeleton.style.display = 'none';
+                            }}
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                              // Show fallback icon
+                              const fallback = e.currentTarget.parentElement?.querySelector('.fallback-icon') as HTMLElement;
+                              if (fallback) fallback.classList.remove('hidden');
+                            }}
+                          />
+                        </>
                       ) : null}
-                      <div className={`w-16 h-full bg-gray-100 rounded-xl flex items-center justify-center ${model.show_img ? 'hidden' : ''}`}>
+                      <div className={`fallback-icon w-16 h-full bg-gray-100 rounded-xl flex items-center justify-center ${model.show_img ? 'hidden' : ''}`}>
                         {getBrandIcon(selectedBrand)}
                       </div>
                     </div>
