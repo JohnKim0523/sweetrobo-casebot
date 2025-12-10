@@ -600,7 +600,7 @@ export default function SelectModel() {
         )}
 
         {/* Mobile-only header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 z-10 px-4 py-3 safe-top">
+        <div className="sticky top-0 bg-white border-b border-gray-200 z-20 px-4 py-3 safe-top">
           <div className="flex items-center gap-3 mb-2">
             <img src="/icons/sweetrobo-logo.gif" alt="SweetRobo" className="w-16 h-16 object-contain" />
             <div className="flex-1">
