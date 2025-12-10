@@ -124,6 +124,9 @@ export default function SelectModel() {
   const [isCheckingMachine, setIsCheckingMachine] = useState(false);
   const [machineOffline, setMachineOffline] = useState(false);
 
+  // Session state - generated immediately when user lands on this page
+  const [sessionId, setSessionId] = useState<string | null>(null);
+
   // Check if we're in demo mode (no machineId)
   const isDemoMode = !router.query.machineId;
 
@@ -381,35 +384,99 @@ export default function SelectModel() {
     }
   }, []); // Run once on mount
 
-  // Tab-session cleanup for new users
+  // SESSION GENERATION - Creates or reuses session when user lands on select-model page
+  // This is the START of every user journey (from QR code scan)
   useEffect(() => {
-    // Check if we came here from a direct navigation (not a refresh/redirect from editor)
-    const referrer = document.referrer;
-    const isFromEditor = referrer.includes('/editor');
+    if (!router.isReady) return;
 
-    if (isFromEditor) {
-      console.log('🔄 Came from editor - preserving tab-session for refresh restoration');
-      return;
-    }
-
-    console.log('🧹 Model selection page loaded from external source - clearing tab-session associations');
-
+    const SESSION_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
     const machineId = router.query.machineId as string;
+    const urlSession = router.query.session as string;
 
-    // Only clear tab-session keys if we have a machineId (not in demo mode)
-    if (machineId) {
-      // Clear all tab-session keys for this machine
-      // This breaks the association between machine+model and a session ID
-      Object.keys(sessionStorage).forEach(key => {
-        if (key.startsWith(`tab-session-${machineId}-`)) {
-          console.log(`🗑️ Clearing session association: ${key}`);
-          sessionStorage.removeItem(key);
+    // Helper to generate new session ID
+    const generateSessionId = () => {
+      const prefix = machineId ? machineId : 'demo';
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(2, 8);
+      return `${prefix}_${timestamp}_${random}`;
+    };
+
+    // Helper to check if session is valid (not locked, not expired)
+    const isSessionValid = (sid: string) => {
+      const isLocked = sessionStorage.getItem(`session-locked-${sid}`) === 'true';
+      if (isLocked) {
+        console.log(`🔒 Session ${sid} is locked (already submitted)`);
+        return false;
+      }
+
+      const createdAt = sessionStorage.getItem(`session-created-${sid}`);
+      if (createdAt) {
+        const age = Date.now() - parseInt(createdAt);
+        if (age > SESSION_MAX_AGE_MS) {
+          console.log(`⏰ Session ${sid} is expired (${Math.round(age / 60000)} min old)`);
+          return false;
         }
-      });
+      }
+
+      return true;
+    };
+
+    // Helper to clear session data
+    const clearSession = (sid: string) => {
+      sessionStorage.removeItem(`session-created-${sid}`);
+      sessionStorage.removeItem(`session-model-${sid}`);
+      sessionStorage.removeItem(`session-locked-${sid}`);
+      sessionStorage.removeItem(`session-lock-timestamp-${sid}`);
+      sessionStorage.removeItem(`page-state-${sid}`);
+      sessionStorage.removeItem(`canvas-state-${sid}`);
+      sessionStorage.removeItem(`canvas-history-${sid}`);
+      sessionStorage.removeItem(`ai-edit-count-${sid}`);
+    };
+
+    let session: string;
+
+    // Priority 1: Session in URL (from coming back from editor)
+    if (urlSession && isSessionValid(urlSession)) {
+      console.log('✅ Using valid session from URL:', urlSession);
+      session = urlSession;
+    }
+    // Priority 2: Existing tab session (same browser tab)
+    else {
+      const existingSession = sessionStorage.getItem('current-tab-session');
+
+      if (existingSession && isSessionValid(existingSession)) {
+        console.log('♻️ Reusing existing valid tab session:', existingSession);
+        session = existingSession;
+      } else {
+        // Clear invalid session if exists
+        if (existingSession) {
+          console.log('🧹 Clearing invalid session:', existingSession);
+          clearSession(existingSession);
+          sessionStorage.removeItem('current-tab-session');
+        }
+
+        // Generate new session
+        session = generateSessionId();
+        console.log('🆕 Generated new session:', session);
+
+        // Set creation timestamp
+        sessionStorage.setItem(`session-created-${session}`, Date.now().toString());
+      }
     }
 
-    console.log('✅ Session association cleanup complete - ready for new user');
-  }, [router.query.machineId]);
+    // Store as current tab session
+    sessionStorage.setItem('current-tab-session', session);
+    setSessionId(session);
+
+    // Add session to URL if not already there
+    if (!urlSession || urlSession !== session) {
+      const newUrl = machineId
+        ? `/select-model?machineId=${machineId}&session=${session}`
+        : `/select-model?session=${session}`;
+      router.replace(newUrl, undefined, { shallow: true });
+      console.log('📍 Session added to URL:', session);
+    }
+  }, [router.isReady, router.query.machineId, router.query.session]);
 
   // Helper function to load image dimensions from URL
   const loadImageDimensions = (url: string): Promise<{ width: number; height: number }> => {
@@ -535,13 +602,14 @@ export default function SelectModel() {
     // Check if machineId was passed (from QR code flow)
     const machineId = router.query.machineId as string;
 
-    // Navigate to editor with model
+    // Navigate to editor with model AND session
+    // Session was already created when user landed on select-model page
     if (machineId) {
       // Real mode: use actual machine ID
-      router.push(`/editor?machineId=${machineId}&model=${model.id}`);
+      router.push(`/editor?machineId=${machineId}&model=${model.id}&session=${sessionId}`);
     } else {
       // Demo mode: pass demo flag to editor
-      router.push(`/editor?model=${model.id}&demo=true`);
+      router.push(`/editor?model=${model.id}&session=${sessionId}&demo=true`);
     }
   };
 

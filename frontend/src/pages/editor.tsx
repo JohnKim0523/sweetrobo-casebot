@@ -304,6 +304,7 @@ export default function Editor() {
   const [debugInfo, setDebugInfo] = useState<string>(''); // Debug info for mobile
   const [showWaitingForPayment, setShowWaitingForPayment] = useState(false); // First page - waiting for payment
   const [showThankYou, setShowThankYou] = useState(false); // Second page - payment confirmed
+  const [showSessionExpired, setShowSessionExpired] = useState(false); // Session expired (30 min timeout)
   const [thankYouMessage, setThankYouMessage] = useState('Thank you for your design!');
   const [isCheckingSession, setIsCheckingSession] = useState(true); // Loading state
   const [crosshairLines, setCrosshairLines] = useState<{vertical: any, horizontal: any}>({vertical: null, horizontal: null});
@@ -406,6 +407,7 @@ export default function Editor() {
   const [canvasRedoStack, setCanvasRedoStack] = useState<string[]>([]); // Redo stack for going forward
   const isRestoringState = useRef(false); // Prevent saving during restore (using ref to avoid triggering re-renders)
   const isDeletingImage = useRef(false); // Prevent saving during delete operations
+  const lastSavedStateRef = useRef<string | null>(null); // Track last saved state synchronously (fixes React batching duplicate saves)
 
   // Hide editing buttons during object manipulation for more freedom
   const [hideEditButtons, setHideEditButtons] = useState(false);
@@ -443,276 +445,78 @@ export default function Editor() {
     });
   }, []);
 
-  // Clean up old session storage entries on mount
+  // Clean up old session storage entries on mount (time-based TTL)
   useEffect(() => {
     const cleanupSessionStorage = () => {
-      const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
-      const lastCleanup = sessionStorage.getItem('lastSessionCleanup');
+      const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
       const now = Date.now();
 
-      // Only cleanup once per 24 hours per tab
-      if (lastCleanup && (now - parseInt(lastCleanup)) < CLEANUP_INTERVAL_MS) {
-        return;
-      }
+      console.log('🧹 Running session storage cleanup (TTL: 30 minutes)...');
 
-      console.log('🧹 Running session storage cleanup...');
+      // Get current session from URL to preserve it
+      const urlParams = new URLSearchParams(window.location.search);
+      const currentSession = urlParams.get('session');
+      const currentTabSession = sessionStorage.getItem('current-tab-session');
 
-      // Get all sessionStorage keys
-      const keysToCheck = [];
+      // Find all canvas-state entries and check their age
+      const sessionsToClean: string[] = [];
       for (let i = 0; i < sessionStorage.length; i++) {
         const key = sessionStorage.key(i);
-        if (key && key.startsWith('tab-session-')) {
-          keysToCheck.push(key);
+        if (key && key.startsWith('canvas-state-')) {
+          const sessionId = key.replace('canvas-state-', '');
+
+          // Don't clean current session
+          if (sessionId === currentSession || sessionId === currentTabSession) {
+            continue;
+          }
+
+          try {
+            const data = JSON.parse(sessionStorage.getItem(key) || '{}');
+            const savedAt = data.savedAt || 0;
+
+            if (now - savedAt > SESSION_TTL_MS) {
+              sessionsToClean.push(sessionId);
+            }
+          } catch (e) {
+            // If we can't parse it, mark for cleanup
+            sessionsToClean.push(sessionId);
+          }
         }
       }
 
-      // Extract current parameters to preserve current session
-      const urlParams = new URLSearchParams(window.location.search);
-      const machine = urlParams.get('machineId');
-      const modelParam = urlParams.get('model');
-
-      const currentProductionKey = machine && modelParam ? `tab-session-${machine}-${modelParam}` : null;
-
-      // Remove all session keys except current one
+      // Clean up old sessions and their associated data
       let cleanedCount = 0;
-      keysToCheck.forEach(key => {
-        if (key !== currentProductionKey) {
-          sessionStorage.removeItem(key);
-          cleanedCount++;
-        }
+      sessionsToClean.forEach(sessionId => {
+        sessionStorage.removeItem(`canvas-state-${sessionId}`);
+        sessionStorage.removeItem(`canvas-history-${sessionId}`);
+        sessionStorage.removeItem(`ai-edit-count-${sessionId}`);
+        sessionStorage.removeItem(`session-locked-${sessionId}`);
+        sessionStorage.removeItem(`session-lock-timestamp-${sessionId}`);
+        sessionStorage.removeItem(`page-state-${sessionId}`);
+        sessionStorage.removeItem(`preview-image-${sessionId}`);
+        sessionStorage.removeItem(`submission-data-${sessionId}`);
+        cleanedCount++;
       });
 
       if (cleanedCount > 0) {
-        console.log(`✅ Cleaned up ${cleanedCount} old session entries`);
+        console.log(`✅ Cleaned up ${cleanedCount} old session(s) (older than 30 minutes)`);
       }
-
-      // Mark cleanup timestamp
-      sessionStorage.setItem('lastSessionCleanup', now.toString());
     };
 
     cleanupSessionStorage();
   }, []); // Run once on mount
 
   useEffect(() => {
-    // Extract URL parameters first
+    // Extract URL parameters
     const urlParams = new URLSearchParams(window.location.search);
     const machine = urlParams.get('machineId');
     const session = urlParams.get('session');
     const modelParam = urlParams.get('model');
     const resetParam = urlParams.get('reset');
 
-    // ===== URL VALIDATION: Detect manipulated or invalid sessions =====
-    // Valid session formats:
-    // - UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36 chars with hyphens)
-    // - Timestamp format: 1234567890123-abc123def (13+ digit timestamp + random chars)
-    if (session) {
-      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session);
-      const isValidTimestamp = /^\d{13}-[a-z0-9]{9,}$/i.test(session);
-
-      if (!isValidUUID && !isValidTimestamp) {
-        console.warn('⚠️ Invalid session format detected:', session);
-
-        // Check if there's an existing valid session in sessionStorage for this machine/model
-        let existingValidSession = null;
-
-        if (machine && modelParam) {
-          const tabSessionKey = `tab-session-${machine}-${modelParam}`;
-          existingValidSession = sessionStorage.getItem(tabSessionKey);
-          console.log('🔍 Checking for existing session in tab storage:', existingValidSession);
-        }
-
-        // If we found an existing valid session, redirect to it
-        if (existingValidSession && machine && modelParam) {
-          console.log('✅ Found existing valid session, redirecting to restore it:', existingValidSession);
-
-          // Always set the session info
-          setMachineId(machine);
-          setSessionId(existingValidSession);
-
-          // Check if the existing session is locked (on waiting/thank you page)
-          const existingSessionLockKey = `session-locked-${existingValidSession}`;
-          const isExistingSessionLocked = sessionStorage.getItem(existingSessionLockKey) === 'true';
-
-          if (isExistingSessionLocked) {
-            console.log('🔒 Existing session is locked - will restore to waiting/thank you/preview page');
-
-            // Set locked state
-            setIsSessionLocked(true);
-
-            // Restore the correct page state
-            const pageState = sessionStorage.getItem(`page-state-${existingValidSession}`);
-            console.log('📋 Restoring page state:', pageState);
-
-            if (pageState === 'preview') {
-              const previewImageData = sessionStorage.getItem(`preview-image-${existingValidSession}`);
-              const submissionDataStr = sessionStorage.getItem(`submission-data-${existingValidSession}`);
-
-              if (previewImageData && submissionDataStr) {
-                setPreviewImage(previewImageData);
-                (window as any).__submissionData = JSON.parse(submissionDataStr);
-                setShowPreviewModal(true);
-                console.log('📄 Restored to preview/confirmation page');
-              }
-            } else if (pageState === 'waiting') {
-              setShowWaitingForPayment(true);
-              setShowThankYou(false);
-              console.log('📄 Restored to waiting for payment page');
-            } else if (pageState === 'thankyou') {
-              setShowWaitingForPayment(false);
-              setShowThankYou(true);
-              console.log('📄 Restored to thank you page');
-            }
-          } else {
-            console.log('🔓 Existing session is unlocked - will restore to editor page');
-          }
-
-          // Update URL by doing a full redirect to the correct session URL
-          // This ensures the address bar updates properly
-          const correctedUrl = machine && modelParam
-            ? `/editor?machineId=${machine}&model=${modelParam}&session=${existingValidSession}`
-            : `/editor?model=${modelParam}&session=${existingValidSession}`;
-
-          console.log('✅ Redirecting to correct URL:', correctedUrl);
-
-          // Use window.location.href to force a full URL update
-          window.location.href = correctedUrl;
-          return;
-        }
-
-        // No existing session found - clear invalid session and redirect to generate new one
-        console.log('🔄 No existing session found, redirecting to generate new session...');
-
-        // Clear any sessionStorage for this invalid session
-        sessionStorage.removeItem(`session-locked-${session}`);
-        sessionStorage.removeItem(`session-lock-timestamp-${session}`);
-        sessionStorage.removeItem(`page-state-${session}`);
-        sessionStorage.removeItem(`canvas-state-${session}`);
-
-        // Redirect to appropriate flow based on parameters
-        if (machine && modelParam) {
-          // Production flow - redirect without session to generate new one
-          router.replace(`/editor?machineId=${machine}&model=${modelParam}`);
-        } else if (modelParam && !machine) {
-          // Demo mode - continue without machine ID
-          router.replace(`/editor?model=${modelParam}`);
-        } else {
-          // No valid params - redirect to model selection
-          router.replace('/select-model');
-        }
-
-        setIsCheckingSession(false);
-        return;
-      }
-
-      console.log('✅ Valid session format:', session);
-    }
-    // ===== END URL VALIDATION =====
-
-    // Check if this session is locked (persisted in sessionStorage)
-    const lockKey = session ? `session-locked-${session}` : null;
-    const lockTimestampKey = session ? `session-lock-timestamp-${session}` : null;
-    const isLocked = lockKey ? sessionStorage.getItem(lockKey) === 'true' : false;
-
-    // Check if session lock has expired (30 minutes = 1800000ms)
-    const SESSION_LOCK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-    if (isLocked && lockKey && lockTimestampKey) {
-      const lockTimestamp = sessionStorage.getItem(lockTimestampKey);
-      if (lockTimestamp) {
-        const lockTime = parseInt(lockTimestamp);
-        const now = Date.now();
-        const elapsed = now - lockTime;
-
-        if (elapsed > SESSION_LOCK_TIMEOUT_MS) {
-          console.warn('⏰ Session lock expired (30+ minutes old), clearing lock');
-
-          // Clear the expired lock and associated data
-          sessionStorage.removeItem(lockKey);
-          sessionStorage.removeItem(lockTimestampKey);
-          sessionStorage.removeItem(`page-state-${session}`);
-          sessionStorage.removeItem(`preview-image-${session}`);
-          sessionStorage.removeItem(`submission-data-${session}`);
-
-          // Redirect to model selection to start fresh
-          router.replace('/select-model');
-          return;
-        } else {
-          const remainingMinutes = Math.ceil((SESSION_LOCK_TIMEOUT_MS - elapsed) / 60000);
-          console.log(`🔒 Session locked, expires in ${remainingMinutes} minutes`);
-        }
-      }
-    }
-
-    console.log('🔍 Session lock check:', {
-      session,
-      lockKey,
-      lockValue: lockKey ? sessionStorage.getItem(lockKey) : 'no key',
-      isLocked
-    });
-
-    if (isLocked) {
-      console.log('🔒 Session is locked - restoring waiting/thank you page state');
-
-      // Restore locked state
-      setIsSessionLocked(true);
-      setMachineId(machine || null);
-      setSessionId(session);
-
-      // Check for test parameter to simulate payment
-      const testParam = urlParams.get('test');
-      if (testParam === 'payment') {
-        console.log('🧪 TEST MODE: test=payment detected - forcing thank you page');
-        // Remove test param from URL
-        urlParams.delete('test');
-        const cleanUrl = `${window.location.pathname}?${urlParams.toString()}`;
-        window.history.replaceState(null, '', cleanUrl);
-
-        // Force thank you page state
-        setShowWaitingForPayment(false);
-        setShowThankYou(true);
-        sessionStorage.setItem(`page-state-${session}`, 'thankyou');
-        console.log('✅ TEST MODE: Transitioned to thank you page');
-      } else {
-        // Normal restoration - check which page state to restore
-        const pageState = sessionStorage.getItem(`page-state-${session}`);
-        if (pageState === 'preview') {
-          // Restore preview modal state
-          const previewImageData = sessionStorage.getItem(`preview-image-${session}`);
-          const submissionDataStr = sessionStorage.getItem(`submission-data-${session}`);
-
-          if (previewImageData && submissionDataStr) {
-            setPreviewImage(previewImageData);
-            (window as any).__submissionData = JSON.parse(submissionDataStr);
-            setShowPreviewModal(true);
-            console.log('📄 Restored to preview/confirmation page');
-          } else {
-            console.warn('⚠️ Preview state found but data missing, redirecting to editor');
-            sessionStorage.removeItem(`page-state-${session}`);
-          }
-        } else if (pageState === 'waiting') {
-          setShowWaitingForPayment(true);
-          setShowThankYou(false);
-          console.log('📄 Restored to waiting for payment page');
-        } else if (pageState === 'thankyou') {
-          setShowWaitingForPayment(false);
-          setShowThankYou(true);
-          console.log('📄 Restored to thank you page');
-        }
-      }
-
-      setIsCheckingSession(false);
-      return;
-    }
-
-    // Skip session check if session is locked (on waiting or thank you pages)
-    if (isSessionLocked) {
-      console.log('⏭️ Skipping session check - session is locked (on waiting/thank you page)');
-      return;
-    }
-
     // Dev reset - reload without reset param
     if (resetParam === 'true') {
       console.log('🔄 Resetting session (dev mode)');
-      // Remove reset param and reload
       urlParams.delete('reset');
       const newUrl = `${window.location.pathname}?${urlParams.toString()}`;
       window.location.replace(newUrl);
@@ -721,163 +525,241 @@ export default function Editor() {
 
     console.log('🔍 URL params:', { machine, session, model: modelParam });
 
-    // Check if we have both machineId and model (production flow)
-    if (machine && modelParam) {
-      console.log('🏭 Production flow - machine:', machine, 'model:', modelParam);
+    // ===== SESSION VALIDATION =====
+    // Valid session formats:
+    // - UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    // - Timestamp format: 1234567890123-abc123def
+    // - Demo format: demo_1234567890123_abc123
+    const isValidSession = (s: string) => {
+      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+      const isValidTimestamp = /^\d{13}-[a-z0-9]{9,}$/i.test(s);
+      const isValidDemo = /^demo_\d+_[a-z0-9]+$/i.test(s);
+      return isValidUUID || isValidTimestamp || isValidDemo;
+    };
 
-      // Check if we already generated a session for this page instance
-      if ((window as any).__sessionGenerated && (window as any).__generatedSessionId) {
-        const generatedSession = (window as any).__generatedSessionId;
-        console.log('📱 Session already generated for this page, using:', generatedSession);
-        setMachineId(machine);
-        setSessionId(generatedSession);
+    // If session in URL is invalid, redirect without it
+    if (session && !isValidSession(session)) {
+      console.warn('⚠️ Invalid session format, generating new session...');
+      if (machine && modelParam) {
+        router.replace(`/editor?machineId=${machine}&model=${modelParam}`);
+      } else if (modelParam) {
+        router.replace(`/editor?model=${modelParam}`);
+      } else {
+        router.replace('/select-model');
+      }
+      return;
+    }
+
+    // ===== CHECK FOR LOCKED SESSIONS =====
+    if (session) {
+      const isLocked = sessionStorage.getItem(`session-locked-${session}`) === 'true';
+      const lockTimestamp = sessionStorage.getItem(`session-lock-timestamp-${session}`);
+      const SESSION_LOCK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+      const SESSION_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes - session expiry
+
+      // Check if session itself expired (regardless of lock status)
+      const sessionCreated = sessionStorage.getItem(`session-created-${session}`);
+      if (sessionCreated) {
+        const sessionAge = Date.now() - parseInt(sessionCreated);
+        if (sessionAge > SESSION_MAX_AGE_MS) {
+          console.log('⏰ Session expired (30 min limit) while locked, showing expired screen');
+          // Clear ALL session data
+          sessionStorage.removeItem('current-tab-session');
+          sessionStorage.removeItem(`session-created-${session}`);
+          sessionStorage.removeItem(`session-model-${session}`);
+          sessionStorage.removeItem(`session-locked-${session}`);
+          sessionStorage.removeItem(`session-lock-timestamp-${session}`);
+          sessionStorage.removeItem(`page-state-${session}`);
+          sessionStorage.removeItem(`canvas-state-${session}`);
+          sessionStorage.removeItem(`canvas-history-${session}`);
+          sessionStorage.removeItem(`ai-edit-count-${session}`);
+          // Show session expired screen
+          setShowSessionExpired(true);
+          setIsCheckingSession(false);
+          return;
+        }
+      }
+
+      // Check if lock expired
+      if (isLocked && lockTimestamp) {
+        const elapsed = Date.now() - parseInt(lockTimestamp);
+        if (elapsed > SESSION_LOCK_TIMEOUT_MS) {
+          console.warn('⏰ Session lock expired, clearing...');
+          sessionStorage.removeItem(`session-locked-${session}`);
+          sessionStorage.removeItem(`session-lock-timestamp-${session}`);
+          sessionStorage.removeItem(`page-state-${session}`);
+        }
+      }
+
+      // Restore locked session state (only if session not expired - checked above)
+      if (isLocked && lockTimestamp && (Date.now() - parseInt(lockTimestamp)) <= SESSION_LOCK_TIMEOUT_MS) {
+        console.log('🔒 Session is locked - restoring page state');
+        setIsSessionLocked(true);
+        setMachineId(machine || null);
+        setSessionId(session);
+
+        const pageState = sessionStorage.getItem(`page-state-${session}`);
+        if (pageState === 'preview') {
+          const previewImageData = sessionStorage.getItem(`preview-image-${session}`);
+          const submissionDataStr = sessionStorage.getItem(`submission-data-${session}`);
+          if (previewImageData && submissionDataStr) {
+            setPreviewImage(previewImageData);
+            (window as any).__submissionData = JSON.parse(submissionDataStr);
+            setShowPreviewModal(true);
+          }
+        } else if (pageState === 'waiting') {
+          setShowWaitingForPayment(true);
+        } else if (pageState === 'thankyou') {
+          setShowThankYou(true);
+        }
+
         setIsCheckingSession(false);
         return;
       }
+    }
 
-      // Check sessionStorage for existing session in this tab (survives refresh)
-      const tabSessionKey = `tab-session-${machine}-${modelParam}`;
-      const existingTabSession = sessionStorage.getItem(tabSessionKey);
+    // ===== SESSION HANDLING =====
+    // Sessions are created on select-model page when user scans QR code
+    // Editor expects session to be in URL - if not, redirect to select-model
 
-      if (existingTabSession) {
-        // This tab already has a session - use it (allows refresh)
-        console.log('🔄 Found existing session for this tab (refresh):', existingTabSession);
+    // Session expiry constant - 30 minutes
+    const SESSION_MAX_AGE_MS = 30 * 60 * 1000;
 
-        // CRITICAL: Check if this session is LOCKED (user submitted design)
-        const tabSessionLockKey = `session-locked-${existingTabSession}`;
-        const isTabSessionLocked = sessionStorage.getItem(tabSessionLockKey) === 'true';
+    if (modelParam) {
+      // We have a model, check for session
 
-        if (isTabSessionLocked) {
-          console.log('🔒 Tab session is LOCKED - preventing access to editor');
-          console.log('📄 This session has submitted a design and is on waiting/thank you page');
+      if (session) {
+        // Session in URL - validate it
 
-          // Set states FIRST before any router operations
-          setIsSessionLocked(true);
-          setMachineId(machine);
-          setSessionId(existingTabSession);
-          setIsCheckingSession(false);
-
-          // Check which page state to restore
-          const pageState = sessionStorage.getItem(`page-state-${existingTabSession}`);
-          console.log('📋 Page state from storage:', pageState);
-
-          if (pageState === 'preview') {
-            // Restore preview modal state
-            const previewImageData = sessionStorage.getItem(`preview-image-${existingTabSession}`);
-            const submissionDataStr = sessionStorage.getItem(`submission-data-${existingTabSession}`);
-
-            if (previewImageData && submissionDataStr) {
-              setPreviewImage(previewImageData);
-              (window as any).__submissionData = JSON.parse(submissionDataStr);
-              setShowPreviewModal(true);
-              console.log('📄 Restored to preview/confirmation page');
-            } else {
-              console.warn('⚠️ Preview state found but data missing');
-            }
-          } else if (pageState === 'waiting') {
-            setShowWaitingForPayment(true);
-            setShowThankYou(false);
-            console.log('📄 Restored to waiting for payment page');
-          } else if (pageState === 'thankyou') {
-            setShowWaitingForPayment(false);
-            setShowThankYou(true);
-            console.log('📄 Restored to thank you page');
-          } else {
-            console.error('⚠️ No valid page state found! pageState =', pageState);
+        // Check if expired
+        const sessionCreated = sessionStorage.getItem(`session-created-${session}`);
+        if (sessionCreated) {
+          const age = Date.now() - parseInt(sessionCreated);
+          if (age > SESSION_MAX_AGE_MS) {
+            console.log('⏰ Session expired (30 min limit), showing expired screen');
+            // Clear expired session data
+            sessionStorage.removeItem('current-tab-session');
+            sessionStorage.removeItem(`session-created-${session}`);
+            sessionStorage.removeItem(`session-model-${session}`);
+            sessionStorage.removeItem(`session-locked-${session}`);
+            sessionStorage.removeItem(`canvas-state-${session}`);
+            sessionStorage.removeItem(`canvas-history-${session}`);
+            sessionStorage.removeItem(`ai-edit-count-${session}`);
+            // Show session expired screen
+            setShowSessionExpired(true);
+            setIsCheckingSession(false);
+            return;
           }
+        }
 
-          // Fix the URL to match the correct session (but don't allow editor access)
-          // Use history.replaceState instead of router.replace to avoid triggering re-renders
-          const correctUrl = `/editor?machineId=${machine}&model=${modelParam}&session=${existingTabSession}`;
-          window.history.replaceState(null, '', correctUrl);
-          console.log('✅ URL corrected to:', correctUrl);
-
+        // Check if locked (already submitted) - redirect to get new session
+        const isLocked = sessionStorage.getItem(`session-locked-${session}`) === 'true';
+        if (isLocked) {
+          console.log('🔒 Session is locked (already submitted), redirecting to select-model');
+          // Clear locked session
+          sessionStorage.removeItem('current-tab-session');
+          sessionStorage.removeItem(`session-created-${session}`);
+          sessionStorage.removeItem(`session-model-${session}`);
+          sessionStorage.removeItem(`session-locked-${session}`);
+          sessionStorage.removeItem(`session-lock-timestamp-${session}`);
+          sessionStorage.removeItem(`page-state-${session}`);
+          sessionStorage.removeItem(`canvas-state-${session}`);
+          sessionStorage.removeItem(`canvas-history-${session}`);
+          sessionStorage.removeItem(`ai-edit-count-${session}`);
+          // Redirect to get new session
+          if (machine) {
+            router.push(`/select-model?machineId=${machine}`);
+          } else {
+            router.push('/select-model');
+          }
           return;
         }
 
-        (window as any).__sessionGenerated = true;
-        (window as any).__generatedSessionId = existingTabSession;
+        // Session is valid - use it
+        console.log('✅ Using session from URL:', session);
 
-        // Update URL to match the tab's session
-        router.replace(
-          {
-            pathname: '/editor',
-            query: { machineId: machine, model: modelParam, session: existingTabSession }
-          },
-          undefined,
-          { shallow: true }
-        );
+        // Store as current tab session
+        sessionStorage.setItem('current-tab-session', session);
 
-        setMachineId(machine);
-        setSessionId(existingTabSession);
+        // Set creation timestamp if not exists (backwards compatibility)
+        if (!sessionCreated) {
+          sessionStorage.setItem(`session-created-${session}`, Date.now().toString());
+        }
+
+        // Check if model changed - clear canvas data if so
+        const savedModel = sessionStorage.getItem(`session-model-${session}`);
+        if (savedModel && savedModel !== modelParam) {
+          console.log('📱 Model changed from', savedModel, 'to', modelParam, '- clearing canvas (keeping AI count)');
+          sessionStorage.removeItem(`canvas-state-${session}`);
+          sessionStorage.removeItem(`canvas-history-${session}`);
+        }
+        // Store current model
+        sessionStorage.setItem(`session-model-${session}`, modelParam);
+
+        setMachineId(machine || null);
+        setSessionId(session);
         setIsCheckingSession(false);
         return;
       }
 
-      // No tab session - generate new one (new tab or first visit)
-      const productionSession = typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-      console.log('🆕 Generating new session for this tab:', productionSession);
-
-      // Store in sessionStorage (survives refresh, unique per tab)
-      sessionStorage.setItem(tabSessionKey, productionSession);
-      (window as any).__sessionGenerated = true;
-      (window as any).__generatedSessionId = productionSession;
-
-      // Update URL
-      router.replace(
-        {
-          pathname: '/editor',
-          query: { machineId: machine, model: modelParam, session: productionSession }
-        },
-        undefined,
-        { shallow: true }
-      );
-
-      console.log('✅ URL updated with new session:', productionSession);
-
-      setMachineId(machine);
-      setSessionId(productionSession);
-      setIsCheckingSession(false);
-      return;
-    }
-
-    // DEMO MODE: If no machine ID provided, allow editor to load in demo mode (no printing)
-    if (modelParam && !machine) {
-      console.log('🎮 DEMO MODE: No machine ID - editor will run in demo mode (printing disabled)');
-      // Generate a demo session ID
-      const demoSessionId = `demo_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-      setSessionId(demoSessionId);
-      setIsCheckingSession(false);
-      console.log('✅ Demo session created:', demoSessionId);
-      return;
-    }
-
-    // If we have machineId but no model, check if we can restore from sessionStorage before redirecting
-    if (machine && !modelParam) {
-      // Try to restore model from sessionStorage (in case of refresh)
-      const savedModel = sessionStorage.getItem('selectedPhoneModel');
-      if (savedModel && session) {
-        console.log('🔄 Model parameter missing but found in sessionStorage, restoring:', savedModel);
-        router.replace(`/editor?machineId=${machine}&model=${savedModel}&session=${session}`);
-        return;
+      // No session in URL - redirect to select-model to get one
+      // This is the new flow: sessions are ALWAYS created on select-model page
+      console.log('⚠️ No session in URL, redirecting to select-model');
+      if (machine) {
+        router.push(`/select-model?machineId=${machine}`);
+      } else {
+        router.push('/select-model');
       }
-
-      console.log('🔄 Machine ID provided but no model - redirecting to phone selection');
-      router.push(`/select-model?machineId=${machine}`);
       return;
     }
 
-    // No machine ID and no model - redirect to model selection (DEMO MODE)
-    const hasSession = session || modelParam;
-    if ((!machine || machine === 'null' || machine === 'undefined' || machine === '') && !hasSession) {
-      console.log('🔄 No machine ID and no model - redirecting to demo mode model selection');
+    // No model parameter - redirect to model selection
+    if (machine) {
+      console.log('🔄 No model - redirecting to model selection');
+      router.push(`/select-model?machineId=${machine}`);
+    } else {
+      console.log('🔄 No model or machine - redirecting to demo model selection');
       router.push('/select-model');
-      return;
     }
   }, []); // Run once on mount
+
+  // Session expiry check - runs every minute to check if session has expired (30 min limit)
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const SESSION_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
+    const CHECK_INTERVAL_MS = 60 * 1000; // Check every minute
+
+    const checkExpiry = () => {
+      const sessionCreated = sessionStorage.getItem(`session-created-${sessionId}`);
+      if (sessionCreated) {
+        const age = Date.now() - parseInt(sessionCreated);
+        if (age > SESSION_MAX_AGE_MS) {
+          console.log('⏰ Session expired while on page (30 min limit)');
+
+          // Clear session data
+          sessionStorage.removeItem('current-tab-session');
+          sessionStorage.removeItem(`session-created-${sessionId}`);
+          sessionStorage.removeItem(`session-model-${sessionId}`);
+          sessionStorage.removeItem(`session-locked-${sessionId}`);
+          sessionStorage.removeItem(`canvas-state-${sessionId}`);
+          sessionStorage.removeItem(`canvas-history-${sessionId}`);
+          sessionStorage.removeItem(`ai-edit-count-${sessionId}`);
+
+          // Show session expired screen (not alert)
+          setShowSessionExpired(true);
+          setShowWaitingForPayment(false);
+          setShowThankYou(false);
+        }
+      }
+    };
+
+    // Check immediately and then every minute
+    checkExpiry();
+    const intervalId = setInterval(checkExpiry, CHECK_INTERVAL_MS);
+
+    return () => clearInterval(intervalId);
+  }, [sessionId, router]);
 
   // Thank you page behavior:
   // - User stays on thank you page permanently until order is complete
@@ -999,6 +881,30 @@ export default function Editor() {
           sessionStorage.setItem(`page-state-${sessionId}`, 'thankyou');
           console.log('💾 Updated page state to thank you in sessionStorage');
         }
+
+        // DEMO MODE: Auto-end session after 5 seconds (simulates print completion)
+        // In production, the actual printer sends 'completed' status
+        if (isDemoMode) {
+          console.log('🎮 Demo mode: Session will end in 5 seconds...');
+          setTimeout(() => {
+            console.log('🎮 Demo mode: Ending session now');
+            // Clear all session data
+            sessionStorage.removeItem('current-tab-session');
+            if (sessionId) {
+              sessionStorage.removeItem(`session-created-${sessionId}`);
+              sessionStorage.removeItem(`session-model-${sessionId}`);
+              sessionStorage.removeItem(`session-locked-${sessionId}`);
+              sessionStorage.removeItem(`session-lock-timestamp-${sessionId}`);
+              sessionStorage.removeItem(`page-state-${sessionId}`);
+              sessionStorage.removeItem(`canvas-state-${sessionId}`);
+              sessionStorage.removeItem(`canvas-history-${sessionId}`);
+              sessionStorage.removeItem(`ai-edit-count-${sessionId}`);
+            }
+            // Show session expired screen
+            setShowThankYou(false);
+            setShowSessionExpired(true);
+          }, 5000);
+        }
       }
 
       // Update messages for different statuses
@@ -1006,6 +912,24 @@ export default function Editor() {
         setThankYouMessage('Your case is now printing!');
       } else if (data.status === 'completed') {
         setThankYouMessage('Your case is ready! Please collect it from the machine.');
+
+        // END SESSION: Clear current-tab-session so next visit gets a fresh session
+        console.log('✅ Print completed - ending session');
+        sessionStorage.removeItem('current-tab-session');
+
+        // Also clear session data after a delay (let user see the completion message)
+        setTimeout(() => {
+          if (sessionId) {
+            console.log('🧹 Cleaning up completed session data:', sessionId);
+            sessionStorage.removeItem(`session-locked-${sessionId}`);
+            sessionStorage.removeItem(`session-lock-timestamp-${sessionId}`);
+            sessionStorage.removeItem(`page-state-${sessionId}`);
+            sessionStorage.removeItem(`canvas-state-${sessionId}`);
+            sessionStorage.removeItem(`canvas-history-${sessionId}`);
+            sessionStorage.removeItem(`ai-edit-count-${sessionId}`);
+            sessionStorage.removeItem(`session-model-${sessionId}`);
+          }
+        }, 5000); // Clean up after 5 seconds
       } else if (data.status === 'failed') {
         setThankYouMessage('There was an issue with your order. Please contact support.');
       }
@@ -1028,7 +952,7 @@ export default function Editor() {
   const cropControls = useRef<any>(null);
 
   // Save current canvas state to history
-  const saveCanvasState = useCallback((imageOverride?: fabric.Image) => {
+  const saveCanvasState = useCallback((imageOverride?: fabric.Image, skipHistorySave?: boolean) => {
     // Use imageOverride if provided (for AI generation), otherwise use uploadedImage state
     const imageToSave = imageOverride || uploadedImage;
 
@@ -1037,7 +961,8 @@ export default function Editor() {
       isRestoring: isRestoringState.current,
       isDeleting: isDeletingImage.current,
       hasImage: !!imageToSave,
-      isOverride: !!imageOverride
+      isOverride: !!imageOverride,
+      skipHistorySave: !!skipHistorySave
     });
 
     if (!canvas || isRestoringState.current || isDeletingImage.current || !imageToSave) {
@@ -1203,16 +1128,68 @@ export default function Editor() {
         }
       }
 
-      // Clear redo stack when new action is performed (standard undo/redo behavior)
-      setCanvasRedoStack([]);
+      // Skip history save if requested (e.g., after AI edit where we already saved with src)
+      if (!skipHistorySave) {
+        // Check for duplicate or near-duplicate states using tolerance-based comparison
+        // This prevents saving states with minor floating-point differences from object:modified
+        const isDuplicateState = (() => {
+          // First check exact string match (fast path)
+          if (lastSavedStateRef.current === stateString) {
+            console.log('⏭️ Skipping duplicate state save (exact match)');
+            return true;
+          }
 
-      setCanvasHistory(prev => {
-        // Limit history to last 20 states to prevent memory issues
-        const newHistory = [...prev, stateString];
-        const limited = newHistory.slice(-20);
-        console.log('💾 Canvas state saved, history length:', limited.length);
-        return limited;
-      });
+          // Check if last saved state has similar transforms (within tolerance)
+          if (lastSavedStateRef.current) {
+            try {
+              const lastSaved = JSON.parse(lastSavedStateRef.current);
+              const tolerance = 0.01; // Allow 1% difference in transform values
+
+              const isSimilar = (a: number | undefined, b: number | undefined) => {
+                if (a === undefined && b === undefined) return true;
+                if (a === undefined || b === undefined) return false;
+                return Math.abs(a - b) < tolerance;
+              };
+
+              // Check if transforms are essentially the same
+              if (
+                isSimilar(mainImageState.left, lastSaved.left) &&
+                isSimilar(mainImageState.top, lastSaved.top) &&
+                isSimilar(mainImageState.scaleX, lastSaved.scaleX) &&
+                isSimilar(mainImageState.scaleY, lastSaved.scaleY) &&
+                isSimilar(mainImageState.angle, lastSaved.angle) &&
+                mainImageState.flipX === lastSaved.flipX &&
+                mainImageState.flipY === lastSaved.flipY
+              ) {
+                console.log('⏭️ Skipping near-duplicate state save (tolerance check)');
+                return true;
+              }
+            } catch (e) {
+              // Failed to parse last saved state, continue with save
+            }
+          }
+
+          return false;
+        })();
+
+        if (!isDuplicateState) {
+          // Update ref synchronously BEFORE React state update
+          lastSavedStateRef.current = stateString;
+
+          // Clear redo stack when new action is performed (standard undo/redo behavior)
+          setCanvasRedoStack([]);
+
+          setCanvasHistory(prev => {
+            // Limit history to last 20 states to prevent memory issues
+            const newHistory = [...prev, stateString];
+            const limited = newHistory.slice(-20);
+            console.log('💾 Canvas state saved, history length:', limited.length);
+            return limited;
+          });
+        }
+      } else {
+        console.log('⏭️ Skipping history save (skipHistorySave=true)');
+      }
     } catch (error) {
       console.error('Failed to save canvas state:', error);
     }
@@ -1252,6 +1229,21 @@ export default function Editor() {
   const canUseAIEdit = useCallback((): boolean => {
     return aiEditCount < MAX_AI_EDITS;
   }, [aiEditCount]);
+
+  // Persist canvas history to sessionStorage for undo/redo across refresh
+  useEffect(() => {
+    if (!sessionId || canvasHistory.length === 0 || isRestoringState.current) {
+      return;
+    }
+
+    try {
+      // Only save if we have actual history (not just the initial empty state)
+      sessionStorage.setItem(`canvas-history-${sessionId}`, JSON.stringify(canvasHistory));
+      console.log(`💾 Canvas history saved (${canvasHistory.length} states)`);
+    } catch (error) {
+      console.error('Failed to save canvas history to sessionStorage:', error);
+    }
+  }, [sessionId, canvasHistory]);
 
   useEffect(() => {
     // Only initialize canvas when all conditions are met
@@ -2297,6 +2289,30 @@ export default function Editor() {
     });
   }, [canvas, uploadedImage, CANVAS_TOTAL_WIDTH, CANVAS_TOTAL_HEIGHT, DISPLAY_WIDTH, DISPLAY_HEIGHT, SCALE_FACTOR, CONTROL_PADDING, VERTICAL_PADDING]);
 
+  // Ensure custom controls are always applied to uploaded image
+  useEffect(() => {
+    if (!uploadedImage || !normalControls.current) return;
+
+    // Apply custom controls if not already applied
+    if (uploadedImage.controls !== normalControls.current) {
+      uploadedImage.controls = normalControls.current;
+      uploadedImage.set({
+        hasBorders: false,
+        borderColor: 'transparent',
+        cornerStyle: 'circle',
+        cornerColor: '#8B5CF6',
+        cornerStrokeColor: '#8B5CF6',
+        transparentCorners: false,
+        cornerSize: 12,
+        padding: 0,
+      });
+      if (canvas) {
+        canvas.renderAll();
+      }
+      console.log('🔧 Custom controls ensured on uploaded image');
+    }
+  }, [uploadedImage, canvas]);
+
   // Separate useEffect to add undo event listeners after canvas is ready
   useEffect(() => {
     if (!canvas || !saveCanvasState) return;
@@ -2513,17 +2529,42 @@ export default function Editor() {
 
             // Move image to correct z-index (should be on top or at specific position)
             canvas.bringToFront(restoredImage);
+
+            // Clear restoration flag BEFORE renderAll to allow proper state updates
+            isRestoringState.current = false;
+            console.log('🔓 Restoration lock released (fromObject path)');
+
             canvas.renderAll();
 
-            // Restore the initial state for undo history
-            const initialState = JSON.stringify(savedState.mainImageState);
-            setCanvasHistory([initialState]);
-            console.log('📸 Initial state restored from saved data');
+            // Double-render after React state settles to ensure canvas displays properly
+            requestAnimationFrame(() => {
+              canvas.renderAll();
+            });
 
-            setTimeout(() => {
-              isRestoringState.current = false;
-              console.log('✅ Canvas restoration complete (manual image restoration)');
-            }, 200);
+            // Restore canvas history from sessionStorage (for undo/redo across refresh)
+            const savedHistoryJson = sessionStorage.getItem(`canvas-history-${sessionId}`);
+            if (savedHistoryJson) {
+              try {
+                const savedHistory = JSON.parse(savedHistoryJson);
+                if (Array.isArray(savedHistory) && savedHistory.length > 0) {
+                  setCanvasHistory(savedHistory);
+                  console.log(`✅ Canvas history restored (${savedHistory.length} states)`);
+                } else {
+                  // Fallback to initial state
+                  const initialState = JSON.stringify(savedState.mainImageState);
+                  setCanvasHistory([initialState]);
+                }
+              } catch (e) {
+                console.warn('⚠️ Failed to parse saved history, using initial state');
+                const initialState = JSON.stringify(savedState.mainImageState);
+                setCanvasHistory([initialState]);
+              }
+            } else {
+              // No saved history, use initial state
+              const initialState = JSON.stringify(savedState.mainImageState);
+              setCanvasHistory([initialState]);
+            }
+            console.log('✅ Canvas restoration complete (fromObject path)');
           });
         }, (error: any) => {
           callbackFired = true;
@@ -2564,48 +2605,123 @@ export default function Editor() {
         if (mainImage) {
           console.log('✅ Main image found and restored');
           // Apply custom controls (L-shaped corners, rotation icon, arrows)
-          mainImage.controls = normalControls.current;
+          if (normalControls.current) {
+            mainImage.controls = normalControls.current;
+            console.log('🎨 Applied custom controls to restored image');
+          } else {
+            console.warn('⚠️ normalControls.current is null - controls will be default');
+          }
           // Remove border to match initial upload behavior
           mainImage.set({
             hasBorders: false,
-            borderColor: 'transparent'
+            borderColor: 'transparent',
+            cornerStyle: 'circle',
+            cornerColor: '#8B5CF6',
+            cornerStrokeColor: '#8B5CF6',
+            transparentCorners: false,
+            cornerSize: 12,
+            padding: 0,
           });
-          console.log('🎨 Applied custom controls to restored image');
 
           setUploadedImage(mainImage);
           setHasRestoredImage(true); // Mark that we've restored an image
           // Don't select the image - matches initial upload behavior
           canvas.discardActiveObject();
 
-          // Restore the initial state for undo history
-          const initialState = JSON.stringify(savedState.mainImageState);
-          setCanvasHistory([initialState]);
-          console.log('📸 Initial state restored from saved data');
+          // Clear restoration flag BEFORE renderAll to allow proper state updates
+          isRestoringState.current = false;
+          console.log('🔓 Restoration lock released (main image path)');
+
+          canvas.renderAll();
+
+          // Double-render after React state settles to ensure canvas displays properly
+          requestAnimationFrame(() => {
+            canvas.renderAll();
+          });
+
+          // Restore canvas history from sessionStorage (for undo/redo across refresh)
+          const savedHistoryJson = sessionStorage.getItem(`canvas-history-${sessionId}`);
+          if (savedHistoryJson) {
+            try {
+              const savedHistory = JSON.parse(savedHistoryJson);
+              if (Array.isArray(savedHistory) && savedHistory.length > 0) {
+                setCanvasHistory(savedHistory);
+                console.log(`✅ Canvas history restored (${savedHistory.length} states)`);
+              } else {
+                const initialState = JSON.stringify(savedState.mainImageState);
+                setCanvasHistory([initialState]);
+              }
+            } catch (e) {
+              const initialState = JSON.stringify(savedState.mainImageState);
+              setCanvasHistory([initialState]);
+            }
+          } else {
+            const initialState = JSON.stringify(savedState.mainImageState);
+            setCanvasHistory([initialState]);
+          }
+          console.log('✅ Canvas restoration complete (main image found)');
         } else {
           console.warn('⚠️ No main image found in restored canvas');
           console.warn('   Trying fallback: find any image object...');
 
-          // Fallback: just use the first image object (case-insensitive)
-          const anyImage = objects.find((obj: any) => obj.type?.toLowerCase() === 'image');
+          // Fallback: just use the first selectable image object (case-insensitive)
+          const anyImage = objects.find((obj: any) =>
+            obj.type?.toLowerCase() === 'image' && obj.selectable !== false
+          );
           if (anyImage) {
-            console.log('✅ Using first image object as fallback');
+            console.log('✅ Using first selectable image object as fallback');
             // Apply custom controls (L-shaped corners, rotation icon, arrows)
-            anyImage.controls = normalControls.current;
+            if (normalControls.current) {
+              anyImage.controls = normalControls.current;
+              console.log('🎨 Applied custom controls to restored image');
+            } else {
+              console.warn('⚠️ normalControls.current is null - controls will be default');
+            }
             // Remove border to match initial upload behavior
             anyImage.set({
               hasBorders: false,
-              borderColor: 'transparent'
+              borderColor: 'transparent',
+              cornerStyle: 'circle',
+              cornerColor: '#8B5CF6',
+              cornerStrokeColor: '#8B5CF6',
+              transparentCorners: false,
+              cornerSize: 12,
+              padding: 0,
             });
-            console.log('🎨 Applied custom controls to restored image');
 
             setUploadedImage(anyImage);
             setHasRestoredImage(true); // Mark that we've restored an image
             // Don't select the image - matches initial upload behavior
             canvas.discardActiveObject();
 
-            const initialState = JSON.stringify(savedState.mainImageState);
-            setCanvasHistory([initialState]);
-            console.log('📸 Initial state restored from saved data (fallback)');
+            // Clear restoration flag BEFORE renderAll to allow proper state updates
+            isRestoringState.current = false;
+            console.log('🔓 Restoration lock released (anyImage fallback path)');
+
+            canvas.renderAll();
+
+            // Double-render after React state settles to ensure canvas displays properly
+            requestAnimationFrame(() => {
+              canvas.renderAll();
+            });
+
+            // Restore canvas history from sessionStorage
+            const savedHistoryJson2 = sessionStorage.getItem(`canvas-history-${sessionId}`);
+            if (savedHistoryJson2) {
+              try {
+                const savedHistory2 = JSON.parse(savedHistoryJson2);
+                if (Array.isArray(savedHistory2) && savedHistory2.length > 0) {
+                  setCanvasHistory(savedHistory2);
+                }
+              } catch (e) {
+                const initialState = JSON.stringify(savedState.mainImageState);
+                setCanvasHistory([initialState]);
+              }
+            } else {
+              const initialState = JSON.stringify(savedState.mainImageState);
+              setCanvasHistory([initialState]);
+            }
+            console.log('✅ Canvas restoration complete (anyImage fallback)');
           } else {
             // Last resort: manually create image from saved JSON data
             console.warn('❌ No image objects found in canvas after loadFromJSON');
@@ -2673,12 +2789,34 @@ export default function Editor() {
                   // Don't select the image - matches initial upload behavior
                   canvas.discardActiveObject();
 
-                  // Restore undo history
-                  const initialState = JSON.stringify(savedState.mainImageState);
-                  setCanvasHistory([initialState]);
+                  // Restore canvas history from sessionStorage
+                  const savedHistoryJson3 = sessionStorage.getItem(`canvas-history-${sessionId}`);
+                  if (savedHistoryJson3) {
+                    try {
+                      const savedHistory3 = JSON.parse(savedHistoryJson3);
+                      if (Array.isArray(savedHistory3) && savedHistory3.length > 0) {
+                        setCanvasHistory(savedHistory3);
+                      }
+                    } catch (e) {
+                      const initialState = JSON.stringify(savedState.mainImageState);
+                      setCanvasHistory([initialState]);
+                    }
+                  } else {
+                    const initialState = JSON.stringify(savedState.mainImageState);
+                    setCanvasHistory([initialState]);
+                  }
+
+                  // Clear restoration flag BEFORE renderAll to allow proper state updates
+                  isRestoringState.current = false;
+                  console.log('🔓 Restoration lock released (existing image path)');
 
                   canvas.renderAll();
-                  console.log('✅ uploadedImage state updated with existing image');
+
+                  // Double-render after React state settles to ensure canvas displays properly
+                  requestAnimationFrame(() => {
+                    canvas.renderAll();
+                  });
+                  console.log('✅ Canvas restoration complete (existing image)');
                   return;
                 }
 
@@ -2721,11 +2859,35 @@ export default function Editor() {
                   setHasRestoredImage(true);
                   // Don't select the image - matches initial upload behavior
                   canvas.discardActiveObject();
+
+                  // Clear restoration flag BEFORE renderAll to allow proper state updates
+                  isRestoringState.current = false;
+                  console.log('🔓 Restoration lock released (manual image path)');
+
                   canvas.renderAll();
 
-                  const initialState = JSON.stringify(savedState.mainImageState);
-                  setCanvasHistory([initialState]);
-                  console.log('✅ Image manually restored from JSON data using native Image');
+                  // Double-render after React state settles to ensure canvas displays properly
+                  requestAnimationFrame(() => {
+                    canvas.renderAll();
+                  });
+
+                  // Restore canvas history from sessionStorage
+                  const savedHistoryJson4 = sessionStorage.getItem(`canvas-history-${sessionId}`);
+                  if (savedHistoryJson4) {
+                    try {
+                      const savedHistory4 = JSON.parse(savedHistoryJson4);
+                      if (Array.isArray(savedHistory4) && savedHistory4.length > 0) {
+                        setCanvasHistory(savedHistory4);
+                      }
+                    } catch (e) {
+                      const initialState = JSON.stringify(savedState.mainImageState);
+                      setCanvasHistory([initialState]);
+                    }
+                  } else {
+                    const initialState = JSON.stringify(savedState.mainImageState);
+                    setCanvasHistory([initialState]);
+                  }
+                  console.log('✅ Canvas restoration complete (manual image)');
                 } catch (err) {
                   console.error('❌ Failed to create Fabric image from element:', err);
                 }
@@ -2745,11 +2907,12 @@ export default function Editor() {
 
         canvas.renderAll();
 
-        // Clear restoration flag after a delay to ensure all events have settled
-        setTimeout(() => {
+        // Only clear restoration flag if not already cleared by one of the image paths
+        // This handles the case where no image was found
+        if (isRestoringState.current) {
           isRestoringState.current = false;
-          console.log('✅ Canvas restoration complete (fallback method)');
-        }, 200);
+          console.log('🔓 Restoration lock released (no image found path)');
+        }
         });
       } // End of fallbackToLoadFromJSON function
 
@@ -3051,6 +3214,25 @@ export default function Editor() {
                 };
                 setCanvasHistory([JSON.stringify(initialState)]);
                 console.log('📸 Initial state saved after upload');
+
+                // CRITICAL: Also update lastSavedStateRef to prevent duplicate saves from object:modified
+                // Use transform-only format (without src) to match what saveCanvasState compares against
+                const transformState = {
+                  left: fabricImage.left,
+                  top: fabricImage.top,
+                  scaleX: fabricImage.scaleX,
+                  scaleY: fabricImage.scaleY,
+                  angle: fabricImage.angle,
+                  flipX: fabricImage.flipX,
+                  flipY: fabricImage.flipY,
+                  opacity: fabricImage.opacity,
+                  originX: fabricImage.originX,
+                  originY: fabricImage.originY,
+                  filters: fabricImage.filters ? [...fabricImage.filters] : [],
+                  backgroundColor: canvasBackgroundColor
+                };
+                lastSavedStateRef.current = JSON.stringify(transformState);
+                console.log('📸 lastSavedStateRef updated to prevent duplicates');
 
                 // Also save to sessionStorage for refresh persistence with dimensions
                 // We need to do this directly because uploadedImage state hasn't updated yet
@@ -3600,8 +3782,15 @@ export default function Editor() {
         canvas.setActiveObject(fabricImage);
         canvas.renderAll();
         setUploadedImage(fabricImage);
-        
+
         console.log('Mask edited image replaced at scale:', SCALE_FACTOR);
+
+        // CRITICAL: Save to sessionStorage so mask edits persist on refresh
+        setTimeout(() => {
+          isRestoringState.current = false;
+          saveCanvasState(fabricImage);
+          console.log('💾 Mask edit persisted to sessionStorage');
+        }, 100);
       };
 
       imgElement.onload = handleMaskEditLoad;
@@ -3644,30 +3833,59 @@ export default function Editor() {
 
     setIsProcessing(true);
     setAiError(null);
-    
+
     try {
-      // Save current image state to history BEFORE making changes
-      if (uploadedImage) {
-        // Save just the image object's data as a data URL
-        const imageSrc = uploadedImage.toDataURL({
-          format: 'png',
-          multiplier: 1,
-        });
-        
-        const imageState = {
-          src: imageSrc,
-          left: uploadedImage.left,
-          top: uploadedImage.top,
-          scaleX: uploadedImage.scaleX,
-          scaleY: uploadedImage.scaleY,
-          angle: uploadedImage.angle,
-          flipX: uploadedImage.flipX,
-          flipY: uploadedImage.flipY,
-        };
-        setEditHistory(prev => [...prev, JSON.stringify(imageState)]);
-        console.log('Saved image state to history with position:', uploadedImage.left, uploadedImage.top);
+      // Save current image state to history BEFORE making changes (for undo)
+      // This is needed because we need the src for AI edit undo to reload the original image
+      // Skip if history already has a recent state with the same image (prevent duplicates)
+      if (uploadedImage && canvasHistory.length > 0) {
+        // Get current image src for comparison
+        const currentSrc = (uploadedImage as any).getSrc ? (uploadedImage as any).getSrc() : (uploadedImage as any)._element?.src;
+
+        // Check if ANY recent state (last 3) already has a matching src
+        // This handles the case where object:modified fires after upload and adds a state without src
+        let hasMatchingSrc = false;
+        const recentStates = canvasHistory.slice(-3); // Check last 3 states
+        for (const state of recentStates) {
+          try {
+            const parsed = JSON.parse(state);
+            if (parsed.src && parsed.src === currentSrc) {
+              hasMatchingSrc = true;
+              console.log('⏭️ Pre-AI-edit: Found matching src in recent history, skipping save');
+              break;
+            }
+          } catch (e) {
+            // Continue checking other states
+          }
+        }
+
+        if (!hasMatchingSrc) {
+          // Need to save with src for AI edit undo capability
+          const imageSrc = uploadedImage.toDataURL({ format: 'png', multiplier: 1 });
+          const imageState = {
+            src: imageSrc,
+            left: uploadedImage.left,
+            top: uploadedImage.top,
+            scaleX: uploadedImage.scaleX,
+            scaleY: uploadedImage.scaleY,
+            angle: uploadedImage.angle,
+            flipX: uploadedImage.flipX,
+            flipY: uploadedImage.flipY,
+            opacity: uploadedImage.opacity,
+            originX: uploadedImage.originX,
+            originY: uploadedImage.originY,
+            filters: uploadedImage.filters ? [...uploadedImage.filters] : [],
+            backgroundColor: canvasBackgroundColor
+          };
+          const newStateStr = JSON.stringify(imageState);
+          lastSavedStateRef.current = newStateStr;
+          setCanvasHistory(prev => {
+            console.log('📸 Saved pre-AI-edit state WITH src to canvasHistory for undo');
+            return [...prev, newStateStr].slice(-20);
+          });
+        }
       }
-      
+
       // Export the CURRENT IMAGE for AI Edit (not the entire canvas with whitespace)
       // This ensures AI edits work on the actual image content only
       // The result will be scaled to fill the canvas perfectly
@@ -3917,16 +4135,27 @@ export default function Editor() {
               filters: fabricImage.filters ? [...fabricImage.filters] : [],
               backgroundColor: canvasBackgroundColor
             };
-            setCanvasHistory(prev => {
-              const newHistory = [...prev, JSON.stringify(newState)];
-              return newHistory.slice(-20);
-            });
-            console.log('📸 State saved after AI edit');
+            const newStateStr = JSON.stringify(newState);
 
-            // Wait additional time to ensure event listener timeouts (100ms) have passed
-            setTimeout(() => {
-              isRestoringState.current = false;
-            }, 50);
+            // Use ref for duplicate check (React batching causes setCanvasHistory to see stale prev)
+            if (lastSavedStateRef.current === newStateStr) {
+              console.log('⏭️ Post-AI-edit state already saved (ref check), skipping');
+            } else {
+              // Update ref synchronously BEFORE React state update
+              lastSavedStateRef.current = newStateStr;
+
+              setCanvasHistory(prev => {
+                console.log('📸 Post-AI-edit state WITH src saved to canvasHistory');
+                return [...prev, newStateStr].slice(-20);
+              });
+            }
+
+            // CRITICAL: Ensure restoration flag is false before saving to sessionStorage
+            isRestoringState.current = false;
+
+            // Save to sessionStorage ONLY - skip history save since we already added state with src above
+            saveCanvasState(fabricImage, true);
+            console.log('💾 AI edit persisted to sessionStorage (history save skipped)');
           }
         }, 100);
 
@@ -4728,6 +4957,70 @@ export default function Editor() {
     }
   };
 
+  // Session Expired Overlay - shows on top of any page when session times out (30 min)
+  if (showSessionExpired) {
+    return (
+      <>
+        <Head>
+          <title>Session Expired - SweetRobo</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+          <meta name="apple-mobile-web-app-capable" content="yes" />
+          <meta name="mobile-web-app-capable" content="yes" />
+          <meta name="apple-touch-fullscreen" content="yes" />
+          <meta name="format-detection" content="telephone=no" />
+          <style dangerouslySetInnerHTML={{__html: `
+            * {
+              -webkit-touch-callout: none !important;
+              -webkit-user-select: none !important;
+              -webkit-tap-highlight-color: transparent !important;
+              user-select: none !important;
+            }
+          `}} />
+        </Head>
+        <div className="fixed inset-0 bg-black bg-opacity-80 z-[9999] flex items-center justify-center p-6">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
+            {/* Timer Icon */}
+            <div className="mb-6">
+              <div className="inline-flex items-center justify-center w-20 h-20 bg-gray-100 rounded-full">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="12" cy="13" r="8" stroke="#6B7280" strokeWidth="2" fill="none"/>
+                  <path d="M12 9v4l2.5 2.5" stroke="#6B7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M9 3h6" stroke="#6B7280" strokeWidth="2" strokeLinecap="round"/>
+                  <path d="M12 3v2" stroke="#6B7280" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              </div>
+            </div>
+
+            <h1 className="text-2xl font-bold text-gray-900 mb-3">Session Expired</h1>
+
+            <p className="text-gray-600 mb-6 leading-relaxed">
+              Your session has timed out after 30 minutes of inactivity.
+            </p>
+
+            <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-5 mb-6">
+              <div className="text-4xl mb-3">📱</div>
+              <p className="text-purple-800 font-semibold">
+                Scan the QR code on the machine to start a new session
+              </p>
+            </div>
+
+            {isDemoMode && (
+              <button
+                onClick={() => {
+                  // In demo mode, allow starting a new session
+                  router.push('/select-model?demo=true');
+                }}
+                className="w-full bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-semibold py-3 px-6 rounded-lg transition shadow-md"
+              >
+                Start New Demo Session
+              </button>
+            )}
+          </div>
+        </div>
+      </>
+    );
+  }
+
   // Show loading screen while checking session OR show Waiting/Thank You pages
   if (isCheckingSession || showWaitingForPayment || showThankYou) {
     // If still checking, show loading
@@ -4869,6 +5162,54 @@ export default function Editor() {
               <div className="bg-gray-100 rounded-xl p-4">
                 <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-semibold">Session ID</p>
                 <p className="text-sm font-mono text-gray-700 break-all">{sessionId}</p>
+              </div>
+            )}
+
+            {/* Demo Mode: Simulate Payment Button */}
+            {isDemoMode && (
+              <div className="mt-6">
+                <div className="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-4 mb-4">
+                  <p className="text-yellow-800 text-sm font-semibold">🎮 Demo Mode</p>
+                  <p className="text-yellow-700 text-xs mt-1">Click below to simulate a payment confirmation</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!jobId) {
+                      alert('No job ID found. Please submit a design first.');
+                      return;
+                    }
+
+                    try {
+                      const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
+                      console.log('🎮 Simulating payment for jobId:', jobId);
+
+                      const response = await fetch(`${backendUrl}/api/chitu/test/payment`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          machineId: machineId || 'DEMO_MACHINE',
+                          jobId: jobId,
+                          amount: 25.99
+                        })
+                      });
+
+                      const result = await response.json();
+                      console.log('🎮 Simulate payment result:', result);
+
+                      if (!result.success) {
+                        alert('Failed to simulate payment: ' + (result.message || 'Unknown error'));
+                      }
+                      // If successful, the WebSocket will receive the payment confirmation
+                      // and automatically transition to the thank you page
+                    } catch (error: any) {
+                      console.error('❌ Simulate payment error:', error);
+                      alert('Failed to simulate payment: ' + error.message);
+                    }
+                  }}
+                  className="w-full bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white font-semibold py-3 px-6 rounded-lg transition shadow-md"
+                >
+                  🧪 Simulate Payment
+                </button>
               </div>
             )}
           </div>
@@ -5214,6 +5555,20 @@ export default function Editor() {
                           const currentSrc = (uploadedImage as any).getSrc ? (uploadedImage as any).getSrc() : (uploadedImage as any)._element?.src;
 
                           console.log('🔄 Restoring image transformation state');
+                          console.log('📊 Current state:', {
+                            left: uploadedImage.left,
+                            top: uploadedImage.top,
+                            scaleX: uploadedImage.scaleX,
+                            scaleY: uploadedImage.scaleY,
+                            angle: uploadedImage.angle
+                          });
+                          console.log('📊 Restoring to:', {
+                            left: savedState.left,
+                            top: savedState.top,
+                            scaleX: savedState.scaleX,
+                            scaleY: savedState.scaleY,
+                            angle: savedState.angle
+                          });
 
                           // Check if we need to reload the image (AI edit undo)
                           if (savedState.src && savedState.src !== currentSrc) {
@@ -5275,8 +5630,16 @@ export default function Editor() {
                             };
                             imgElement.src = savedState.src;
                           } else {
+                            // Get the actual image object from canvas (more reliable than state)
+                            const canvasObjects = canvas.getObjects();
+                            const actualImage = canvasObjects.find((obj: any) =>
+                              obj.type?.toLowerCase() === 'image' && obj.selectable !== false
+                            ) || uploadedImage;
+
+                            console.log('🎯 Using image from:', actualImage === uploadedImage ? 'state' : 'canvas');
+
                             // Just restore transformations (no image change)
-                            uploadedImage.set({
+                            actualImage.set({
                               left: savedState.left,
                               top: savedState.top,
                               scaleX: savedState.scaleX,
@@ -5289,11 +5652,11 @@ export default function Editor() {
 
                             // Restore filters if they exist
                             if (savedState.filters && savedState.filters.length > 0) {
-                              uploadedImage.filters = savedState.filters;
-                              uploadedImage.applyFilters();
+                              actualImage.filters = savedState.filters;
+                              actualImage.applyFilters();
                             } else {
-                              uploadedImage.filters = [];
-                              uploadedImage.applyFilters();
+                              actualImage.filters = [];
+                              actualImage.applyFilters();
                             }
 
                             // Restore background color if it exists
@@ -5303,10 +5666,15 @@ export default function Editor() {
                             }
 
                             // Update control coordinates to match new position/transformation
-                            uploadedImage.setCoords();
+                            actualImage.setCoords();
 
-                            canvas.setActiveObject(uploadedImage);
+                            canvas.setActiveObject(actualImage);
                             canvas.renderAll();
+
+                            // Update state if we used a different object
+                            if (actualImage !== uploadedImage) {
+                              setUploadedImage(actualImage);
+                            }
 
                             // Delay longer than event listener timeouts (100ms) to prevent auto-saves
                             setTimeout(() => {
@@ -5409,8 +5777,14 @@ export default function Editor() {
                             };
                             imgElement.src = savedState.src;
                           } else {
+                            // Get the actual image object from canvas (more reliable than state)
+                            const canvasObjects = canvas.getObjects();
+                            const actualImage = canvasObjects.find((obj: any) =>
+                              obj.type?.toLowerCase() === 'image' && obj.selectable !== false
+                            ) || uploadedImage;
+
                             // Just restore transformations
-                            uploadedImage.set({
+                            actualImage.set({
                               left: savedState.left,
                               top: savedState.top,
                               scaleX: savedState.scaleX,
@@ -5423,11 +5797,11 @@ export default function Editor() {
 
                             // Restore filters
                             if (savedState.filters && savedState.filters.length > 0) {
-                              uploadedImage.filters = savedState.filters;
-                              uploadedImage.applyFilters();
+                              actualImage.filters = savedState.filters;
+                              actualImage.applyFilters();
                             } else {
-                              uploadedImage.filters = [];
-                              uploadedImage.applyFilters();
+                              actualImage.filters = [];
+                              actualImage.applyFilters();
                             }
 
                             // Restore background color
@@ -5436,9 +5810,14 @@ export default function Editor() {
                               canvas.backgroundColor = savedState.backgroundColor;
                             }
 
-                            uploadedImage.setCoords();
-                            canvas.setActiveObject(uploadedImage);
+                            actualImage.setCoords();
+                            canvas.setActiveObject(actualImage);
                             canvas.renderAll();
+
+                            // Update state if we used a different object
+                            if (actualImage !== uploadedImage) {
+                              setUploadedImage(actualImage);
+                            }
 
                             setTimeout(() => {
                               isRestoringState.current = false;
@@ -5912,15 +6291,6 @@ export default function Editor() {
 
             {/* Submit Button - Always visible at bottom */}
             <div className="flex-shrink-0 bg-white p-3" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-              {/* Demo Mode Warning */}
-              {!machineId && (
-                <div className="mb-2 bg-yellow-50 border border-yellow-200 rounded-lg p-2">
-                  <p className="text-xs text-yellow-700 text-center">
-                    🎮 Demo Mode: Printing disabled (no machine connected)
-                  </p>
-                </div>
-              )}
-
               <button
                 onClick={handleSubmit}
                 className="w-full font-semibold py-3 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
@@ -7482,24 +7852,17 @@ export default function Editor() {
                         sessionStorage.removeItem(`submission-data-${sessionId}`);
                       }
 
-                      // DEMO MODE: Skip waiting for payment, go straight to thank you
-                      if (isDemoMode) {
-                        setIsSessionLocked(true);
-                        setShowWaitingForPayment(false);
-                        setShowThankYou(true);
-                        console.log('🎮 DEMO MODE: Showing thank you page (no payment required)');
-                      } else {
-                        // Show waiting for payment page (NOT thank you yet)
-                        setIsSessionLocked(true);
-                        setShowWaitingForPayment(true);
-                        setShowThankYou(false);
-                      }
+                      // Show waiting for payment page (same flow for both demo and production)
+                      setIsSessionLocked(true);
+                      setShowWaitingForPayment(true);
+                      setShowThankYou(false);
+                      console.log(isDemoMode ? '🎮 DEMO MODE: Showing waiting page (use Simulate Payment to continue)' : '🏭 PRODUCTION: Showing waiting page');
 
                       // Persist lock and page state in sessionStorage
                       if (sessionId) {
                         sessionStorage.setItem(`session-locked-${sessionId}`, 'true');
                         sessionStorage.setItem(`session-lock-timestamp-${sessionId}`, Date.now().toString());
-                        sessionStorage.setItem(`page-state-${sessionId}`, isDemoMode ? 'thankyou' : 'waiting');
+                        sessionStorage.setItem(`page-state-${sessionId}`, 'waiting');
                         console.log('💾 Persisted page state to sessionStorage');
                       }
 
@@ -7521,10 +7884,10 @@ export default function Editor() {
                     setIsUploading(false);
                   }
                 }}
-                disabled={isUploading || isDemoMode}
+                disabled={isUploading}
                 className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 active:bg-purple-800 text-white font-semibold py-4 px-6 rounded-lg transition shadow-md"
               >
-                {isUploading ? 'Submitting...' : (isDemoMode ? 'Demo Mode - Cannot Submit' : 'Submit Design')}
+                {isUploading ? 'Submitting...' : 'Submit Design'}
               </button>
               <button
                 onClick={(e) => {
