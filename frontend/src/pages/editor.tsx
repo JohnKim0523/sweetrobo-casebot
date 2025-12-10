@@ -1700,7 +1700,7 @@ export default function Editor() {
       
 
       // Add border as a fabric object (positioned with padding)
-      // Inset the border by half the stroke width to prevent clipping
+      // This is a fallback border - will be replaced by print_img border if available
       const borderStrokeWidth = 1;
       const borderInset = borderStrokeWidth / 2;
       const border = new fabric.Rect({
@@ -1715,7 +1715,9 @@ export default function Editor() {
         rx: 20,  // Rounded corners - horizontal radius
         ry: 20,  // Rounded corners - vertical radius
         selectable: false,
-        evented: false
+        evented: false,
+        isFallbackBorder: true,  // Mark for later removal if print_img is available
+        excludeFromExport: true
       });
 
       // Create crosshair guidelines (accounting for padding)
@@ -2193,6 +2195,77 @@ export default function Editor() {
         fabricCanvas.dispose();
       };
   }, [fabric, isCheckingSession, isSessionLocked, showWaitingForPayment, showThankYou]); // Removed isCropMode to prevent re-initialization
+
+  // Load print_img and use it as canvas clipPath for exact phone case outline
+  useEffect(() => {
+    if (!canvas || !fabric) return;
+
+    const chituPrintImg = sessionStorage.getItem('selectedPhoneModelPrintImg');
+    if (!chituPrintImg) {
+      console.log('📱 No print_img available - using default rounded corners');
+      return;
+    }
+
+    // Use backend proxy to avoid CORS issues
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':3001') : 'http://localhost:3001');
+    const proxyUrl = `${backendUrl}/api/chitu/image-proxy?url=${encodeURIComponent(chituPrintImg)}`;
+
+    console.log('📱 Loading print_img for canvas clipPath:', chituPrintImg);
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';  // Required to prevent canvas tainting
+    img.onload = () => {
+      if (!canvas) return;
+
+      // Remove the fallback border rect since we're using print_img shape
+      const fallbackBorder = canvas.getObjects().find((obj: any) => obj.isFallbackBorder);
+      if (fallbackBorder) {
+        canvas.remove(fallbackBorder);
+        console.log('🗑️ Removed fallback border - using print_img shape');
+      }
+
+      // Create a Fabric.Image from the print template for clipPath
+      const clipImg = new fabric.Image(img, {
+        left: CONTROL_PADDING,
+        top: VERTICAL_PADDING,
+        scaleX: DISPLAY_WIDTH / img.width,
+        scaleY: DISPLAY_HEIGHT / img.height,
+        absolutePositioned: true,
+      });
+
+      // Set as canvas clipPath - this clips content to the print template's opaque areas
+      canvas.clipPath = clipImg;
+
+      // Add the print_img as a semi-transparent overlay on top to show the phone case outline
+      // This shows users exactly where the cutouts and edges are
+      const borderOverlay = new fabric.Image(img, {
+        left: CONTROL_PADDING,
+        top: VERTICAL_PADDING,
+        scaleX: DISPLAY_WIDTH / img.width,
+        scaleY: DISPLAY_HEIGHT / img.height,
+        selectable: false,
+        evented: false,
+        excludeFromExport: true,
+        opacity: 0.12,  // Very subtle overlay to show the shape/cutouts
+        isPrintImgBorder: true,
+      });
+
+      canvas.add(borderOverlay);
+      canvas.bringObjectToFront(borderOverlay);
+
+      // Keep crosshairs on top
+      if (crosshairLines?.vertical) canvas.bringObjectToFront(crosshairLines.vertical);
+      if (crosshairLines?.horizontal) canvas.bringObjectToFront(crosshairLines.horizontal);
+
+      canvas.renderAll();
+
+      console.log('✅ Canvas clipPath and border updated to print_img outline:', img.width, 'x', img.height);
+    };
+    img.onerror = (err) => {
+      console.error('❌ Failed to load print_img for clipPath - using default rounded corners:', err);
+    };
+    img.src = proxyUrl;
+  }, [canvas, fabric, DISPLAY_WIDTH, DISPLAY_HEIGHT, CONTROL_PADDING, VERTICAL_PADDING, crosshairLines]);
 
   // Resize canvas dynamically when viewport or layout changes
   useEffect(() => {
@@ -4346,11 +4419,9 @@ export default function Editor() {
   };
 
   const handleSubmit = async () => {
-    // DEMO MODE: Block submission if no machine ID
+    // DEMO MODE: Allow preview to show, but block actual submission later
     if (!machineId) {
-      console.log('🎮 Demo Mode: Cannot submit - no machine connected');
-      alert('Demo Mode: Printing is disabled. Please scan a machine QR code to print.');
-      return;
+      console.log('🎮 Demo Mode: Showing preview (submission will be blocked)');
     }
 
     if (canvas) {
@@ -4387,6 +4458,11 @@ export default function Editor() {
         console.log(`Display: ${DISPLAY_WIDTH}x${DISPLAY_HEIGHT}px, Export: ${EXPORT_WIDTH}x${EXPORT_HEIGHT}px`);
         console.log(`Export multiplier: ${exportMultiplier}x`);
 
+        // Temporarily remove clipPath to avoid tainted canvas during export
+        // (The print_img clipPath can taint the canvas even through proxy)
+        const savedClipPath = canvas.clipPath;
+        canvas.clipPath = undefined;
+
         // First, export the canvas design (rectangular, no rounded corners)
         const designDataURL = canvas.toDataURL({
           format: 'png',
@@ -4400,6 +4476,9 @@ export default function Editor() {
           withoutTransform: false,
           withoutShadow: true
         });
+
+        // Restore clipPath for visual display
+        canvas.clipPath = savedClipPath;
 
         // APPLY MASKING: Composite design with print mask to create camera cutouts
         let dataURL = designDataURL;
@@ -5846,12 +5925,12 @@ export default function Editor() {
                 onClick={handleSubmit}
                 className="w-full font-semibold py-3 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-95"
                 style={{
-                  background: !uploadedImage || isUploading || !machineId ? '#e5e7eb' : 'linear-gradient(135deg, #a855f7, #ec4899)',
-                  color: !uploadedImage || isUploading || !machineId ? '#9ca3af' : 'white',
+                  background: !uploadedImage || isUploading ? '#e5e7eb' : 'linear-gradient(135deg, #a855f7, #ec4899)',
+                  color: !uploadedImage || isUploading ? '#9ca3af' : 'white',
                 }}
-                disabled={!uploadedImage || isUploading || !machineId}
+                disabled={!uploadedImage || isUploading}
               >
-                {isUploading ? 'Processing...' : !machineId ? 'Demo Mode - Cannot Print' : 'Submit Image'}
+                {isUploading ? 'Processing...' : !machineId ? 'Preview Design' : 'Submit Image'}
               </button>
             </div>
           </div>
@@ -7442,10 +7521,10 @@ export default function Editor() {
                     setIsUploading(false);
                   }
                 }}
-                disabled={isUploading}
+                disabled={isUploading || isDemoMode}
                 className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 active:bg-purple-800 text-white font-semibold py-4 px-6 rounded-lg transition shadow-md"
               >
-                {isUploading ? 'Submitting...' : (isDemoMode ? 'Save Design (Demo)' : 'Submit Design')}
+                {isUploading ? 'Submitting...' : (isDemoMode ? 'Demo Mode - Cannot Submit' : 'Submit Design')}
               </button>
               <button
                 onClick={(e) => {

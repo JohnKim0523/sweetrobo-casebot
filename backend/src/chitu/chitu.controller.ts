@@ -7,7 +7,9 @@ import {
   HttpException,
   HttpStatus,
   Query,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { ChituService } from './chitu.service';
 import { S3Service } from '../s3/s3.service';
 import { SimpleQueueService } from '../queue/simple-queue.service';
@@ -416,6 +418,47 @@ export class ChituController {
     } catch (error) {
       console.error('❌ Payment simulation failed:', error.message);
       throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  /**
+   * Proxy image from Chitu CDN to avoid CORS issues
+   * Used for loading phone case overlay templates
+   */
+  @Get('image-proxy')
+  async proxyImage(@Query('url') url: string, @Res() res: Response) {
+    try {
+      if (!url) {
+        throw new HttpException('URL parameter is required', HttpStatus.BAD_REQUEST);
+      }
+
+      // Only allow Chitu CDN URLs for security
+      if (!url.startsWith('https://print-oss.gzchitu.cn/')) {
+        throw new HttpException('Only Chitu CDN URLs are allowed', HttpStatus.FORBIDDEN);
+      }
+
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new HttpException(`Failed to fetch image: ${response.status}`, HttpStatus.BAD_GATEWAY);
+      }
+
+      const contentType = response.headers.get('content-type') || 'image/png';
+      const buffer = await response.arrayBuffer();
+
+      res.set({
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=86400',
+        'Access-Control-Allow-Origin': '*',
+        'Cross-Origin-Resource-Policy': 'cross-origin',
+      });
+
+      res.send(Buffer.from(buffer));
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      console.error('❌ Image proxy failed:', error.message);
+      throw new HttpException(error.message, HttpStatus.BAD_GATEWAY);
     }
   }
 }
