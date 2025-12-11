@@ -778,7 +778,7 @@ export class ChituService {
         device_id: params.deviceId,
         product_id: params.productId,
         image_url: params.imageUrl,
-        pay_type: this.configService.get<string>('CHITU_DEFAULT_PAY_TYPE', 'nayax'),
+        pay_type: this.configService.get<string>('CHITU_DEFAULT_PAY_TYPE', 'unknown'),
       },
     );
 
