@@ -401,7 +401,7 @@ export default function SelectModel() {
       return `${prefix}_${timestamp}_${random}`;
     };
 
-    // Helper to check if session is valid (not locked, not expired)
+    // Helper to check if session is valid (not locked, not expired, correct machine)
     const isSessionValid = (sid: string) => {
       const isLocked = sessionStorage.getItem(`session-locked-${sid}`) === 'true';
       if (isLocked) {
@@ -416,6 +416,15 @@ export default function SelectModel() {
           console.log(`⏰ Session ${sid} is expired (${Math.round(age / 60000)} min old)`);
           return false;
         }
+      }
+
+      // IMPORTANT: Check if session prefix matches current machineId
+      // This prevents reusing a demo session when connecting to a real machine
+      const expectedPrefix = machineId ? machineId : 'demo';
+      const sessionPrefix = sid.split('_')[0];
+      if (sessionPrefix !== expectedPrefix) {
+        console.log(`🔄 Session ${sid} has wrong prefix (${sessionPrefix}), expected ${expectedPrefix}`);
+        return false;
       }
 
       return true;
