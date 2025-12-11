@@ -234,7 +234,7 @@ export class SimpleQueueService {
     console.log(`🖨️ Processing job ${job.id} (attempt ${job.attempts}) for machine ${job.data.machineId}`);
 
     try {
-      // Upload image to S3 (converted to TIF for Chitu printer)
+      // Upload image to S3 (PNG with 300 DPI for Chitu printer)
       let imageUrl = job.data.imageUrl;
       if (!imageUrl && job.data.image) {
         console.log(`📤 Uploading image to S3...`);
@@ -244,11 +244,11 @@ export class SimpleQueueService {
           'base64'
         );
 
-        const key = `designs/${job.data.sessionId}/${Date.now()}.tif`;
-        imageUrl = await this.s3Service.uploadImage(buffer, key, true); // Convert to TIF
+        const key = `designs/${job.data.sessionId}/${Date.now()}.png`;
+        imageUrl = await this.s3Service.uploadImage(buffer, key, true); // Convert for print (PNG 300 DPI)
         job.data.imageUrl = imageUrl;
 
-        console.log(`✅ Image uploaded as TIF: ${imageUrl}`);
+        console.log(`✅ Image uploaded as PNG (300 DPI): ${imageUrl}`);
       }
 
       // Create Chitu order with validated workflow
@@ -470,7 +470,7 @@ export class SimpleQueueService {
       sessionId: job.data.sessionId,
       dimensions: job.data.dimensions,
       image: job.data.image, // Base64 PNG image for display
-      imageUrl: job.data.imageUrl, // S3 TIF URL for deletion
+      imageUrl: job.data.imageUrl, // S3 PNG URL for deletion
       priority: job.priority,
       queuePosition: 0, // Completed jobs have no queue position
       createdAt: job.createdAt,

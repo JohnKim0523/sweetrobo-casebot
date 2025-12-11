@@ -18,49 +18,46 @@ export class S3Service {
     console.log('🔐 S3 Service initialized (backup storage only)');
   }
 
-  async uploadImage(buffer: Buffer, key: string, convertToTif: boolean = false): Promise<string> {
-    // For Chitu printer: Upload BOTH PNG and TIF with same base filename
-    // PNG for display on machine, TIF for printing
-    if (convertToTif) {
-      console.log('🔄 Converting image to TIF format for Chitu printer...');
+  async uploadImage(buffer: Buffer, key: string, convertForPrint: boolean = false): Promise<string> {
+    // For Chitu printer: Upload PNG for printing with 300 DPI and 90° rotation
+    if (convertForPrint) {
+      console.log('🔄 Converting image to PNG (300 DPI) for Chitu printer...');
 
       // Get base key without extension
       const baseKey = key.replace(/\.(png|jpg|jpeg|tif)$/i, '');
-      const pngKey = `${baseKey}.png`;
-      const tifKey = `${baseKey}.tif`;
+      const displayPngKey = `${baseKey}_display.png`;
+      const printPngKey = `${baseKey}.png`;
 
       // 1. Upload PNG for display (original, no rotation)
       console.log('📤 Uploading PNG for machine display...');
-      const pngParams = {
+      const displayParams = {
         Bucket: this.bucketName,
-        Key: pngKey,
+        Key: displayPngKey,
         Body: buffer,
         ContentType: 'image/png',
       };
-      await this.s3.upload(pngParams).promise();
-      console.log('✅ PNG uploaded:', pngKey);
+      await this.s3.upload(displayParams).promise();
+      console.log('✅ Display PNG uploaded:', displayPngKey);
 
-      // 2. Create TIF for printing (rotated 90° clockwise)
-      console.log('🔄 Creating TIF with 90° clockwise rotation...');
-      const tifBuffer = await sharp(buffer)
+      // 2. Create PNG for printing (rotated 90° clockwise, 300 DPI)
+      console.log('🔄 Creating print PNG with 90° rotation and 300 DPI...');
+      const printBuffer = await sharp(buffer)
         .rotate(90) // Rotate 90° clockwise
-        .tiff({
-          compression: 'lzw', // LZW compression for smaller file size
-          quality: 100,       // Maximum quality
-        })
+        .withMetadata({ density: 300 }) // Set 300 DPI
+        .png({ quality: 100 })
         .toBuffer();
 
-      const tifParams = {
+      const printParams = {
         Bucket: this.bucketName,
-        Key: tifKey,
-        Body: tifBuffer,
-        ContentType: 'image/tiff',
+        Key: printPngKey,
+        Body: printBuffer,
+        ContentType: 'image/png',
       };
-      const tifResult = await this.s3.upload(tifParams).promise();
-      console.log('✅ TIF uploaded (rotated 90°):', tifKey);
+      const printResult = await this.s3.upload(printParams).promise();
+      console.log('✅ Print PNG uploaded (rotated 90°, 300 DPI):', printPngKey);
 
-      // Return TIF URL (used for printing)
-      return tifResult.Location;
+      // Return print PNG URL
+      return printResult.Location;
     }
 
     // Regular upload (no TIF conversion)
