@@ -530,11 +530,13 @@ export default function Editor() {
     // - UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
     // - Timestamp format: 1234567890123-abc123def
     // - Demo format: demo_1234567890123_abc123
+    // - Machine format: CT0700059_1234567890123_abc123 (machineId_timestamp_random)
     const isValidSession = (s: string) => {
       const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
       const isValidTimestamp = /^\d{13}-[a-z0-9]{9,}$/i.test(s);
       const isValidDemo = /^demo_\d+_[a-z0-9]+$/i.test(s);
-      return isValidUUID || isValidTimestamp || isValidDemo;
+      const isValidMachine = /^[A-Z]{2}\d+_\d+_[a-z0-9]+$/i.test(s); // e.g., CT0700059_1234567890123_abc123
+      return isValidUUID || isValidTimestamp || isValidDemo || isValidMachine;
     };
 
     // If session in URL is invalid, redirect without it
