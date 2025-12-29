@@ -112,3 +112,26 @@ export interface ProductCatalogResponse {
   count: number;
   list: ProductBrand[];
 }
+
+// Inventory grid types for Case Bot (CT-sjk360)
+export interface InventorySlot {
+  index: number;       // Column position (1-8)
+  product_id: number;  // Product ID (0 = empty slot)
+  stock: number;       // Stock count at this position
+}
+
+export interface InventoryRow {
+  index: number;           // Row/layer number (1-8)
+  column: InventorySlot[]; // 8 columns per row
+}
+
+export interface ProductListItem {
+  text: string;   // Product name (e.g., "iphone16Pro")
+  value: number;  // Product ID (e.g., 20002638)
+}
+
+export interface InventoryGridResponse {
+  stock: InventoryRow[];        // 8x8 grid of inventory slots
+  proList: ProductListItem[];   // Product lookup table
+  machine_model: string;        // e.g., "CT-sjk360"
+}

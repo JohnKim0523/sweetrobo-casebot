@@ -1,3 +1,42 @@
+// ========== INVENTORY GRID TYPES (Case Bot CT-sjk360) ==========
+
+export interface InventorySlot {
+  index: number;       // Column position (1-8)
+  product_id: number;  // Product ID (0 = empty slot)
+  stock: number;       // Stock count at this position
+}
+
+export interface InventoryRow {
+  index: number;           // Row/layer number (1-8)
+  column: InventorySlot[]; // 8 columns per row
+}
+
+export interface ProductListItem {
+  text: string;   // Product name (e.g., "iphone16Pro")
+  value: number;  // Product ID (e.g., 20002638)
+}
+
+export interface InventoryGridResponse {
+  success: boolean;
+  machineModel: string;        // e.g., "CT-sjk360"
+  grid: InventoryRow[];        // 8x8 grid of inventory slots
+  products: ProductListItem[]; // Product lookup table
+  summary: {
+    totalSlots: number;
+    occupiedSlots: number;
+    emptySlots: number;
+    totalStock: number;
+    productBreakdown: Array<{
+      product_id: number;
+      name: string;
+      slots: number;
+      totalStock: number;
+    }>;
+  };
+}
+
+// ========== PHONE MODEL TYPES ==========
+
 export interface PhoneModel {
   id: string;
   brand: string;

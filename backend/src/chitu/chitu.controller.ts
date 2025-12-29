@@ -115,6 +115,72 @@ export class ChituController {
   }
 
   /**
+   * Get inventory grid (8x8 rack layout) for Case Bot machines
+   * Returns physical slot positions with product_id and stock at each location
+   * Only works for Case Bot machines (CT-sjk360)
+   */
+  @Get('inventory/:deviceCode')
+  async getInventoryGrid(@Param('deviceCode') deviceCode: string) {
+    try {
+      const inventory = await this.chituService.getInventoryGridByCode(deviceCode);
+
+      // Calculate summary stats
+      let occupiedSlots = 0;
+      let totalStock = 0;
+      const productCounts: Record<number, { name: string; count: number; stock: number }> = {};
+
+      // Build product name lookup from proList
+      const productNames: Record<number, string> = {};
+      inventory.proList.forEach(p => {
+        if (p.value !== 0) {
+          productNames[p.value] = p.text;
+        }
+      });
+
+      // Analyze grid
+      inventory.stock.forEach(row => {
+        row.column.forEach(slot => {
+          if (slot.product_id !== 0) {
+            occupiedSlots++;
+            totalStock += slot.stock;
+
+            if (!productCounts[slot.product_id]) {
+              productCounts[slot.product_id] = {
+                name: productNames[slot.product_id] || `Product ${slot.product_id}`,
+                count: 0,
+                stock: 0,
+              };
+            }
+            productCounts[slot.product_id].count++;
+            productCounts[slot.product_id].stock += slot.stock;
+          }
+        });
+      });
+
+      return {
+        success: true,
+        machineModel: inventory.machine_model,
+        grid: inventory.stock,
+        products: inventory.proList,
+        summary: {
+          totalSlots: 64,
+          occupiedSlots,
+          emptySlots: 64 - occupiedSlots,
+          totalStock,
+          productBreakdown: Object.entries(productCounts).map(([id, data]) => ({
+            product_id: parseInt(id),
+            name: data.name,
+            slots: data.count,
+            totalStock: data.stock,
+          })),
+        },
+      };
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  /**
    * Get product catalog (phone models) for a machine
    * Query params: type=diy|default|all, status=0|1, page=1, limit=100
    * If type is not specified or 'all', fetches from both 'default' and 'diy' and merges

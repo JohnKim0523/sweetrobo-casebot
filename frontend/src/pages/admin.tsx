@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
+import { InventoryGridResponse } from '../types/phone-models';
 
 interface S3Image {
   id: string;
@@ -58,6 +59,12 @@ export default function AdminDashboard() {
   const [adminToken, setAdminToken] = useState<string>('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  // Inventory grid state
+  const [inventoryMachineId, setInventoryMachineId] = useState<string>('');
+  const [inventoryGrid, setInventoryGrid] = useState<InventoryGridResponse | null>(null);
+  const [loadingInventory, setLoadingInventory] = useState(false);
+  const [inventoryError, setInventoryError] = useState<string | null>(null);
+
   // Load S3 images from backend
   const loadImages = async () => {
     if (!adminToken) {
@@ -115,6 +122,47 @@ export default function AdminDashboard() {
     }
   };
 
+  // Load inventory grid for a machine
+  const loadInventoryGrid = async (machineId?: string) => {
+    const targetMachine = machineId || inventoryMachineId;
+    if (!targetMachine) {
+      setInventoryError('Please enter a machine ID');
+      return;
+    }
+
+    try {
+      setLoadingInventory(true);
+      setInventoryError(null);
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const response = await fetch(`${backendUrl}/api/chitu/inventory/${targetMachine}`);
+      const data: InventoryGridResponse = await response.json();
+
+      if (data.success) {
+        setInventoryGrid(data);
+      } else {
+        setInventoryError((data as any).message || 'Failed to load inventory');
+      }
+    } catch (err: any) {
+      setInventoryError(err.message || 'Failed to load inventory');
+    } finally {
+      setLoadingInventory(false);
+    }
+  };
+
+  // Get product name from proList by product_id
+  const getProductName = (productId: number): string => {
+    if (productId === 0) return '';
+    const product = inventoryGrid?.products.find(p => p.value === productId);
+    return product?.text || `ID: ${productId}`;
+  };
+
+  // Get color class for inventory slot
+  const getSlotColor = (productId: number, stock: number): string => {
+    if (productId === 0) return 'bg-gray-700'; // Empty
+    if (stock === 0) return 'bg-red-600'; // Out of stock
+    if (stock <= 2) return 'bg-yellow-600'; // Low stock
+    return 'bg-green-600'; // In stock
+  };
 
   // Delete image from S3 via backend
   const deleteImage = async (key: string) => {
@@ -617,6 +665,159 @@ export default function AdminDashboard() {
               </div>
               <div className="text-gray-400">In Queue (Completed)</div>
             </div>
+          </div>
+
+          {/* Inventory Grid Visualization */}
+          <div className="mt-6 bg-gray-800 rounded p-4">
+            <h2 className="text-xl font-bold mb-4">📦 Case Bot Inventory Grid</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              View the 8x8 rack layout for Case Bot machines (CT-sjk360)
+            </p>
+
+            {/* Machine ID Input */}
+            <div className="flex gap-2 mb-4">
+              <input
+                type="text"
+                value={inventoryMachineId}
+                onChange={(e) => setInventoryMachineId(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && loadInventoryGrid()}
+                placeholder="Enter machine ID (e.g., CT0700046)"
+                className="flex-1 px-3 py-2 bg-gray-700 rounded text-white"
+              />
+              <button
+                onClick={() => loadInventoryGrid()}
+                disabled={loadingInventory || !inventoryMachineId}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded"
+              >
+                {loadingInventory ? 'Loading...' : '🔍 Load Grid'}
+              </button>
+            </div>
+
+            {/* Error Message */}
+            {inventoryError && (
+              <div className="p-3 bg-red-600/20 border border-red-600 rounded text-red-400 mb-4">
+                {inventoryError}
+              </div>
+            )}
+
+            {/* Grid Visualization */}
+            {inventoryGrid && (
+              <div className="space-y-4">
+                {/* Summary Stats */}
+                <div className="grid grid-cols-5 gap-2 text-center text-sm">
+                  <div className="bg-gray-700 p-2 rounded">
+                    <div className="font-bold">{inventoryGrid.machineModel}</div>
+                    <div className="text-gray-400">Model</div>
+                  </div>
+                  <div className="bg-gray-700 p-2 rounded">
+                    <div className="font-bold text-green-400">{inventoryGrid.summary.occupiedSlots}</div>
+                    <div className="text-gray-400">Occupied</div>
+                  </div>
+                  <div className="bg-gray-700 p-2 rounded">
+                    <div className="font-bold text-gray-400">{inventoryGrid.summary.emptySlots}</div>
+                    <div className="text-gray-400">Empty</div>
+                  </div>
+                  <div className="bg-gray-700 p-2 rounded">
+                    <div className="font-bold text-blue-400">{inventoryGrid.summary.totalStock}</div>
+                    <div className="text-gray-400">Total Stock</div>
+                  </div>
+                  <div className="bg-gray-700 p-2 rounded">
+                    <div className="font-bold">{inventoryGrid.products.filter(p => p.value !== 0).length}</div>
+                    <div className="text-gray-400">Products</div>
+                  </div>
+                </div>
+
+                {/* 8x8 Grid */}
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr>
+                        <th className="p-1 text-xs text-gray-500">Row</th>
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map(col => (
+                          <th key={col} className="p-1 text-xs text-gray-500">Col {col}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inventoryGrid.grid.map((row) => (
+                        <tr key={row.index}>
+                          <td className="p-1 text-xs text-gray-500 text-center font-bold">
+                            {row.index}
+                          </td>
+                          {row.column.map((slot) => (
+                            <td key={`${row.index}-${slot.index}`} className="p-1">
+                              <div
+                                className={`${getSlotColor(slot.product_id, slot.stock)} rounded p-2 text-center min-w-[80px] cursor-pointer hover:opacity-80 transition-opacity`}
+                                title={slot.product_id !== 0
+                                  ? `${getProductName(slot.product_id)}\nStock: ${slot.stock}\nPosition: Row ${row.index}, Col ${slot.index}`
+                                  : `Empty slot\nPosition: Row ${row.index}, Col ${slot.index}`}
+                              >
+                                {slot.product_id !== 0 ? (
+                                  <>
+                                    <div className="text-xs font-bold truncate">
+                                      {getProductName(slot.product_id).substring(0, 10)}
+                                    </div>
+                                    <div className="text-xs opacity-75">
+                                      x{slot.stock}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="text-xs text-gray-500">—</div>
+                                )}
+                              </div>
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Legend */}
+                <div className="flex gap-4 text-xs justify-center mt-2">
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 bg-green-600 rounded"></div>
+                    <span>In Stock (3+)</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 bg-yellow-600 rounded"></div>
+                    <span>Low Stock (1-2)</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 bg-red-600 rounded"></div>
+                    <span>Out of Stock</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 bg-gray-700 rounded"></div>
+                    <span>Empty</span>
+                  </div>
+                </div>
+
+                {/* Product Breakdown */}
+                {inventoryGrid.summary.productBreakdown.length > 0 && (
+                  <div className="mt-4">
+                    <h3 className="text-sm font-bold mb-2">Product Breakdown</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {inventoryGrid.summary.productBreakdown.map((product) => (
+                        <div key={product.product_id} className="bg-gray-700 p-2 rounded text-sm">
+                          <div className="font-bold truncate" title={product.name}>{product.name}</div>
+                          <div className="text-gray-400">
+                            {product.slots} slot{product.slots !== 1 ? 's' : ''} · {product.totalStock} total
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!inventoryGrid && !loadingInventory && !inventoryError && (
+              <div className="text-center py-8 text-gray-400">
+                Enter a machine ID to view the inventory grid
+              </div>
+            )}
           </div>
             </>
           )}

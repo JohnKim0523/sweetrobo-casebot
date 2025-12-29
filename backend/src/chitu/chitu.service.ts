@@ -12,6 +12,7 @@ import {
   ProductCatalogRequest,
   ProductCatalogResponse,
   PhoneModel,
+  InventoryGridResponse,
 } from './chitu.types';
 
 @Injectable()
@@ -332,6 +333,63 @@ export class ChituService {
       page,
       limit,
     });
+  }
+
+  /**
+   * Get inventory grid for Case Bot machines (CT-sjk360)
+   * Returns 8x8 rack layout with product positions and stock levels
+   * Required fields: appid, device_id
+   */
+  async getInventoryGrid(deviceId: string): Promise<InventoryGridResponse> {
+    console.log(`\n📦 Getting inventory grid for device: ${deviceId}`);
+
+    const response = await this.request<any>(
+      '/api/openApi/machineInventoryInfo',
+      { device_id: deviceId },
+    );
+
+    const data = response.data?.data;
+
+    if (!data || !data.stock) {
+      console.log('⚠️ No inventory grid data returned - machine may not be a Case Bot');
+      throw new HttpException(
+        'No inventory grid data available. This endpoint is only for Case Bot machines (CT-sjk360).',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    console.log(`✅ Inventory grid retrieved`);
+    console.log(`📊 Rows: ${data.stock.length}`);
+    console.log(`📋 Products in catalog: ${data.proList?.length || 0}`);
+    console.log(`⚙️ Machine model: ${data.machine_model}`);
+
+    // Count occupied slots
+    let occupiedSlots = 0;
+    let totalStock = 0;
+    data.stock.forEach((row: any) => {
+      row.column.forEach((slot: any) => {
+        if (slot.product_id !== 0) {
+          occupiedSlots++;
+          totalStock += slot.stock;
+        }
+      });
+    });
+    console.log(`📍 Occupied slots: ${occupiedSlots}/64`);
+    console.log(`📦 Total stock: ${totalStock}`);
+
+    return {
+      stock: data.stock,
+      proList: data.proList || [],
+      machine_model: data.machine_model,
+    };
+  }
+
+  /**
+   * Helper to get inventory grid by device_code (converts to device_id)
+   */
+  async getInventoryGridByCode(deviceCode: string): Promise<InventoryGridResponse> {
+    const deviceId = await this.getDeviceIdFromCode(deviceCode);
+    return this.getInventoryGrid(deviceId);
   }
 
   /**

@@ -260,36 +260,17 @@ body::before {
   padding-right: env(safe-area-inset-right);
 }
 
-/* Hide ALL external overlays, debugging tools, and analytics widgets */
+/* Hide dev overlays and debugging tools */
 [data-nextjs-toast],
 .__next-dev-overlay,
 [class*="__nextjs"],
 [id*="nextjs"],
 [class*="debug"],
 [class*="dev-"],
-/* PostHog overlays and debug tools */
-[class*="posthog"],
-[id*="posthog"],
-[data-posthog],
-.__posthog,
-/* Common analytics/debugging overlays */
-[class*="ph-"],
-[id*="ph-"],
-[class*="analytics"],
-[class*="tracking"],
-[class*="hotjar"],
-[class*="mixpanel"],
-/* Mobile debugging tools */
 [class*="console"],
 [class*="devtools"],
 [class*="inspector"],
-/* Nexus/N logo specifically */
-div[style*="position: fixed"][style*="bottom"],
-div[style*="position: fixed"][style*="left"]:has(img),
-div[style*="position: fixed"]:has([alt*="logo"]),
 /* Generic overlay patterns */
-div[style*="z-index: 99"],
-div[style*="z-index: 999"],
 div[style*="z-index: 9999"] {
   display: none !important;
   visibility: hidden !important;

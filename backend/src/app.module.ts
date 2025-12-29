@@ -12,7 +12,6 @@ import { AdminModule } from './admin/admin.module';
 import { MqttModule } from './mqtt/mqtt.module';
 import { WebsocketModule } from './websocket/websocket.module';
 import { VertexAIController } from './vertexai.controller';
-import { DatabaseModule } from './database/database.module';
 import { OrderMappingModule } from './order-mapping/order-mapping.module';
 
 @Module({
@@ -43,7 +42,6 @@ import { OrderMappingModule } from './order-mapping/order-mapping.module';
           }),
         ]
       : []),
-    DatabaseModule.forRoot(),
     ChituModule,
     AiModule,
     AdminModule,
