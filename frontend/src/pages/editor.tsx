@@ -7815,7 +7815,7 @@ export default function Editor() {
                   value={submitPassword}
                   onChange={(e) => {
                     setSubmitPassword(e.target.value);
-                    if (e.target.value === '105105') {
+                    if (e.target.value === '210210') {
                       setPasswordVerified(true);
                     }
                   }}
