@@ -634,10 +634,11 @@ export class ChituService {
       console.log(`🔍 Searching for "${phoneModelName}" in ${catalog.list.length} brand(s)`);
 
       // Normalize search term for better matching
+      // IMPORTANT: Remove ALL spaces to handle inconsistent naming (e.g., "iPhone 15" vs "iPhone15")
       const normalizeString = (str: string) => {
         return str
           .toLowerCase()
-          .replace(/\s+/g, ' ')  // Normalize whitespace
+          .replace(/\s+/g, '')  // Remove ALL whitespace (fixes iPhone 15 vs iPhone15 mismatch)
           .trim();
       };
 
@@ -737,6 +738,7 @@ export class ChituService {
     deviceCode: string;
     phoneModelName: string;
     imageUrl: string;
+    productId?: string;    // NEW: Direct product_id from frontend (skips name matching)
     orderNo?: string;
     printCount?: number;
     sessionId?: string;
@@ -744,6 +746,7 @@ export class ChituService {
     console.log(`\n🚀 Starting validated print order workflow`);
     console.log(`📱 Device: ${params.deviceCode}`);
     console.log(`📱 Phone Model: ${params.phoneModelName}`);
+    console.log(`🔑 Product ID (from frontend): ${params.productId || 'not provided - will use name matching'}`);
 
     try {
       // Step 1: Check machine status
@@ -756,29 +759,46 @@ export class ChituService {
         };
       }
 
-      // Step 2-3: Find product and verify inventory
-      const productCheck = await this.findProductAndVerifyInventory(
-        params.deviceCode,
-        params.phoneModelName
-      );
+      // Get device_id for order creation
+      const deviceId = await this.getDeviceIdFromCode(params.deviceCode);
 
-      if (!productCheck.available || !productCheck.product) {
-        return {
-          success: false,
-          message: productCheck.message,
-          details: { step: 'product_check', ...productCheck },
-        };
+      let finalProductId: string;
+      let productDetails: any = null;
+
+      // Step 2-3: Use direct productId if provided, otherwise fall back to name matching
+      if (params.productId && !params.productId.startsWith('demo-')) {
+        // FAST PATH: Use product_id directly from frontend (already fetched from API)
+        console.log(`✅ Using direct product_id from frontend: ${params.productId}`);
+        finalProductId = params.productId;
+        productDetails = { product_id: params.productId, name_en: params.phoneModelName };
+      } else {
+        // FALLBACK: Name matching (for backwards compatibility or demo mode)
+        console.log(`🔍 No direct product_id, falling back to name matching...`);
+        const productCheck = await this.findProductAndVerifyInventory(
+          params.deviceCode,
+          params.phoneModelName
+        );
+
+        if (!productCheck.available || !productCheck.product) {
+          return {
+            success: false,
+            message: productCheck.message,
+            details: { step: 'product_check', ...productCheck },
+          };
+        }
+        finalProductId = productCheck.product.product_id;
+        productDetails = productCheck.product;
       }
 
       // Step 4: Image processing is assumed to be done by caller
-      // Image must be in TIF format at this point
+      // Image must be in PNG format at this point (300 DPI)
 
-      // Step 5: Create order with validated product_id
-      console.log(`\n📝 Creating order with validated product_id: ${productCheck.product.product_id}`);
+      // Step 5: Create order with product_id
+      console.log(`\n📝 Creating order with product_id: ${finalProductId}`);
 
       const orderResult = await this.createOrder({
-        deviceId: productCheck.deviceId!,
-        productId: productCheck.product.product_id,
+        deviceId: deviceId,
+        productId: finalProductId,
         imageUrl: params.imageUrl,
         orderNo: params.orderNo,
         printCount: params.printCount,
@@ -792,7 +812,7 @@ export class ChituService {
           orderId: orderResult.orderId,
           message: 'Order created successfully',
           details: {
-            product: productCheck.product,
+            product: productDetails,
             machine: statusCheck.details,
           },
         };

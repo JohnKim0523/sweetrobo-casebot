@@ -259,9 +259,11 @@ export class SimpleQueueService {
       // 4. Create order with correct product_id
       if (job.data.machineId && job.data.phoneModel && imageUrl) {
         console.log(`📦 Creating Chitu order...`);
+        console.log(`🔑 Product ID from frontend: ${job.data.productId || 'not provided'}`);
         const orderResult = await this.chituService.createPrintOrderWithValidation({
           deviceCode: job.data.machineId,
           phoneModelName: job.data.phoneModel,
+          productId: job.data.productId,  // Pass product_id directly (skips name matching)
           imageUrl: imageUrl,
           orderNo: job.id,
           printCount: 1,
