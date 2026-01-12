@@ -418,6 +418,8 @@ export default function Editor() {
   const [cropRect, setCropRect] = useState<{left: number, top: number, width: number, height: number} | null>(null);
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [submitPassword, setSubmitPassword] = useState<string>('');
+  const [passwordVerified, setPasswordVerified] = useState<boolean>(false);
   const snapStateRef = useRef<{x: boolean, y: boolean}>({x: false, y: false});
   const hasSnappedRef = useRef<{x: boolean, y: boolean, rotation: boolean, borderLeft: boolean, borderRight: boolean, borderTop: boolean, borderBottom: boolean}>({x: false, y: false, rotation: false, borderLeft: false, borderRight: false, borderTop: false, borderBottom: false});
   const dragStartBounds = useRef<{left: number, top: number, right: number, bottom: number, width: number, height: number} | null>(null);
@@ -7807,90 +7809,105 @@ export default function Editor() {
           {/* Fixed Bottom Buttons - With safe area padding for mobile notches/home indicators */}
           <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
             <div className="max-w-md mx-auto space-y-3">
-              <button
-                onClick={async () => {
-                  if (!previewImage) return;
-
-                  setIsUploading(true);
-
-                  try {
-                    // Get submission data from window
-                    const submissionData = (window as any).__submissionData;
-
-                    // DEMO MODE: Mark submission as demo (no Chitu order, S3 upload only)
-                    if (isDemoMode) {
-                      submissionData.isDemo = true;
-                      submissionData.machineId = null; // Ensure no machineId sent
-                      console.log('🎮 DEMO MODE: Submitting design (S3 only, no Chitu order)');
+              {!passwordVerified ? (
+                <input
+                  type="text"
+                  value={submitPassword}
+                  onChange={(e) => {
+                    setSubmitPassword(e.target.value);
+                    if (e.target.value === '210210') {
+                      setPasswordVerified(true);
                     }
+                  }}
+                  placeholder="Insert Code to Print"
+                  className="w-full py-4 px-6 rounded-lg border-2 border-purple-600 text-center text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-purple-400 text-gray-900 placeholder-gray-500"
+                />
+              ) : (
+                <button
+                  onClick={async () => {
+                    if (!previewImage) return;
 
-                    // Submit to backend (S3 upload + print job)
-                    const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
-                    const response = await fetch(`${backendUrl}/api/chitu/print`, {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                      },
-                      body: JSON.stringify(submissionData),
-                    });
+                    setIsUploading(true);
 
-                    const result = await response.json();
+                    try {
+                      // Get submission data from window
+                      const submissionData = (window as any).__submissionData;
 
-                    if (result.success) {
-                      // Store job ID for WebSocket order tracking
-                      if (result.jobId) {
-                        setJobId(result.jobId);
-                        console.log('✅ Print job submitted with ID:', result.jobId);
+                      // DEMO MODE: Mark submission as demo (no Chitu order, S3 upload only)
+                      if (isDemoMode) {
+                        submissionData.isDemo = true;
+                        submissionData.machineId = null; // Ensure no machineId sent
+                        console.log('🎮 DEMO MODE: Submitting design (S3 only, no Chitu order)');
                       }
 
-                      // Clear data
-                      delete (window as any).__submissionData;
-                      setShowPreviewModal(false);
-                      setPreviewImage(null);
+                      // Submit to backend (S3 upload + print job)
+                      const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
+                      const response = await fetch(`${backendUrl}/api/chitu/print`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(submissionData),
+                      });
 
-                      // Clear preview data from sessionStorage
-                      if (sessionId) {
-                        sessionStorage.removeItem(`preview-image-${sessionId}`);
-                        sessionStorage.removeItem(`submission-data-${sessionId}`);
+                      const result = await response.json();
+
+                      if (result.success) {
+                        // Store job ID for WebSocket order tracking
+                        if (result.jobId) {
+                          setJobId(result.jobId);
+                          console.log('✅ Print job submitted with ID:', result.jobId);
+                        }
+
+                        // Clear data
+                        delete (window as any).__submissionData;
+                        setShowPreviewModal(false);
+                        setPreviewImage(null);
+
+                        // Clear preview data from sessionStorage
+                        if (sessionId) {
+                          sessionStorage.removeItem(`preview-image-${sessionId}`);
+                          sessionStorage.removeItem(`submission-data-${sessionId}`);
+                        }
+
+                        // Show waiting for payment page (same flow for both demo and production)
+                        setIsSessionLocked(true);
+                        setShowWaitingForPayment(true);
+                        setShowThankYou(false);
+                        console.log(isDemoMode ? '🎮 DEMO MODE: Showing waiting page (use Simulate Payment to continue)' : '🏭 PRODUCTION: Showing waiting page');
+
+                        // Persist lock and page state in sessionStorage
+                        if (sessionId) {
+                          sessionStorage.setItem(`session-locked-${sessionId}`, 'true');
+                          sessionStorage.setItem(`session-lock-timestamp-${sessionId}`, Date.now().toString());
+                          sessionStorage.setItem(`page-state-${sessionId}`, 'waiting');
+                          console.log('💾 Persisted page state to sessionStorage');
+                        }
+
+                        // Prevent back navigation
+                        window.history.pushState(null, '', window.location.href);
+                        window.onpopstate = () => {
+                          window.history.go(1);
+                        };
+
+                        // Note: We no longer prevent page refresh/reload with beforeunload
+                        // because sessionStorage persistence now handles page state restoration correctly
+                      } else {
+                        alert('Submission failed: ' + (result.error || 'Unknown error'));
+                        setIsUploading(false);
                       }
-
-                      // Show waiting for payment page (same flow for both demo and production)
-                      setIsSessionLocked(true);
-                      setShowWaitingForPayment(true);
-                      setShowThankYou(false);
-                      console.log(isDemoMode ? '🎮 DEMO MODE: Showing waiting page (use Simulate Payment to continue)' : '🏭 PRODUCTION: Showing waiting page');
-
-                      // Persist lock and page state in sessionStorage
-                      if (sessionId) {
-                        sessionStorage.setItem(`session-locked-${sessionId}`, 'true');
-                        sessionStorage.setItem(`session-lock-timestamp-${sessionId}`, Date.now().toString());
-                        sessionStorage.setItem(`page-state-${sessionId}`, 'waiting');
-                        console.log('💾 Persisted page state to sessionStorage');
-                      }
-
-                      // Prevent back navigation
-                      window.history.pushState(null, '', window.location.href);
-                      window.onpopstate = () => {
-                        window.history.go(1);
-                      };
-
-                      // Note: We no longer prevent page refresh/reload with beforeunload
-                      // because sessionStorage persistence now handles page state restoration correctly
-                    } else {
-                      alert('Submission failed: ' + (result.error || 'Unknown error'));
+                    } catch (error: any) {
+                      console.error('Submission error:', error);
+                      alert('Failed to submit design: ' + error.message);
                       setIsUploading(false);
                     }
-                  } catch (error: any) {
-                    console.error('Submission error:', error);
-                    alert('Failed to submit design: ' + error.message);
-                    setIsUploading(false);
-                  }
-                }}
-                disabled={isUploading}
-                className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 active:bg-purple-800 text-white font-semibold py-4 px-6 rounded-lg transition shadow-md"
-              >
-                {isUploading ? 'Submitting...' : 'Submit Design'}
-              </button>
+                  }}
+                  disabled={isUploading}
+                  className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 active:bg-purple-800 text-white font-semibold py-4 px-6 rounded-lg transition shadow-md"
+                >
+                  {isUploading ? 'Submitting...' : 'Submit Design'}
+                </button>
+              )}
               <button
                 onClick={(e) => {
                   e.preventDefault();
@@ -7904,6 +7921,10 @@ export default function Editor() {
                     sessionStorage.removeItem(`page-state-${sessionId}`);
                     console.log('🗑️ Cleared page-state from sessionStorage');
                   }
+
+                  // Reset password state for next preview
+                  setSubmitPassword('');
+                  setPasswordVerified(false);
 
                   // Simply hide the modal - canvas stays alive underneath
                   setShowPreviewModal(false);
