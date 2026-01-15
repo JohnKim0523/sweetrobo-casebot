@@ -75,7 +75,8 @@ export class ChituController {
   @Get('machine/:deviceCode')
   async getMachineByCode(@Param('deviceCode') deviceCode: string) {
     try {
-      const details = await this.chituService.getMachineDetailsByCode(deviceCode);
+      const details =
+        await this.chituService.getMachineDetailsByCode(deviceCode);
       return {
         success: true,
         machine: details,
@@ -97,12 +98,14 @@ export class ChituController {
         success: true,
         online: status.ready,
         message: status.message,
-        machine: status.details ? {
-          name: status.details.device_name,
-          code: status.details.device_code,
-          model: status.details.machine_model,
-          address: status.details.address,
-        } : null,
+        machine: status.details
+          ? {
+              name: status.details.device_name,
+              code: status.details.device_code,
+              model: status.details.machine_model,
+              address: status.details.address,
+            }
+          : null,
       };
     } catch (error) {
       return {
@@ -122,31 +125,36 @@ export class ChituController {
   @Get('inventory/:deviceCode')
   async getInventoryGrid(@Param('deviceCode') deviceCode: string) {
     try {
-      const inventory = await this.chituService.getInventoryGridByCode(deviceCode);
+      const inventory =
+        await this.chituService.getInventoryGridByCode(deviceCode);
 
       // Calculate summary stats
       let occupiedSlots = 0;
       let totalStock = 0;
-      const productCounts: Record<number, { name: string; count: number; stock: number }> = {};
+      const productCounts: Record<
+        number,
+        { name: string; count: number; stock: number }
+      > = {};
 
       // Build product name lookup from proList
       const productNames: Record<number, string> = {};
-      inventory.proList.forEach(p => {
+      inventory.proList.forEach((p) => {
         if (p.value !== 0) {
           productNames[p.value] = p.text;
         }
       });
 
       // Analyze grid
-      inventory.stock.forEach(row => {
-        row.column.forEach(slot => {
+      inventory.stock.forEach((row) => {
+        row.column.forEach((slot) => {
           if (slot.product_id !== 0) {
             occupiedSlots++;
             totalStock += slot.stock;
 
             if (!productCounts[slot.product_id]) {
               productCounts[slot.product_id] = {
-                name: productNames[slot.product_id] || `Product ${slot.product_id}`,
+                name:
+                  productNames[slot.product_id] || `Product ${slot.product_id}`,
                 count: 0,
                 stock: 0,
               };
@@ -218,11 +226,14 @@ export class ChituController {
         ]);
 
         // Merge both catalogs - combine brand lists
-        const allBrands = [...(defaultCatalog.list || []), ...(diyCatalog.list || [])];
+        const allBrands = [
+          ...(defaultCatalog.list || []),
+          ...(diyCatalog.list || []),
+        ];
 
         // Remove duplicates by brand ID and merge model lists from duplicate brands
         const brandMap = new Map();
-        allBrands.forEach(brand => {
+        allBrands.forEach((brand) => {
           if (brandMap.has(brand.id)) {
             // Brand exists, merge model lists
             const existing = brandMap.get(brand.id);
@@ -261,17 +272,20 @@ export class ChituController {
    * Submit design to print (replacement for old flow)
    */
   @Post('print')
-  async submitPrint(@Body() body: {
-    image: string;
-    machineId?: string;
-    phoneModel?: string;
-    phoneModelId?: string;
-    productId?: string;  // NEW: Chitu product_id from phone model
-    sessionId?: string;
-    dimensions?: any;
-    userId?: string;
-    priority?: number;
-  }) {
+  async submitPrint(
+    @Body()
+    body: {
+      image: string;
+      machineId?: string;
+      phoneModel?: string;
+      phoneModelId?: string;
+      productId?: string; // NEW: Chitu product_id from phone model
+      sessionId?: string;
+      dimensions?: any;
+      userId?: string;
+      priority?: number;
+    },
+  ) {
     try {
       console.log('\n🖨️ === NEW PRINT JOB REQUEST ===');
       console.log(`📱 Session: ${body.sessionId}`);
@@ -286,9 +300,9 @@ export class ChituController {
         image: body.image,
         phoneModel: body.phoneModel || 'Default',
         phoneModelId: body.phoneModelId || 'default',
-        productId: body.productId,  // NEW: Pass product_id to queue
+        productId: body.productId, // NEW: Pass product_id to queue
         dimensions: body.dimensions || {
-          widthPX: 711,   // Updated default to iPhone 15 Pro actual dimensions
+          widthPX: 711, // Updated default to iPhone 15 Pro actual dimensions
           heightPX: 1471, // Updated default to iPhone 15 Pro actual dimensions
           widthMM: 70.6,
           heightMM: 146.6,
@@ -319,7 +333,6 @@ export class ChituController {
         machineId: result.machineId,
         message: 'Your design has been queued for printing!',
       };
-
     } catch (error) {
       console.error('❌ Print submission failed:', error.message);
       throw new HttpException(
@@ -346,9 +359,7 @@ export class ChituController {
    */
   @Get('queue/jobs')
   async getAllJobs(@Query('limit') limit?: string) {
-    const jobs = this.queueService.getAllJobs(
-      limit ? parseInt(limit, 10) : 50
-    );
+    const jobs = this.queueService.getAllJobs(limit ? parseInt(limit, 10) : 50);
     return {
       success: true,
       count: jobs.length,
@@ -381,7 +392,10 @@ export class ChituController {
   ) {
     const result = await this.queueService.cancelJob(jobId, sessionId);
     if (!result.success) {
-      throw new HttpException(result.error || 'Unknown error', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        result.error || 'Unknown error',
+        HttpStatus.BAD_REQUEST,
+      );
     }
     return result;
   }
@@ -426,10 +440,7 @@ export class ChituController {
    * Body: { machineId: "CT0700046", url: "https://yourapp.com/editor?machine=CT0700046" }
    */
   @Post('qr-code')
-  async uploadQRCode(@Body() body: {
-    machineId: string;
-    url: string;
-  }) {
+  async uploadQRCode(@Body() body: { machineId: string; url: string }) {
     try {
       console.log('\n📱 === UPLOAD QR CODE REQUEST ===');
       console.log(`Machine: ${body.machineId}`);
@@ -458,11 +469,9 @@ export class ChituController {
    * This simulates what would happen when a user pays at the physical machine
    */
   @Post('test/payment')
-  async simulatePayment(@Body() body: {
-    machineId: string;
-    jobId: string;
-    amount?: number;
-  }) {
+  async simulatePayment(
+    @Body() body: { machineId: string; jobId: string; amount?: number },
+  ) {
     try {
       console.log('\n🧪 === TEST PAYMENT SIMULATION ===');
       console.log(`Machine: ${body.machineId}`);
@@ -477,7 +486,8 @@ export class ChituController {
 
       return {
         success: true,
-        message: 'Payment simulation triggered. Check frontend for page transition.',
+        message:
+          'Payment simulation triggered. Check frontend for page transition.',
         machineId: body.machineId,
         jobId: body.jobId,
       };
@@ -495,17 +505,26 @@ export class ChituController {
   async proxyImage(@Query('url') url: string, @Res() res: Response) {
     try {
       if (!url) {
-        throw new HttpException('URL parameter is required', HttpStatus.BAD_REQUEST);
+        throw new HttpException(
+          'URL parameter is required',
+          HttpStatus.BAD_REQUEST,
+        );
       }
 
       // Only allow Chitu CDN URLs for security
       if (!url.startsWith('https://print-oss.gzchitu.cn/')) {
-        throw new HttpException('Only Chitu CDN URLs are allowed', HttpStatus.FORBIDDEN);
+        throw new HttpException(
+          'Only Chitu CDN URLs are allowed',
+          HttpStatus.FORBIDDEN,
+        );
       }
 
       const response = await fetch(url);
       if (!response.ok) {
-        throw new HttpException(`Failed to fetch image: ${response.status}`, HttpStatus.BAD_GATEWAY);
+        throw new HttpException(
+          `Failed to fetch image: ${response.status}`,
+          HttpStatus.BAD_GATEWAY,
+        );
       }
 
       const contentType = response.headers.get('content-type') || 'image/png';

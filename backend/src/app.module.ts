@@ -22,10 +22,12 @@ import { OrderMappingModule } from './order-mapping/order-mapping.module';
     }),
     // Rate limiting configuration
     // For 100 users/day max, allow higher burst traffic
-    ThrottlerModule.forRoot([{
-      ttl: 60000, // 1 minute
-      limit: 100, // 100 requests per minute per IP (allows ~15 simultaneous users)
-    }]),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000, // 1 minute
+        limit: 100, // 100 requests per minute per IP (allows ~15 simultaneous users)
+      },
+    ]),
     EventEmitterModule.forRoot(),
     // Redis/Bull Queue - ENABLED for multi-instance deployment
     // Skips Redis if not configured (local dev without Redis)

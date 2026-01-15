@@ -13,12 +13,17 @@ export class S3Service {
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
       region: process.env.AWS_REGION || 'us-east-1',
     });
-    this.bucketName = process.env.AWS_BUCKET_NAME || 'sweetrobo-phonecase-designs';
+    this.bucketName =
+      process.env.AWS_BUCKET_NAME || 'sweetrobo-phonecase-designs';
 
     console.log('🔐 S3 Service initialized (backup storage only)');
   }
 
-  async uploadImage(buffer: Buffer, key: string, convertForPrint: boolean = false): Promise<string> {
+  async uploadImage(
+    buffer: Buffer,
+    key: string,
+    convertForPrint: boolean = false,
+  ): Promise<string> {
     // For Chitu printer: Upload PNG for printing with 300 DPI and 90° rotation
     if (convertForPrint) {
       console.log('🔄 Converting image to PNG (300 DPI) for Chitu printer...');

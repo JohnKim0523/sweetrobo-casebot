@@ -11,10 +11,12 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // Apply Helmet for security headers
-  app.use(helmet({
-    contentSecurityPolicy: false, // Disable for image uploads
-    crossOriginEmbedderPolicy: false, // Allow cross-origin resources
-  }));
+  app.use(
+    helmet({
+      contentSecurityPolicy: false, // Disable for image uploads
+      crossOriginEmbedderPolicy: false, // Allow cross-origin resources
+    }),
+  );
 
   // Increase body size limit for image uploads
   app.use(bodyParser.json({ limit: '50mb' }));

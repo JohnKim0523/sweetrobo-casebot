@@ -31,19 +31,19 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   ) {
     // Use WebSocket connection as shown in documentation
     // Note: The doc has a typo - it says "gzchittu.cn" but should be "gzchitu.cn"
-    
+
     // Try different URL formats - common MQTT WebSocket patterns
     const broker = process.env.CHITU_MQTT_BROKER || 'open-mqtt.gzchitu.cn';
-    
+
     // Option 1: Default from docs
     this.brokerUrl = `wss://${broker}`;
-    
+
     // Alternative URLs to try if connection fails:
     // this.brokerUrl = `wss://${broker}:8084`;  // Common MQTT over WSS port
     // this.brokerUrl = `ws://${broker}:8083`;   // Non-SSL WebSocket
     // this.brokerUrl = `wss://${broker}/mqtt`;  // With /mqtt path
     // this.brokerUrl = `wss://${broker}:443`;   // HTTPS port
-    
+
     console.log('🔧 MQTT Configuration:');
     console.log('  Broker URL:', this.brokerUrl);
     console.log('  Environment:', process.env.NODE_ENV || 'development');
@@ -60,10 +60,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   private async connect() {
     console.log('🔌 Connecting to Chitu MQTT broker...');
     console.log(`🌐 URL: ${this.brokerUrl}`);
-    
+
     // Generate client ID as shown in documentation
     const clientId = 'mqttjs_' + Math.random().toString(16).substr(2, 8);
-    
+
     // Load MQTT credentials from environment
     const mqttPassword = process.env.CHITU_MQTT_PASSWORD;
     if (!mqttPassword) {
@@ -74,7 +74,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
     const options: mqtt.IClientOptions = {
       clientId: clientId,
-      username: process.env.CHITU_MQTT_USERNAME || process.env.CHITU_APP_ID || '',
+      username:
+        process.env.CHITU_MQTT_USERNAME || process.env.CHITU_APP_ID || '',
       password: mqttPassword,
       clean: true,
       reconnectPeriod: 5000,
@@ -89,7 +90,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
     console.log(`🔑 Client ID: ${clientId}`);
     console.log(`👤 Username: ${options.username}`);
-    console.log(`🔐 Password: ${options.password ? '***' + options.password.slice(-4) : 'NOT SET'}`);
+    console.log(
+      `🔐 Password: ${options.password ? '***' + options.password.slice(-4) : 'NOT SET'}`,
+    );
     console.log(`📋 Protocol Version: ${options.protocolVersion}`);
 
     this.client = mqtt.connect(this.brokerUrl, options);
@@ -124,7 +127,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     this.client.on('close', () => {
       console.log('💔 MQTT Connection Closed');
       console.log('Connected status:', this.connected);
-      console.log('Client state:', this.client?.connected ? 'connected' : 'disconnected');
+      console.log(
+        'Client state:',
+        this.client?.connected ? 'connected' : 'disconnected',
+      );
       this.connected = false;
     });
 
@@ -147,8 +153,15 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
     this.client.on('packetreceive', (packet: any) => {
       console.log('📥 MQTT Packet received:', packet.cmd);
-      if (packet.cmd === 'connack' && packet.returnCode && packet.returnCode !== 0) {
-        console.error('🚫 Connection rejected with return code:', packet.returnCode);
+      if (
+        packet.cmd === 'connack' &&
+        packet.returnCode &&
+        packet.returnCode !== 0
+      ) {
+        console.error(
+          '🚫 Connection rejected with return code:',
+          packet.returnCode,
+        );
         const errorMessages: Record<number, string> = {
           1: 'Unacceptable protocol version',
           2: 'Identifier rejected',
@@ -156,7 +169,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           4: 'Bad username or password',
           5: 'Not authorized',
         };
-        const errorMessage = packet.returnCode ? errorMessages[packet.returnCode] : 'Unknown error';
+        const errorMessage = packet.returnCode
+          ? errorMessages[packet.returnCode]
+          : 'Unknown error';
         console.error('Reason:', errorMessage || 'Unknown error');
       }
     });
@@ -166,10 +181,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     // For now, subscribe to a test topic
     // In production, you'll need actual machine IDs to generate MD5 hashes
     // Example: ct/platform/[MD5(machineId)]
-    
+
     // Subscribe to example topic (you'll need to replace with actual machine MD5)
     const exampleTopic = 'ct/platform/+'; // Use wildcard to catch all platform messages
-    
+
     this.client.subscribe(exampleTopic, (err) => {
       if (err) {
         console.error(`❌ Failed to subscribe to ${exampleTopic}:`, err);
@@ -212,11 +227,15 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
     // Emit event for WebSocket broadcast
     this.eventEmitter.emit('machine.status', update);
-    console.log(`🖨️ Machine ${message.machineId}: ${message.isNormal ? 'Normal' : 'Error'}`);
+    console.log(
+      `🖨️ Machine ${message.machineId}: ${message.isNormal ? 'Normal' : 'Error'}`,
+    );
   }
 
   private handleCleanNozzleResponse(message: MachineStatusMessage) {
-    console.log(`🧹 Clean nozzle result for ${message.machineId}: ${message.result ? 'Success' : 'Failed'}`);
+    console.log(
+      `🧹 Clean nozzle result for ${message.machineId}: ${message.result ? 'Success' : 'Failed'}`,
+    );
   }
 
   private handleOrderStatus(message: MachineStatusMessage) {
@@ -241,7 +260,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     if (jobId) {
       console.log(`🗺️ Mapped Chitu order to our jobId: ${jobId}`);
     } else {
-      console.log(`⚠️ No mapping found for Chitu orderId/orderNo - using raw values`);
+      console.log(
+        `⚠️ No mapping found for Chitu orderId/orderNo - using raw values`,
+      );
     }
 
     // Create detailed order update
@@ -265,14 +286,18 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
     // Log payment completion
     if (message.payStatus === 'paid') {
-      console.log(`✅ Payment confirmed for order ${jobId || message.orderNo} - ${message.payType}`);
+      console.log(
+        `✅ Payment confirmed for order ${jobId || message.orderNo} - ${message.payType}`,
+      );
     }
 
     // Log printing status
     if (message.status === 'printing') {
       console.log(`🖨️ Order ${jobId || message.orderNo} is now printing`);
     } else if (message.status === 'completed') {
-      console.log(`✅ Order ${jobId || message.orderNo} completed successfully`);
+      console.log(
+        `✅ Order ${jobId || message.orderNo} completed successfully`,
+      );
     } else if (message.status === 'failed') {
       console.log(`❌ Order ${jobId || message.orderNo} failed`);
     }
@@ -294,7 +319,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
     // Send to the topic that server subscribes to
     const topic = 'ct/machine/common';
-    
+
     this.client.publish(topic, JSON.stringify(message), (err) => {
       if (err) {
         console.error('❌ Failed to publish message:', err);
@@ -305,8 +330,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   // TEST METHOD: Simulate payment confirmation (for testing without physical machine)
-  simulatePaymentConfirmation(machineId: string, orderNo: string, amount: number = 25.99) {
-    console.log(`🧪 TEST: Simulating payment confirmation for order ${orderNo}`);
+  simulatePaymentConfirmation(
+    machineId: string,
+    orderNo: string,
+    amount: number = 25.99,
+  ) {
+    console.log(
+      `🧪 TEST: Simulating payment confirmation for order ${orderNo}`,
+    );
 
     // For test simulation, the orderNo IS our jobId, so we include it directly
     const testOrderStatus = {
@@ -342,7 +373,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     };
 
     const topic = 'ct/machine/common';
-    
+
     this.client.publish(topic, JSON.stringify(message), (err) => {
       if (err) {
         console.error('❌ Failed to publish clean nozzle command:', err);
@@ -362,7 +393,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     // Generate MD5 hash of machine ID
     const md5Hash = crypto.createHash('md5').update(machineId).digest('hex');
     const topic = `ct/platform/${md5Hash}`;
-    
+
     this.client.subscribe(topic, (err) => {
       if (err) {
         console.error(`❌ Failed to subscribe to machine ${machineId}:`, err);

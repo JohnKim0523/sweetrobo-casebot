@@ -6,6 +6,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { vertexAIService } from '../services/vertexAI.service';
+import { aiUsageService } from '../services/ai-usage.service';
 
 @Controller('api')
 export class AiController {
@@ -14,19 +15,26 @@ export class AiController {
    * POST /api/ai-edit
    */
   @Post('ai-edit')
-  async aiEdit(@Body() body: {
-    image: string;
-    prompt: string;
-    mask?: string;
-    userId?: string;
-    width?: number;
-    height?: number;
-  }) {
+  async aiEdit(
+    @Body()
+    body: {
+      image: string;
+      prompt: string;
+      mask?: string;
+      userId?: string;
+      width?: number;
+      height?: number;
+      machineId?: string; // For AI usage tracking
+      sessionId?: string; // For AI usage tracking
+    },
+  ) {
     try {
       console.log('📥 AI Edit request received (Vertex AI)');
       console.log(`📝 Prompt: ${body.prompt}`);
       console.log(`🎭 Has mask: ${!!body.mask}`);
-      console.log(`📐 Target dimensions: ${body.width || 'auto'}x${body.height || 'auto'}`);
+      console.log(
+        `📐 Target dimensions: ${body.width || 'auto'}x${body.height || 'auto'}`,
+      );
       console.log(`👤 User ID: ${body.userId || 'anonymous'}`);
 
       if (!body.image || !body.prompt) {
@@ -53,6 +61,16 @@ export class AiController {
         );
       }
 
+      // Log AI usage to DynamoDB (non-blocking)
+      aiUsageService
+        .logUsage({
+          machineId: body.machineId || 'unknown',
+          type: 'edit',
+          sessionId: body.sessionId || 'unknown',
+          prompt: body.prompt,
+        })
+        .catch((err) => console.error('Failed to log AI usage:', err));
+
       console.log('✅ AI edit successful (Vertex AI)');
       return {
         success: true,
@@ -77,25 +95,29 @@ export class AiController {
    * POST /api/ai-create
    */
   @Post('ai-create')
-  async aiCreate(@Body() body: {
-    prompt: string;
-    negativePrompt?: string;
-    stylePreset?: string;
-    width?: number;
-    height?: number;
-    userId?: string;
-  }) {
+  async aiCreate(
+    @Body()
+    body: {
+      prompt: string;
+      negativePrompt?: string;
+      stylePreset?: string;
+      width?: number;
+      height?: number;
+      userId?: string;
+      machineId?: string; // For AI usage tracking
+      sessionId?: string; // For AI usage tracking
+    },
+  ) {
     try {
       console.log('📥 AI Create request received (Imagen 3)');
       console.log(`📝 Prompt: ${body.prompt}`);
-      console.log(`📐 Dimensions: ${body.width || 1024}x${body.height || 1024}`);
+      console.log(
+        `📐 Dimensions: ${body.width || 1024}x${body.height || 1024}`,
+      );
       console.log(`👤 User ID: ${body.userId || 'anonymous'}`);
 
       if (!body.prompt) {
-        throw new HttpException(
-          'Prompt is required',
-          HttpStatus.BAD_REQUEST,
-        );
+        throw new HttpException('Prompt is required', HttpStatus.BAD_REQUEST);
       }
 
       // Call Vertex AI service for image generation using Imagen 3
@@ -114,6 +136,16 @@ export class AiController {
           HttpStatus.INTERNAL_SERVER_ERROR,
         );
       }
+
+      // Log AI usage to DynamoDB (non-blocking)
+      aiUsageService
+        .logUsage({
+          machineId: body.machineId || 'unknown',
+          type: 'generate',
+          sessionId: body.sessionId || 'unknown',
+          prompt: body.prompt,
+        })
+        .catch((err) => console.error('Failed to log AI usage:', err));
 
       console.log('✅ AI generation successful (Imagen 3)');
       return {

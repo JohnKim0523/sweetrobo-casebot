@@ -1,10 +1,21 @@
-import { Controller, Post, Body, Get, Param, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Param,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { vertexAIService } from './services/vertexAI.service';
+import { aiUsageService } from './services/ai-usage.service';
 
 interface EditImageDto {
   imageUrl: string;
   prompt: string;
   userId?: string;
+  machineId?: string; // For AI usage tracking
+  sessionId?: string; // For AI usage tracking
 }
 
 @Controller('api/vertex-ai')
@@ -49,13 +60,26 @@ export class VertexAIController {
         );
       }
 
+      // Log AI usage to DynamoDB (non-blocking)
+      aiUsageService
+        .logUsage({
+          machineId: dto.machineId || 'unknown',
+          type: 'edit',
+          sessionId: dto.sessionId || 'unknown',
+          prompt: dto.prompt,
+        })
+        .catch((err) => console.error('Failed to log AI usage:', err));
+
       return {
         success: true,
         editedImageUrl: result.editedImageUrl,
       };
     } catch (error) {
       console.error('💥 Error in editImage endpoint:', error);
-      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      console.error(
+        'Error stack:',
+        error instanceof Error ? error.stack : 'No stack trace',
+      );
 
       if (error instanceof HttpException) {
         throw error;

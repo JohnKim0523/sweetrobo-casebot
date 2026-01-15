@@ -11,10 +11,10 @@ export interface ChituConfig {
 
 // Base response structure
 export interface ChituResponse<T = any> {
-  code?: number;  // Some endpoints use 'code'
-  status?: number;  // Some endpoints use 'status'
-  message?: string;  // Some endpoints use 'message'
-  msg?: string;  // Some endpoints use 'msg'
+  code?: number; // Some endpoints use 'code'
+  status?: number; // Some endpoints use 'status'
+  message?: string; // Some endpoints use 'message'
+  msg?: string; // Some endpoints use 'msg'
   data?: T;
 }
 
@@ -27,8 +27,8 @@ export interface MachineListResponse {
 export interface Machine {
   merchant_id: string;
   name: string;
-  device_id: string;  // Encrypted ID
-  device_code: string;  // Plain text code (e.g., CT0700046)
+  device_id: string; // Encrypted ID
+  device_code: string; // Plain text code (e.g., CT0700046)
   machine_model: string;
   online_status: boolean;
   device_key: string;
@@ -38,8 +38,8 @@ export interface Machine {
 export interface MachineDetails {
   merchant_id: string;
   device_name: string;
-  device_id: string;  // Encrypted ID
-  device_code: string;  // Plain text code
+  device_id: string; // Encrypted ID
+  device_code: string; // Plain text code
   machine_model: string;
   address: string;
   online_status: boolean;
@@ -52,17 +52,17 @@ export interface MachineDetails {
     ink_black?: number;
   };
   device_key: string;
-  machine_id?: string;  // For MQTT
+  machine_id?: string; // For MQTT
 }
 
 // Create order types
 export interface CreateOrderRequest {
-  device_id: string;  // IMPORTANT: Encrypted device ID (not device_code!)
-  product_id?: string;  // Product ID for the phone case type
-  pay_type?: string;  // Payment method (e.g., 'nayax')
-  image_url: string;  // TIF format image URL
+  device_id: string; // IMPORTANT: Encrypted device ID (not device_code!)
+  product_id?: string; // Product ID for the phone case type
+  pay_type?: string; // Payment method (e.g., 'nayax')
+  image_url: string; // TIF format image URL
   // Legacy/helper fields
-  device_code?: string;  // We can convert this to device_id if needed
+  device_code?: string; // We can convert this to device_id if needed
   quantity?: number;
 }
 
@@ -70,7 +70,7 @@ export interface CreateOrderResponse {
   order_id: string;
   status: string;
   message?: string;
-  estimated_time?: number;  // In seconds
+  estimated_time?: number; // In seconds
 }
 
 // Additional types for MQTT/real-time updates
@@ -84,9 +84,9 @@ export interface MachineStatus {
 
 // Product catalog types
 export interface ProductCatalogRequest {
-  device_id: string;  // Encrypted device ID
-  type: 'default' | 'diy';  // 'diy' for phone cases
-  status: 0 | 1;  // 1 = active, 0 = inactive
+  device_id: string; // Encrypted device ID
+  type: 'default' | 'diy'; // 'diy' for phone cases
+  status: 0 | 1; // 1 = active, 0 = inactive
   page: number;
   limit: number;
 }
@@ -94,10 +94,10 @@ export interface ProductCatalogRequest {
 export interface PhoneModel {
   name_cn: string;
   name_en: string;
-  show_img: string;  // Preview image URL
-  print_img: string;  // Template image URL with exact dimensions
+  show_img: string; // Preview image URL
+  print_img: string; // Template image URL with exact dimensions
   price: string;
-  product_id: string;  // Use this when creating orders
+  product_id: string; // Use this when creating orders
   stock: number;
 }
 
@@ -115,23 +115,23 @@ export interface ProductCatalogResponse {
 
 // Inventory grid types for Case Bot (CT-sjk360)
 export interface InventorySlot {
-  index: number;       // Column position (1-8)
-  product_id: number;  // Product ID (0 = empty slot)
-  stock: number;       // Stock count at this position
+  index: number; // Column position (1-8)
+  product_id: number; // Product ID (0 = empty slot)
+  stock: number; // Stock count at this position
 }
 
 export interface InventoryRow {
-  index: number;           // Row/layer number (1-8)
+  index: number; // Row/layer number (1-8)
   column: InventorySlot[]; // 8 columns per row
 }
 
 export interface ProductListItem {
-  text: string;   // Product name (e.g., "iphone16Pro")
-  value: number;  // Product ID (e.g., 20002638)
+  text: string; // Product name (e.g., "iphone16Pro")
+  value: number; // Product ID (e.g., 20002638)
 }
 
 export interface InventoryGridResponse {
-  stock: InventoryRow[];        // 8x8 grid of inventory slots
-  proList: ProductListItem[];   // Product lookup table
-  machine_model: string;        // e.g., "CT-sjk360"
+  stock: InventoryRow[]; // 8x8 grid of inventory slots
+  proList: ProductListItem[]; // Product lookup table
+  machine_model: string; // e.g., "CT-sjk360"
 }

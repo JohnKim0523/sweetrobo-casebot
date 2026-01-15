@@ -15,7 +15,9 @@
     "lint": "eslint \"{src,apps,libs}/**/*.ts\" --fix"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.967.0",
     "@aws-sdk/client-s3": "^3.878.0",
+    "@aws-sdk/lib-dynamodb": "^3.967.0",
     "@aws-sdk/s3-request-presigner": "^3.925.0",
     "@google-cloud/vertexai": "^1.10.0",
     "@nestjs/axios": "^4.0.1",

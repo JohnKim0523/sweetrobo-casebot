@@ -13,7 +13,9 @@ import { OnEvent } from '@nestjs/event-emitter';
     origin: '*', // Configure properly for production
   },
 })
-export class WebsocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class WebsocketGateway
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server: Server;
 
@@ -22,11 +24,11 @@ export class WebsocketGateway implements OnGatewayConnection, OnGatewayDisconnec
   handleConnection(client: Socket) {
     console.log(`🔗 Client connected: ${client.id}`);
     this.clients.set(client.id, client);
-    
+
     // Send initial connection confirmation
-    client.emit('connected', { 
+    client.emit('connected', {
       message: 'Connected to SweetRobo WebSocket',
-      clientId: client.id 
+      clientId: client.id,
     });
   }
 
@@ -55,10 +57,10 @@ export class WebsocketGateway implements OnGatewayConnection, OnGatewayDisconnec
   @OnEvent('machine.status')
   handleMachineStatus(data: any) {
     console.log('🖨️ Broadcasting machine status:', data);
-    
+
     // Broadcast to all clients watching this machine
     this.server.to(`machine:${data.device_id}`).emit('machine:status', data);
-    
+
     // Also broadcast to admin dashboard
     this.server.emit('admin:machine:status', data);
   }
@@ -67,10 +69,10 @@ export class WebsocketGateway implements OnGatewayConnection, OnGatewayDisconnec
   @OnEvent('order.update')
   handleOrderUpdate(data: any) {
     console.log('📦 Broadcasting order update:', data);
-    
+
     // Broadcast to clients watching this order
     this.server.to(`order:${data.order_id}`).emit('order:update', data);
-    
+
     // Also broadcast to admin dashboard
     this.server.emit('admin:order:update', data);
   }

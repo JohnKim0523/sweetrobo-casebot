@@ -11,8 +11,8 @@ export interface PrintJobData {
   imageUrl?: string;
   phoneModel: string;
   phoneModelId: string;
-  productId?: string;  // NEW: Chitu product_id for this phone model
-  chituOrderId?: string;  // Chitu order ID after order creation
+  productId?: string; // NEW: Chitu product_id for this phone model
+  chituOrderId?: string; // Chitu order ID after order creation
   dimensions: {
     widthPX: number;
     heightPX: number;
@@ -60,12 +60,17 @@ export class SimpleQueueService {
     // Load available machines from environment or use defaults
     const machinesEnv = process.env.AVAILABLE_MACHINES;
     if (machinesEnv) {
-      this.availableMachines = machinesEnv.split(',').map(m => m.trim());
-      console.log(`✅ Loaded ${this.availableMachines.length} machines from environment:`, this.availableMachines);
+      this.availableMachines = machinesEnv.split(',').map((m) => m.trim());
+      console.log(
+        `✅ Loaded ${this.availableMachines.length} machines from environment:`,
+        this.availableMachines,
+      );
     } else {
       // Fallback to defaults if not configured
       this.availableMachines = ['machine-1', 'machine-2', 'machine-3'];
-      console.log('⚠️ Using default machine IDs. Set AVAILABLE_MACHINES in .env for production');
+      console.log(
+        '⚠️ Using default machine IDs. Set AVAILABLE_MACHINES in .env for production',
+      );
     }
 
     // Clean up old cache entries every minute
@@ -89,7 +94,9 @@ export class SimpleQueueService {
     const timeWindow = Math.floor(Date.now() / this.DUPLICATE_WINDOW_MS);
     const fingerprint = crypto
       .createHash('md5')
-      .update(`${data.sessionId}-${data.image?.substring(0, 100)}-${timeWindow}`)
+      .update(
+        `${data.sessionId}-${data.image?.substring(0, 100)}-${timeWindow}`,
+      )
       .digest('hex');
     return fingerprint;
   }
@@ -100,12 +107,12 @@ export class SimpleQueueService {
   private isDuplicate(fingerprint: string): boolean {
     const now = Date.now();
     const lastSubmission = this.submissionCache.get(fingerprint);
-    
-    if (lastSubmission && (now - lastSubmission) < this.DUPLICATE_WINDOW_MS) {
+
+    if (lastSubmission && now - lastSubmission < this.DUPLICATE_WINDOW_MS) {
       console.log(`🚫 Duplicate submission detected: ${fingerprint}`);
       return true;
     }
-    
+
     this.submissionCache.set(fingerprint, now);
     return false;
   }
@@ -114,7 +121,10 @@ export class SimpleQueueService {
    * Get next available machine (round-robin load balancing)
    */
   private getNextMachine(): string {
-    const machine = this.availableMachines[this.machineRoundRobin % this.availableMachines.length];
+    const machine =
+      this.availableMachines[
+        this.machineRoundRobin % this.availableMachines.length
+      ];
     this.machineRoundRobin++;
     console.log(`🎯 Assigned to machine: ${machine}`);
     return machine;
@@ -126,12 +136,13 @@ export class SimpleQueueService {
   async addPrintJob(data: Partial<PrintJobData>) {
     // Create fingerprint for duplicate detection
     const fingerprint = this.createFingerprint(data);
-    
+
     // Check for duplicate
     if (this.isDuplicate(fingerprint)) {
       return {
         success: false,
-        error: 'Duplicate submission detected. Please wait before submitting again.',
+        error:
+          'Duplicate submission detected. Please wait before submitting again.',
         jobId: null,
       };
     }
@@ -148,7 +159,7 @@ export class SimpleQueueService {
     const job: QueueJob = {
       id: `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       data: {
-        ...data as PrintJobData,
+        ...(data as PrintJobData),
         fingerprint,
         submittedAt: new Date(),
       },
@@ -162,8 +173,12 @@ export class SimpleQueueService {
     this.queue.push(job);
     this.queue.sort((a, b) => a.priority - b.priority);
 
-    console.log(`✅ Print job queued: ${job.id} for machine: ${data.machineId}`);
-    console.log(`📊 Queue size: ${this.queue.length}, Active jobs: ${this.activeJobs}`);
+    console.log(
+      `✅ Print job queued: ${job.id} for machine: ${data.machineId}`,
+    );
+    console.log(
+      `📊 Queue size: ${this.queue.length}, Active jobs: ${this.activeJobs}`,
+    );
 
     return {
       success: true,
@@ -198,7 +213,7 @@ export class SimpleQueueService {
         return;
       }
 
-      const waitingJobs = this.queue.filter(j => j.status === 'waiting');
+      const waitingJobs = this.queue.filter((j) => j.status === 'waiting');
       if (waitingJobs.length === 0) {
         return;
       }
@@ -222,7 +237,7 @@ export class SimpleQueueService {
     if (timeSinceLastCall < this.RATE_LIMIT_DELAY) {
       const delay = this.RATE_LIMIT_DELAY - timeSinceLastCall;
       console.log(`⏳ Rate limiting: waiting ${delay}ms`);
-      await new Promise(resolve => setTimeout(resolve, delay));
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
     this.activeJobs++;
@@ -231,7 +246,9 @@ export class SimpleQueueService {
     job.attempts++;
     this.lastApiCall = Date.now();
 
-    console.log(`🖨️ Processing job ${job.id} (attempt ${job.attempts}) for machine ${job.data.machineId}`);
+    console.log(
+      `🖨️ Processing job ${job.id} (attempt ${job.attempts}) for machine ${job.data.machineId}`,
+    );
 
     try {
       // Upload image to S3 (PNG with 300 DPI for Chitu printer)
@@ -241,7 +258,7 @@ export class SimpleQueueService {
 
         const buffer = Buffer.from(
           job.data.image.replace(/^data:image\/\w+;base64,/, ''),
-          'base64'
+          'base64',
         );
 
         const key = `designs/${job.data.sessionId}/${Date.now()}.png`;
@@ -259,21 +276,28 @@ export class SimpleQueueService {
       // 4. Create order with correct product_id
       if (job.data.machineId && job.data.phoneModel && imageUrl) {
         console.log(`📦 Creating Chitu order...`);
-        console.log(`🔑 Product ID from frontend: ${job.data.productId || 'not provided'}`);
-        const orderResult = await this.chituService.createPrintOrderWithValidation({
-          deviceCode: job.data.machineId,
-          phoneModelName: job.data.phoneModel,
-          productId: job.data.productId,  // Pass product_id directly (skips name matching)
-          imageUrl: imageUrl,
-          orderNo: job.id,
-          printCount: 1,
-          sessionId: job.data.sessionId,
-        });
+        console.log(
+          `🔑 Product ID from frontend: ${job.data.productId || 'not provided'}`,
+        );
+        const orderResult =
+          await this.chituService.createPrintOrderWithValidation({
+            deviceCode: job.data.machineId,
+            phoneModelName: job.data.phoneModel,
+            productId: job.data.productId, // Pass product_id directly (skips name matching)
+            imageUrl: imageUrl,
+            orderNo: job.id,
+            printCount: 1,
+            sessionId: job.data.sessionId,
+          });
 
         if (orderResult.success) {
           console.log(`✅ Chitu order created: ${orderResult.orderId}`);
-          console.log(`📦 Product used: ${orderResult.details?.product?.name_en}`);
-          console.log(`🔑 Product ID: ${orderResult.details?.product?.product_id}`);
+          console.log(
+            `📦 Product used: ${orderResult.details?.product?.name_en}`,
+          );
+          console.log(
+            `🔑 Product ID: ${orderResult.details?.product?.product_id}`,
+          );
           job.data.chituOrderId = orderResult.orderId;
 
           // Register mapping between our jobId and Chitu's orderId
@@ -282,12 +306,16 @@ export class SimpleQueueService {
             this.orderMappingService.registerMapping(
               job.id,
               orderResult.orderId,
-              job.data.machineId
+              job.data.machineId,
             );
-            console.log(`🗺️ Registered order mapping: ${job.id} <-> ${orderResult.orderId}`);
+            console.log(
+              `🗺️ Registered order mapping: ${job.id} <-> ${orderResult.orderId}`,
+            );
           }
         } else {
-          throw new Error(`Chitu order creation failed: ${orderResult.message}`);
+          throw new Error(
+            `Chitu order creation failed: ${orderResult.message}`,
+          );
         }
       } else {
         console.log(`⚠️ Skipping Chitu order creation - missing required data`);
@@ -302,10 +330,9 @@ export class SimpleQueueService {
       console.log(`✅ Job ${job.id} completed successfully`);
 
       // Keep jobs in memory for S3 section display (don't auto-delete)
-
     } catch (error) {
       console.error(`❌ Job ${job.id} failed:`, error);
-      
+
       if (job.attempts < 3) {
         // Retry
         job.status = 'waiting';
@@ -324,8 +351,8 @@ export class SimpleQueueService {
    * Get queue position for a job
    */
   getQueuePosition(jobId: string): number {
-    const waitingJobs = this.queue.filter(j => j.status === 'waiting');
-    const position = waitingJobs.findIndex(j => j.id === jobId);
+    const waitingJobs = this.queue.filter((j) => j.status === 'waiting');
+    const position = waitingJobs.findIndex((j) => j.id === jobId);
     return position === -1 ? 0 : position + 1;
   }
 
@@ -342,15 +369,17 @@ export class SimpleQueueService {
    * Get queue statistics
    */
   getQueueStats() {
-    const waiting = this.queue.filter(j => j.status === 'waiting').length;
-    const processing = this.queue.filter(j => j.status === 'processing').length;
-    const completed = this.queue.filter(j => j.status === 'completed').length;
-    const failed = this.queue.filter(j => j.status === 'failed').length;
+    const waiting = this.queue.filter((j) => j.status === 'waiting').length;
+    const processing = this.queue.filter(
+      (j) => j.status === 'processing',
+    ).length;
+    const completed = this.queue.filter((j) => j.status === 'completed').length;
+    const failed = this.queue.filter((j) => j.status === 'failed').length;
 
     const machineLoads = {};
     for (const machine of this.availableMachines) {
       machineLoads[machine] = this.queue.filter(
-        j => j.data.machineId === machine && j.status === 'waiting'
+        (j) => j.data.machineId === machine && j.status === 'waiting',
       ).length;
     }
 
@@ -369,7 +398,7 @@ export class SimpleQueueService {
    * Get job status
    */
   getJobStatus(jobId: string) {
-    const job = this.queue.find(j => j.id === jobId);
+    const job = this.queue.find((j) => j.id === jobId);
     if (!job) return null;
 
     return {
@@ -390,8 +419,8 @@ export class SimpleQueueService {
    * Cancel a job
    */
   cancelJob(jobId: string, sessionId: string) {
-    const job = this.queue.find(j => j.id === jobId);
-    
+    const job = this.queue.find((j) => j.id === jobId);
+
     if (!job) {
       return { success: false, error: 'Job not found' };
     }
@@ -418,15 +447,15 @@ export class SimpleQueueService {
    */
   getAllJobs(limit: number = 50) {
     // Sort by creation date, most recent first
-    const sortedJobs = [...this.queue].sort((a, b) =>
-      b.createdAt.getTime() - a.createdAt.getTime()
+    const sortedJobs = [...this.queue].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
     );
 
     // Limit results
     const limitedJobs = sortedJobs.slice(0, limit);
 
     // Map to admin-friendly format
-    return limitedJobs.map(job => ({
+    return limitedJobs.map((job) => ({
       id: job.id,
       status: job.status,
       phoneModel: job.data.phoneModel,
@@ -438,7 +467,8 @@ export class SimpleQueueService {
       image: job.data.image, // Base64 masked image (what goes to printer)
       imageUrl: job.data.imageUrl, // S3 URL if uploaded
       priority: job.priority,
-      queuePosition: job.status === 'waiting' ? this.getQueuePosition(job.id) : 0,
+      queuePosition:
+        job.status === 'waiting' ? this.getQueuePosition(job.id) : 0,
       createdAt: job.createdAt,
       startedAt: job.startedAt,
       completedAt: job.completedAt,
@@ -449,7 +479,9 @@ export class SimpleQueueService {
 
   getCompletedJobs(limit: number = 100) {
     // Filter only completed jobs
-    const completedJobs = this.queue.filter(job => job.status === 'completed');
+    const completedJobs = this.queue.filter(
+      (job) => job.status === 'completed',
+    );
 
     // Sort by completion date, most recent first
     const sortedJobs = completedJobs.sort((a, b) => {
@@ -462,7 +494,7 @@ export class SimpleQueueService {
     const limitedJobs = sortedJobs.slice(0, limit);
 
     // Map to same format as getAllJobs
-    return limitedJobs.map(job => ({
+    return limitedJobs.map((job) => ({
       id: job.id,
       status: job.status,
       phoneModel: job.data.phoneModel,

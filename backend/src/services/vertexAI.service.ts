@@ -38,12 +38,13 @@ class VertexAIService {
   private initialized: boolean = false;
 
   // Rate limiting: Track requests per user
-  private requestCounts: Map<string, { count: number; resetTime: number }> = new Map();
+  private requestCounts: Map<string, { count: number; resetTime: number }> =
+    new Map();
   private readonly MAX_REQUESTS_PER_HOUR = 50;
   private readonly RATE_LIMIT_WINDOW = 60 * 60 * 1000; // 1 hour in ms
 
   // Retry configuration
-  private readonly MAX_RETRIES = 5;  // Increased to 5 retries with improved prompts
+  private readonly MAX_RETRIES = 5; // Increased to 5 retries with improved prompts
   private readonly INITIAL_RETRY_DELAY = 500; // 0.5 seconds (reduced for faster retries)
   private readonly MAX_RETRY_DELAY = 5000; // 5 seconds (reduced max delay)
   private readonly REQUEST_TIMEOUT = 40000; // 40 seconds (increased for complex edits)
@@ -82,13 +83,20 @@ class VertexAIService {
           // Parse credentials from JSON string
           const credentials = JSON.parse(credentialsJson);
           googleAuthOptions = { credentials };
-          console.log(`🔑 Using Vertex AI credentials from GOOGLE_APPLICATION_CREDENTIALS_JSON`);
+          console.log(
+            `🔑 Using Vertex AI credentials from GOOGLE_APPLICATION_CREDENTIALS_JSON`,
+          );
         } catch (error) {
-          console.error('❌ Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON:', error);
+          console.error(
+            '❌ Failed to parse GOOGLE_APPLICATION_CREDENTIALS_JSON:',
+            error,
+          );
         }
       } else {
         // Fall back to default credentials (local development with gcloud auth)
-        console.log(`🔑 Using default Vertex AI credentials (local development mode)`);
+        console.log(
+          `🔑 Using default Vertex AI credentials (local development mode)`,
+        );
       }
 
       // Initialize Vertex AI client
@@ -98,10 +106,14 @@ class VertexAIService {
         ...(googleAuthOptions && { googleAuthOptions }),
       });
 
-      console.log(`✅ Vertex AI initialized: Project=${this.projectId}, Location=${this.location}`);
+      console.log(
+        `✅ Vertex AI initialized: Project=${this.projectId}, Location=${this.location}`,
+      );
       this.initialized = true;
     } else {
-      console.warn('⚠️  Vertex AI not initialized: GOOGLE_CLOUD_PROJECT_ID not set');
+      console.warn(
+        '⚠️  Vertex AI not initialized: GOOGLE_CLOUD_PROJECT_ID not set',
+      );
       this.initialized = true; // Mark as initialized to avoid repeated warnings
     }
   }
@@ -110,7 +122,7 @@ class VertexAIService {
    * Sleep for a specified duration
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
@@ -131,8 +143,8 @@ class VertexAIService {
       // Use 'cover' to fill the area completely while maintaining aspect ratio (minimal crop)
       const resizedBuffer = await sharp(imageBuffer)
         .resize(targetWidth, targetHeight, {
-          fit: 'cover',  // Maintain aspect ratio, crop minimally if needed
-          position: 'center',  // Center the content when cropping
+          fit: 'cover', // Maintain aspect ratio, crop minimally if needed
+          position: 'center', // Center the content when cropping
         })
         .png()
         .toBuffer();
@@ -170,7 +182,9 @@ class VertexAIService {
         this.MAX_RETRY_DELAY,
       );
 
-      console.log(`⏳ Retry attempt ${retryCount + 1}/${this.MAX_RETRIES} after ${delay}ms`);
+      console.log(
+        `⏳ Retry attempt ${retryCount + 1}/${this.MAX_RETRIES} after ${delay}ms`,
+      );
       await this.sleep(delay);
 
       return this.retryWithBackoff(fn, retryCount + 1);
@@ -196,8 +210,10 @@ class VertexAIService {
 
     // CRITICAL: Retry when Gemini returns text instead of image
     // This happens randomly and retrying with a different prompt usually fixes it
-    if (error.message?.includes('No edited image returned') ||
-        error.message?.includes('No generated image returned')) {
+    if (
+      error.message?.includes('No edited image returned') ||
+      error.message?.includes('No generated image returned')
+    ) {
       return true;
     }
 
@@ -223,7 +239,10 @@ class VertexAIService {
   /**
    * Check rate limit for a user
    */
-  private checkRateLimit(userId: string): { allowed: boolean; remaining: number } {
+  private checkRateLimit(userId: string): {
+    allowed: boolean;
+    remaining: number;
+  } {
     const now = Date.now();
     const userLimit = this.requestCounts.get(userId);
 
@@ -244,12 +263,17 @@ class VertexAIService {
     }
 
     if (currentLimit.count >= this.MAX_REQUESTS_PER_HOUR) {
-      const timeUntilReset = Math.ceil((currentLimit.resetTime - now) / 1000 / 60); // minutes
+      const timeUntilReset = Math.ceil(
+        (currentLimit.resetTime - now) / 1000 / 60,
+      ); // minutes
       return { allowed: false, remaining: 0 };
     }
 
     currentLimit.count++;
-    return { allowed: true, remaining: this.MAX_REQUESTS_PER_HOUR - currentLimit.count };
+    return {
+      allowed: true,
+      remaining: this.MAX_REQUESTS_PER_HOUR - currentLimit.count,
+    };
   }
 
   /**
@@ -265,7 +289,8 @@ class VertexAIService {
     if (!this.vertexAI || !this.projectId) {
       return {
         success: false,
-        error: 'Vertex AI is not configured. Please set GOOGLE_CLOUD_PROJECT_ID environment variable.',
+        error:
+          'Vertex AI is not configured. Please set GOOGLE_CLOUD_PROJECT_ID environment variable.',
       };
     }
 
@@ -291,9 +316,11 @@ class VertexAIService {
           model: this.editModel,
           systemInstruction: {
             role: 'system',
-            parts: [{
-              text: 'You are an image editing AI. When given an image and editing instructions, you must ALWAYS return an edited image. NEVER return text descriptions, explanations, or analyses. Your only output should be the modified image data. Do not use vision or description mode - only editing mode.'
-            }]
+            parts: [
+              {
+                text: 'You are an image editing AI. When given an image and editing instructions, you must ALWAYS return an edited image. NEVER return text descriptions, explanations, or analyses. Your only output should be the modified image data. Do not use vision or description mode - only editing mode.',
+              },
+            ],
           },
         });
 
@@ -383,10 +410,10 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
           ],
           // Generation config to reduce hallucination and encourage image output
           generationConfig: {
-            temperature: 0.4,  // Lower temperature = more focused, less creative = more likely to follow instructions
-            topP: 0.8,         // Slightly constrained sampling
-            topK: 40,          // Limit token choices
-            maxOutputTokens: 8192,  // Allow space for large image output
+            temperature: 0.4, // Lower temperature = more focused, less creative = more likely to follow instructions
+            topP: 0.8, // Slightly constrained sampling
+            topK: 40, // Limit token choices
+            maxOutputTokens: 8192, // Allow space for large image output
           },
         };
 
@@ -399,28 +426,46 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
         const response = result.response;
 
         // Debug: Log the entire response structure
-        console.log('🔍 Full API Response:', JSON.stringify({
-          hasCandidates: !!response.candidates,
-          candidatesLength: response.candidates?.length,
-          promptFeedback: response.promptFeedback,
-        }, null, 2));
+        console.log(
+          '🔍 Full API Response:',
+          JSON.stringify(
+            {
+              hasCandidates: !!response.candidates,
+              candidatesLength: response.candidates?.length,
+              promptFeedback: response.promptFeedback,
+            },
+            null,
+            2,
+          ),
+        );
 
         // Extract edited image from response
         const candidates = response.candidates;
         if (!candidates || candidates.length === 0) {
-          console.error('❌ No candidates in response. Prompt may have been blocked.');
+          console.error(
+            '❌ No candidates in response. Prompt may have been blocked.',
+          );
           console.error('Prompt feedback:', response.promptFeedback);
-          throw new Error('No candidates returned from Gemini. This could be due to safety filters or the model not supporting this type of edit.');
+          throw new Error(
+            'No candidates returned from Gemini. This could be due to safety filters or the model not supporting this type of edit.',
+          );
         }
 
         const candidate = candidates[0];
-        console.log('🔍 Candidate structure:', JSON.stringify({
-          hasContent: !!candidate.content,
-          hasParts: !!candidate.content?.parts,
-          partsLength: candidate.content?.parts?.length,
-          finishReason: candidate.finishReason,
-          safetyRatings: candidate.safetyRatings,
-        }, null, 2));
+        console.log(
+          '🔍 Candidate structure:',
+          JSON.stringify(
+            {
+              hasContent: !!candidate.content,
+              hasParts: !!candidate.content?.parts,
+              partsLength: candidate.content?.parts?.length,
+              finishReason: candidate.finishReason,
+              safetyRatings: candidate.safetyRatings,
+            },
+            null,
+            2,
+          ),
+        );
 
         const parts = candidate.content?.parts;
 
@@ -444,16 +489,20 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
         for (const part of parts) {
           if (part.inlineData) {
             foundImageBase64 = part.inlineData.data;
-            console.log(`✅ Found image data: ${foundImageBase64.length} characters`);
+            console.log(
+              `✅ Found image data: ${foundImageBase64.length} characters`,
+            );
             break;
           }
         }
 
         if (!foundImageBase64) {
           // If no image returned, Gemini might have returned text explanation
-          const textResponse = parts.map(p => p.text).join('');
+          const textResponse = parts.map((p) => p.text).join('');
           console.log('📝 Gemini response (text only):', textResponse);
-          throw new Error('No edited image returned from Gemini 2.5 Flash Image. The model may have interpreted this as a vision task instead of an image editing task, or safety filters blocked the edit.');
+          throw new Error(
+            'No edited image returned from Gemini 2.5 Flash Image. The model may have interpreted this as a vision task instead of an image editing task, or safety filters blocked the edit.',
+          );
         }
 
         // Return the image data (this will be retried if it fails)
@@ -470,7 +519,9 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
       this.totalEditCost += this.COST_PER_EDIT;
 
       console.log(`✅ Image edited successfully for user ${userId}`);
-      console.log(`💰 Edit cost: $${this.COST_PER_EDIT.toFixed(3)} this request | $${this.totalEditCost.toFixed(2)} total (${this.totalEditRequests} edits)`);
+      console.log(
+        `💰 Edit cost: $${this.COST_PER_EDIT.toFixed(3)} this request | $${this.totalEditCost.toFixed(2)} total (${this.totalEditRequests} edits)`,
+      );
 
       return {
         success: true,
@@ -480,7 +531,8 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
       console.error('❌ Error editing image with Vertex AI:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        error:
+          error instanceof Error ? error.message : 'Unknown error occurred',
       };
     }
   }
@@ -488,7 +540,9 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
   /**
    * Generate an image using Imagen 3
    */
-  async generateImage(request: ImageGenerateRequest): Promise<ImageGenerateResponse> {
+  async generateImage(
+    request: ImageGenerateRequest,
+  ): Promise<ImageGenerateResponse> {
     // Initialize Vertex AI if not already done
     this.initialize();
 
@@ -498,7 +552,8 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
     if (!this.vertexAI || !this.projectId) {
       return {
         success: false,
-        error: 'Vertex AI is not configured. Please set GOOGLE_CLOUD_PROJECT_ID environment variable.',
+        error:
+          'Vertex AI is not configured. Please set GOOGLE_CLOUD_PROJECT_ID environment variable.',
       };
     }
 
@@ -514,7 +569,9 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
     try {
       console.log(`🎨 Generating image for user ${userId}...`);
       console.log(`   Prompt: ${request.prompt}`);
-      console.log(`   Dimensions: ${request.width || 1024}x${request.height || 1024}`);
+      console.log(
+        `   Dimensions: ${request.width || 1024}x${request.height || 1024}`,
+      );
       console.log(`   Rate limit: ${rateLimit.remaining} requests remaining`);
 
       // Wrap the entire API call in retry and timeout logic
@@ -527,9 +584,14 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
         // Build the prompt (include negative prompt if provided)
         // Prepend "Generate an image:" to clearly indicate we want generation, not editing
         // Add orientation guidance based on aspect ratio
-        const aspectRatio = request.width && request.height ? request.width / request.height : 1;
-        const orientationHint = aspectRatio < 0.8 ? ' in vertical portrait orientation' :
-                               aspectRatio > 1.2 ? ' in horizontal landscape orientation' : '';
+        const aspectRatio =
+          request.width && request.height ? request.width / request.height : 1;
+        const orientationHint =
+          aspectRatio < 0.8
+            ? ' in vertical portrait orientation'
+            : aspectRatio > 1.2
+              ? ' in horizontal landscape orientation'
+              : '';
 
         let fullPrompt = `Generate an image${orientationHint}: ${request.prompt}`;
         if (request.negativePrompt) {
@@ -560,28 +622,46 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
       const response = result.response;
 
       // Debug: Log the entire response structure
-      console.log('🔍 Full API Response:', JSON.stringify({
-        hasCandidates: !!response.candidates,
-        candidatesLength: response.candidates?.length,
-        promptFeedback: response.promptFeedback,
-      }, null, 2));
+      console.log(
+        '🔍 Full API Response:',
+        JSON.stringify(
+          {
+            hasCandidates: !!response.candidates,
+            candidatesLength: response.candidates?.length,
+            promptFeedback: response.promptFeedback,
+          },
+          null,
+          2,
+        ),
+      );
 
       // Extract generated image from response
       const candidates = response.candidates;
       if (!candidates || candidates.length === 0) {
-        console.error('❌ No candidates in response. Prompt may have been blocked.');
+        console.error(
+          '❌ No candidates in response. Prompt may have been blocked.',
+        );
         console.error('Prompt feedback:', response.promptFeedback);
-        throw new Error('No candidates returned from Imagen 3. This could be due to safety filters or inappropriate content in the prompt.');
+        throw new Error(
+          'No candidates returned from Imagen 3. This could be due to safety filters or inappropriate content in the prompt.',
+        );
       }
 
       const candidate = candidates[0];
-      console.log('🔍 Candidate structure:', JSON.stringify({
-        hasContent: !!candidate.content,
-        hasParts: !!candidate.content?.parts,
-        partsLength: candidate.content?.parts?.length,
-        finishReason: candidate.finishReason,
-        safetyRatings: candidate.safetyRatings,
-      }, null, 2));
+      console.log(
+        '🔍 Candidate structure:',
+        JSON.stringify(
+          {
+            hasContent: !!candidate.content,
+            hasParts: !!candidate.content?.parts,
+            partsLength: candidate.content?.parts?.length,
+            finishReason: candidate.finishReason,
+            safetyRatings: candidate.safetyRatings,
+          },
+          null,
+          2,
+        ),
+      );
 
       const parts = candidate.content?.parts;
 
@@ -605,22 +685,28 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
       for (const part of parts) {
         if (part.inlineData) {
           generatedImageBase64 = part.inlineData.data;
-          console.log(`✅ Found image data: ${generatedImageBase64.length} characters`);
+          console.log(
+            `✅ Found image data: ${generatedImageBase64.length} characters`,
+          );
           break;
         }
       }
 
       if (!generatedImageBase64) {
         // If no image returned, Imagen might have returned text explanation
-        const textResponse = parts.map(p => p.text).join('');
+        const textResponse = parts.map((p) => p.text).join('');
         console.log('📝 Imagen response (text only):', textResponse);
-        throw new Error('No generated image returned from Imagen 3. The model may have blocked the prompt due to safety filters.');
+        throw new Error(
+          'No generated image returned from Imagen 3. The model may have blocked the prompt due to safety filters.',
+        );
       }
 
       // Resize if dimensions are specified
       let finalImageBase64 = generatedImageBase64;
       if (request.width && request.height) {
-        console.log(`🔧 Resizing generated image to ${request.width}x${request.height}px...`);
+        console.log(
+          `🔧 Resizing generated image to ${request.width}x${request.height}px...`,
+        );
         finalImageBase64 = await this.resizeImage(
           generatedImageBase64,
           request.width,
@@ -637,7 +723,9 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
       this.totalGenerateCost += this.COST_PER_GENERATE;
 
       console.log(`✅ Image generated successfully for user ${userId}`);
-      console.log(`💰 Generation cost: $${this.COST_PER_GENERATE.toFixed(3)} this request | $${this.totalGenerateCost.toFixed(2)} total (${this.totalGenerateRequests} generations)`);
+      console.log(
+        `💰 Generation cost: $${this.COST_PER_GENERATE.toFixed(3)} this request | $${this.totalGenerateCost.toFixed(2)} total (${this.totalGenerateRequests} generations)`,
+      );
 
       return {
         success: true,
@@ -647,7 +735,8 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
       console.error('❌ Error generating image with Imagen 3:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        error:
+          error instanceof Error ? error.message : 'Unknown error occurred',
       };
     }
   }
@@ -658,7 +747,7 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
   async editWithPrompt(
     imageUrl: string,
     prompt: string,
-    userId?: string
+    userId?: string,
   ): Promise<ImageEditResponse> {
     return this.editImage({ imageUrl, prompt, userId });
   }
@@ -691,7 +780,11 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
   /**
    * Get usage statistics for a user
    */
-  getUserStats(userId: string): { requestsUsed: number; requestsRemaining: number; resetTime: number } {
+  getUserStats(userId: string): {
+    requestsUsed: number;
+    requestsRemaining: number;
+    resetTime: number;
+  } {
     const userLimit = this.requestCounts.get(userId);
 
     if (!userLimit) {
@@ -704,7 +797,10 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
 
     return {
       requestsUsed: userLimit.count,
-      requestsRemaining: Math.max(0, this.MAX_REQUESTS_PER_HOUR - userLimit.count),
+      requestsRemaining: Math.max(
+        0,
+        this.MAX_REQUESTS_PER_HOUR - userLimit.count,
+      ),
       resetTime: userLimit.resetTime,
     };
   }

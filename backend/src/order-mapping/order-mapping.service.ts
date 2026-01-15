@@ -34,7 +34,11 @@ export class OrderMappingService {
   /**
    * Register a mapping between our jobId and Chitu's orderId
    */
-  registerMapping(jobId: string, chituOrderId: string, machineId?: string): void {
+  registerMapping(
+    jobId: string,
+    chituOrderId: string,
+    machineId?: string,
+  ): void {
     console.log(`🗺️ Registering order mapping: ${jobId} <-> ${chituOrderId}`);
 
     this.chituToJobId.set(chituOrderId, jobId);
@@ -111,7 +115,8 @@ export class OrderMappingService {
     const timestamps = Array.from(this.timestamps.values());
     return {
       totalMappings: this.chituToJobId.size,
-      oldestMapping: timestamps.length > 0 ? new Date(Math.min(...timestamps)) : null,
+      oldestMapping:
+        timestamps.length > 0 ? new Date(Math.min(...timestamps)) : null,
     };
   }
 }
