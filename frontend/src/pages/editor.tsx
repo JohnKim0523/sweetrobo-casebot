@@ -359,11 +359,11 @@ export default function Editor() {
   const [sharpness, setSharpness] = useState(0);
   const [warmth, setWarmth] = useState(0);
   const [isBlackAndWhite, setIsBlackAndWhite] = useState(false);
-  const [canvasBackgroundColor, setCanvasBackgroundColor] = useState('transparent');
+  const [canvasBackgroundColor, setCanvasBackgroundColor] = useState('#f3f4f6');
   const [filtersTouched, setFiltersTouched] = useState(false);
   // Store initial state when modal opens for reverting
   const [initialBWState, setInitialBWState] = useState(false);
-  const [initialBgColor, setInitialBgColor] = useState('transparent');
+  const [initialBgColor, setInitialBgColor] = useState('#f3f4f6');
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showMaskModal, setShowMaskModal] = useState(false);  // New modal for mask editing
@@ -2242,7 +2242,7 @@ export default function Editor() {
         selectable: false,
         evented: false,
         excludeFromExport: true,
-        opacity: 0.12,  // Very subtle overlay to show the shape/cutouts
+        opacity: 0.25,  // Subtle overlay to show the shape/cutouts (increased for better visibility)
         isPrintImgBorder: true,
       });
 
