@@ -24,7 +24,6 @@ import { SimpleQueueService } from '../queue/simple-queue.service';
 import { aiUsageService } from '../services/ai-usage.service';
 
 @Controller('api/admin')
-@UseGuards(AdminAuthGuard) // Protect all admin endpoints
 export class AdminController {
   private s3Client: S3Client;
 
@@ -42,6 +41,7 @@ export class AdminController {
   }
 
   @Get('s3-images')
+  @UseGuards(AdminAuthGuard)
   async listS3Images(@Query('limit') limit?: string) {
     try {
       // Simply return all jobs that have uploaded to S3 (have imageUrl)
@@ -66,6 +66,7 @@ export class AdminController {
   }
 
   @Get('s3-download')
+  @UseGuards(AdminAuthGuard)
   async downloadS3Image(@Query('url') imageUrl: string, @Res() res: Response) {
     try {
       if (!imageUrl) {
@@ -115,6 +116,7 @@ export class AdminController {
   }
 
   @Delete('s3-images')
+  @UseGuards(AdminAuthGuard)
   async deleteS3Image(@Body() body: { key: string }) {
     try {
       let { key } = body;
