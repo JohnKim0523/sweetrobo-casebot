@@ -26,12 +26,15 @@ async function bootstrap() {
   const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:3001',
+    'http://localhost:8081', // sweetrobo-web-app development
     process.env.FRONTEND_URL || 'http://localhost:3000',
     // Production domains - always include for Railway deployment
     'https://sweetrobo.com',
     'https://www.sweetrobo.com',
     'https://sweetrobo-casebot.vercel.app',
     'https://sweetrobo.vercel.app',
+    'https://sweetrobotracking.com', // sweetrobo-web-app production
+    'https://www.sweetrobotracking.com', // sweetrobo-web-app production (www)
   ];
 
   app.enableCors({
