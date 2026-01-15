@@ -3663,6 +3663,8 @@ export default function Editor() {
           mask: currentMask,  // Include the mask
           width: EXPORT_WIDTH,  // Send actual phone case dimensions
           height: EXPORT_HEIGHT,
+          machineId: machineId || 'unknown',  // For AI usage tracking
+          sessionId: sessionId || 'unknown',
         }),
       });
       
@@ -3932,6 +3934,8 @@ export default function Editor() {
           imageUrl: imageData,  // Vertex AI uses imageUrl instead of image
           prompt: aiPrompt,
           userId: 'editor-user', // Optional: track usage per user
+          machineId: machineId || 'unknown',  // For AI usage tracking
+          sessionId: sessionId || 'unknown',  // For AI usage tracking
         }),
       });
 
@@ -4321,6 +4325,8 @@ export default function Editor() {
           prompt: createPrompt,
           width: EXPORT_WIDTH,  // Use actual phone case dimensions, not display dimensions
           height: EXPORT_HEIGHT,
+          machineId: machineId || 'unknown',  // For AI usage tracking
+          sessionId: sessionId || 'unknown',
         }),
       });
       

@@ -65,6 +65,11 @@ export default function AdminDashboard() {
   const [loadingInventory, setLoadingInventory] = useState(false);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
 
+  // AI Usage state
+  const [aiUsageStats, setAiUsageStats] = useState<any>(null);
+  const [loadingAiUsage, setLoadingAiUsage] = useState(false);
+  const [aiUsageError, setAiUsageError] = useState<string | null>(null);
+
   // Load S3 images from backend
   const loadImages = async () => {
     if (!adminToken) {
@@ -119,6 +124,34 @@ export default function AdminDashboard() {
       console.error('Failed to load queue jobs:', err);
     } finally {
       setLoadingJobs(false);
+    }
+  };
+
+  // Load AI usage statistics
+  const loadAiUsage = async () => {
+    if (!adminToken) return;
+
+    try {
+      setLoadingAiUsage(true);
+      setAiUsageError(null);
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const response = await fetch(`${backendUrl}/api/admin/ai-usage`, {
+        headers: {
+          'Authorization': `Bearer ${adminToken}`
+        }
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setAiUsageStats(data);
+      } else {
+        setAiUsageError(data.error || 'Failed to load AI usage');
+      }
+    } catch (err: any) {
+      setAiUsageError(err.message);
+    } finally {
+      setLoadingAiUsage(false);
     }
   };
 
@@ -295,10 +328,11 @@ export default function AdminDashboard() {
   }, []);
   
   useEffect(() => {
-    // Load images and queue jobs when token changes
+    // Load images, queue jobs, and AI usage when token changes
     if (adminToken) {
       loadImages();
       loadQueueJobs();
+      loadAiUsage();
     }
   }, [adminToken]);
 
@@ -329,6 +363,7 @@ export default function AdminDashboard() {
                     onClick={() => {
                       loadImages();
                       loadQueueJobs();
+                      loadAiUsage();
                     }}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
                   >
@@ -639,6 +674,89 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* AI Usage Statistics */}
+          <div className="mt-6 bg-gray-800 rounded p-4">
+            <h2 className="text-xl font-bold mb-4">🤖 AI Usage Statistics</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              Track AI edits and generations per machine for billing
+            </p>
+
+            {loadingAiUsage && (
+              <div className="text-center py-4">Loading AI usage data...</div>
+            )}
+
+            {aiUsageError && (
+              <div className="p-3 bg-yellow-600/20 border border-yellow-600 rounded text-yellow-400 mb-4">
+                {aiUsageError}
+                <p className="text-xs mt-2">
+                  If the table does not exist, run: <code className="bg-gray-700 px-1 rounded">node scripts/setup-dynamodb.js</code>
+                </p>
+              </div>
+            )}
+
+            {aiUsageStats && !loadingAiUsage && (
+              <>
+                {/* Summary Stats */}
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="bg-gray-700 p-4 rounded text-center">
+                    <div className="text-2xl font-bold text-purple-400">{aiUsageStats.summary?.totalEdits || 0}</div>
+                    <div className="text-gray-400 text-sm">Total AI Edits</div>
+                  </div>
+                  <div className="bg-gray-700 p-4 rounded text-center">
+                    <div className="text-2xl font-bold text-blue-400">{aiUsageStats.summary?.totalGenerations || 0}</div>
+                    <div className="text-gray-400 text-sm">Total Generations</div>
+                  </div>
+                  <div className="bg-gray-700 p-4 rounded text-center">
+                    <div className="text-2xl font-bold text-green-400">{aiUsageStats.summary?.formattedCost || '$0.00'}</div>
+                    <div className="text-gray-400 text-sm">Total Cost</div>
+                  </div>
+                </div>
+
+                {/* Per-Machine Breakdown */}
+                {aiUsageStats.machines && aiUsageStats.machines.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-gray-400 border-b border-gray-600">
+                          <th className="text-left p-2">Machine ID</th>
+                          <th className="text-center p-2">Total Edits</th>
+                          <th className="text-center p-2">Generations</th>
+                          <th className="text-center p-2">Today</th>
+                          <th className="text-center p-2">This Week</th>
+                          <th className="text-center p-2">This Month</th>
+                          <th className="text-right p-2">Total Cost</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {aiUsageStats.machines.map((machine: any) => (
+                          <tr key={machine.machineId} className="border-b border-gray-700 hover:bg-gray-700/50">
+                            <td className="p-2 font-mono text-purple-400">{machine.machineId}</td>
+                            <td className="text-center p-2">{machine.total?.edits || 0}</td>
+                            <td className="text-center p-2">{machine.total?.generations || 0}</td>
+                            <td className="text-center p-2 text-yellow-400">{(machine.today?.edits || 0) + (machine.today?.generations || 0)}</td>
+                            <td className="text-center p-2 text-blue-400">{(machine.thisWeek?.edits || 0) + (machine.thisWeek?.generations || 0)}</td>
+                            <td className="text-center p-2 text-green-400">{(machine.thisMonth?.edits || 0) + (machine.thisMonth?.generations || 0)}</td>
+                            <td className="text-right p-2 font-bold">{machine.formattedCost || '$0.00'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-4 text-gray-400">
+                    No AI usage data yet. AI edits will appear here once users start using the AI features.
+                  </div>
+                )}
+              </>
+            )}
+
+            {!aiUsageStats && !loadingAiUsage && !aiUsageError && (
+              <div className="text-center py-4 text-gray-400">
+                AI usage statistics will load after authentication
               </div>
             )}
           </div>
