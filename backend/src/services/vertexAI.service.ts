@@ -50,8 +50,8 @@ class VertexAIService {
   private readonly REQUEST_TIMEOUT = 40000; // 40 seconds (increased for complex edits)
 
   // Cost tracking
-  private readonly COST_PER_EDIT = 0.039; // $0.039 per edit (Gemini Flash Image)
-  private readonly COST_PER_GENERATE = 0.04; // $0.04 per generation (Imagen 3)
+  private readonly COST_PER_EDIT = 0.05; // $0.05 per edit (Gemini Flash Image)
+  private readonly COST_PER_GENERATE = 0.05; // $0.05 per generation (Imagen 3)
   private totalEditCost: number = 0;
   private totalGenerateCost: number = 0;
   private totalEditRequests: number = 0;

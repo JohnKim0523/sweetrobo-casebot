@@ -46,8 +46,8 @@ class AIUsageService {
   private initialized: boolean = false;
 
   // Cost per operation (matches vertexAI.service.ts)
-  private readonly COST_PER_EDIT = 0.039;
-  private readonly COST_PER_GENERATE = 0.04;
+  private readonly COST_PER_EDIT = 0.05;
+  private readonly COST_PER_GENERATE = 0.05;
 
   constructor() {
     // Lazy initialization
