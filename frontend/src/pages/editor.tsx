@@ -418,8 +418,6 @@ export default function Editor() {
   const [cropRect, setCropRect] = useState<{left: number, top: number, width: number, height: number} | null>(null);
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isUploading, setIsUploading] = useState<boolean>(false);
-  const [submitPassword, setSubmitPassword] = useState<string>('');
-  const [passwordVerified, setPasswordVerified] = useState<boolean>(false);
   const snapStateRef = useRef<{x: boolean, y: boolean}>({x: false, y: false});
   const hasSnappedRef = useRef<{x: boolean, y: boolean, rotation: boolean, borderLeft: boolean, borderRight: boolean, borderTop: boolean, borderBottom: boolean}>({x: false, y: false, rotation: false, borderLeft: false, borderRight: false, borderTop: false, borderBottom: false});
   const dragStartBounds = useRef<{left: number, top: number, right: number, bottom: number, width: number, height: number} | null>(null);
@@ -7815,21 +7813,7 @@ export default function Editor() {
           {/* Fixed Bottom Buttons - With safe area padding for mobile notches/home indicators */}
           <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
             <div className="max-w-md mx-auto space-y-3">
-              {!passwordVerified ? (
-                <input
-                  type="text"
-                  value={submitPassword}
-                  onChange={(e) => {
-                    setSubmitPassword(e.target.value);
-                    if (e.target.value === '210210') {
-                      setPasswordVerified(true);
-                    }
-                  }}
-                  placeholder="Insert Code to Print"
-                  className="w-full py-4 px-6 rounded-lg border-2 border-purple-600 text-center text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-purple-400 text-gray-900 placeholder-gray-500"
-                />
-              ) : (
-                <button
+              <button
                   onClick={async () => {
                     if (!previewImage) return;
 
@@ -7912,8 +7896,7 @@ export default function Editor() {
                   className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 active:bg-purple-800 text-white font-semibold py-4 px-6 rounded-lg transition shadow-md"
                 >
                   {isUploading ? 'Submitting...' : 'Submit Design'}
-                </button>
-              )}
+              </button>
               <button
                 onClick={(e) => {
                   e.preventDefault();
@@ -7927,10 +7910,6 @@ export default function Editor() {
                     sessionStorage.removeItem(`page-state-${sessionId}`);
                     console.log('🗑️ Cleared page-state from sessionStorage');
                   }
-
-                  // Reset password state for next preview
-                  setSubmitPassword('');
-                  setPasswordVerified(false);
 
                   // Simply hide the modal - canvas stays alive underneath
                   setShowPreviewModal(false);
