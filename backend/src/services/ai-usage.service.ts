@@ -10,7 +10,7 @@ import {
 export interface AIUsageLog {
   machineId: string;
   timestamp: string;
-  type: 'edit' | 'generate';
+  type: 'edit' | 'generate' | 'outpaint';
   sessionId: string;
   cost: number;
   prompt?: string;
@@ -102,7 +102,7 @@ class AIUsageService {
    */
   async logUsage(params: {
     machineId: string;
-    type: 'edit' | 'generate';
+    type: 'edit' | 'generate' | 'outpaint';
     sessionId: string;
     prompt?: string;
   }): Promise<boolean> {

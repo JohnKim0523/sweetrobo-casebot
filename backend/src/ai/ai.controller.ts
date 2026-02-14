@@ -91,6 +91,81 @@ export class AiController {
   }
 
   /**
+   * AI Outpaint endpoint - Fill in background using Imagen 3 mask-based outpainting
+   * POST /api/ai-outpaint
+   * This preserves the original image exactly and only fills the masked areas
+   */
+  @Post('ai-outpaint')
+  async aiOutpaint(
+    @Body()
+    body: {
+      image: string; // Base64 encoded canvas image (with shrunk image + blank areas)
+      mask: string; // Base64 encoded mask (white=preserve, black=fill)
+      prompt?: string; // Optional prompt describing what to fill with
+      userId?: string;
+      machineId?: string;
+      sessionId?: string;
+    },
+  ) {
+    try {
+      console.log('📥 AI Outpaint request received (Imagen 3)');
+      console.log(`📝 Prompt: ${body.prompt || '(empty - auto extend)'}`);
+      console.log(`🎭 Has mask: ${!!body.mask}`);
+      console.log(`👤 User ID: ${body.userId || 'anonymous'}`);
+
+      if (!body.image || !body.mask) {
+        throw new HttpException(
+          'Image and mask are required',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // Call Vertex AI service for outpainting
+      const result = await vertexAIService.outpaintImage({
+        imageBase64: body.image,
+        maskBase64: body.mask,
+        prompt: body.prompt,
+        userId: body.userId || 'anonymous',
+      });
+
+      if (!result.success) {
+        console.error('❌ Imagen 3 outpaint failed:', result.error);
+        throw new HttpException(
+          result.error || 'AI outpaint failed',
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+
+      // Log AI usage to DynamoDB (non-blocking)
+      aiUsageService
+        .logUsage({
+          machineId: body.machineId || 'unknown',
+          type: 'outpaint',
+          sessionId: body.sessionId || 'unknown',
+          prompt: body.prompt || 'fill background',
+        })
+        .catch((err) => console.error('Failed to log AI usage:', err));
+
+      console.log('✅ AI outpaint successful (Imagen 3)');
+      return {
+        success: true,
+        imageUrl: result.editedImageUrl,
+      };
+    } catch (error) {
+      console.error('💥 AI Outpaint error:', error);
+
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        error instanceof Error ? error.message : 'AI outpainting failed',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * AI Create endpoint - Generate images from text using Imagen 3
    * POST /api/ai-create
    */

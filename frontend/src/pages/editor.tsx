@@ -372,6 +372,7 @@ export default function Editor() {
   const [createPrompt, setCreatePrompt] = useState('');
   const [maskPrompt, setMaskPrompt] = useState('');  // Separate prompt for mask editing
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingMessage, setProcessingMessage] = useState('');
   const [isMaskDrawing, setIsMaskDrawing] = useState(false);  // New state for mask drawing mode
   const [currentMask, setCurrentMask] = useState<string | null>(null);  // Current mask being drawn
   const [aiError, setAiError] = useState<string | null>(null);
@@ -2257,6 +2258,48 @@ export default function Editor() {
     };
     img.onerror = (err) => {
       console.error('❌ Failed to load print_img for clipPath - using default rounded corners:', err);
+
+      // Create a fallback rounded rectangle clipPath
+      if (canvas && fabric) {
+        // Remove any existing fallback border first to prevent duplicates
+        const existingFallback = canvas.getObjects().find((obj: any) => obj.isFallbackBorder);
+        if (existingFallback) {
+          canvas.remove(existingFallback);
+        }
+
+        const fallbackClip = new fabric.Rect({
+          left: CONTROL_PADDING,
+          top: VERTICAL_PADDING,
+          width: DISPLAY_WIDTH,
+          height: DISPLAY_HEIGHT,
+          rx: 20,  // Rounded corners
+          ry: 20,
+          absolutePositioned: true,
+        });
+        canvas.clipPath = fallbackClip;
+
+        // Also add a visible border so users can see the print area
+        const fallbackBorder = new fabric.Rect({
+          left: CONTROL_PADDING,
+          top: VERTICAL_PADDING,
+          width: DISPLAY_WIDTH,
+          height: DISPLAY_HEIGHT,
+          rx: 20,
+          ry: 20,
+          fill: 'transparent',
+          stroke: 'rgba(255, 255, 255, 0.5)',
+          strokeWidth: 2,
+          selectable: false,
+          evented: false,
+          excludeFromExport: true,
+          isFallbackBorder: true,
+        });
+        canvas.add(fallbackBorder);
+        canvas.bringObjectToFront(fallbackBorder);
+
+        canvas.renderAll();
+        console.log('✅ Applied fallback rounded rectangle clipPath');
+      }
     };
     img.src = proxyUrl;
   }, [canvas, fabric, DISPLAY_WIDTH, DISPLAY_HEIGHT, CONTROL_PADDING, VERTICAL_PADDING, crosshairLines]);
@@ -3120,10 +3163,51 @@ export default function Editor() {
 
       reader.onload = (e) => {
         if (e.target?.result) {
-          const imgElement = new Image();
-          imgElement.crossOrigin = 'anonymous'; // Enable high-quality rendering
-          imgElement.onload = function() {
-            const fabricImage = new fabric.Image(imgElement, {
+          // First, check if image needs resizing to prevent quota errors
+          const originalImg = new Image();
+          originalImg.crossOrigin = 'anonymous';
+
+          originalImg.onload = function() {
+            const MAX_DIMENSION = 2000; // Max pixels for any dimension
+            let finalImageSrc = e.target?.result as string;
+
+            // Only resize if image is larger than MAX_DIMENSION
+            if (originalImg.width > MAX_DIMENSION || originalImg.height > MAX_DIMENSION) {
+              console.log(`📐 Image too large (${originalImg.width}x${originalImg.height}), resizing to max ${MAX_DIMENSION}px...`);
+
+              // Calculate new dimensions maintaining aspect ratio
+              let newWidth = originalImg.width;
+              let newHeight = originalImg.height;
+
+              if (originalImg.width > originalImg.height) {
+                newWidth = MAX_DIMENSION;
+                newHeight = Math.round((originalImg.height / originalImg.width) * MAX_DIMENSION);
+              } else {
+                newHeight = MAX_DIMENSION;
+                newWidth = Math.round((originalImg.width / originalImg.height) * MAX_DIMENSION);
+              }
+
+              // Create canvas to resize
+              const resizeCanvas = document.createElement('canvas');
+              resizeCanvas.width = newWidth;
+              resizeCanvas.height = newHeight;
+              const ctx = resizeCanvas.getContext('2d')!;
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
+              ctx.drawImage(originalImg, 0, 0, newWidth, newHeight);
+
+              // Get resized image as data URL (use JPEG for better compression)
+              finalImageSrc = resizeCanvas.toDataURL('image/jpeg', 0.92);
+              console.log(`✅ Image resized to ${newWidth}x${newHeight}`);
+            } else {
+              console.log(`✅ Image size OK (${originalImg.width}x${originalImg.height}), no resize needed`);
+            }
+
+            // Now create the final image element with potentially resized data
+            const imgElement = new Image();
+            imgElement.crossOrigin = 'anonymous';
+            imgElement.onload = function() {
+              const fabricImage = new fabric.Image(imgElement, {
               // Preserve image quality
               imageSmoothing: true,
               cacheProperties: ['fill', 'stroke', 'strokeWidth', 'strokeDashArray', 'width', 'height'],
@@ -3264,21 +3348,20 @@ export default function Editor() {
                     });
 
                     // Include all necessary properties for proper serialization
-                    // On mobile: exclude 'src' to prevent quota errors (base64 images are 1-3MB)
-                    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-                    const propsToInclude = isMobile
-                      ? ['selectable', 'hasControls', 'excludeFromExport', 'hasBorders', 'borderColor', 'filters', 'crossOrigin']
-                      : ['selectable', 'hasControls', 'excludeFromExport', 'hasBorders', 'borderColor', 'src', 'filters', 'crossOrigin'];
+                    // Always exclude 'src' to prevent quota errors - the resize helps but large images can still exceed quota
+                    const propsToInclude = ['selectable', 'hasControls', 'excludeFromExport', 'hasBorders', 'borderColor', 'filters', 'crossOrigin'];
 
                     const fullCanvasState = canvas.toJSON(propsToInclude);
-                    console.log('📊 Canvas JSON objects:', fullCanvasState.objects?.length, isMobile ? '(mobile - no src)' : '(desktop - with src)');
+                    console.log('📊 Canvas JSON objects:', fullCanvasState.objects?.length);
+
+                    // Create a version of initialState without src to save space
+                    const { src: _ignoreSrc, ...mainImageStateWithoutSrc } = initialState;
 
                     sessionStorage.setItem(`canvas-state-${currentSessionId}`, JSON.stringify({
                       canvasJSON: fullCanvasState,
-                      mainImageState: initialState,
+                      mainImageState: mainImageStateWithoutSrc,
                       backgroundColor: canvasBackgroundColor,
                       savedAt: Date.now(),
-                      isMobile: isMobile,
                       canvasDimensions: {
                         displayWidth: DISPLAY_WIDTH,
                         displayHeight: DISPLAY_HEIGHT,
@@ -3299,11 +3382,14 @@ export default function Editor() {
               }
             }, 100);
           };
-          imgElement.src = e.target.result as string;
-        }
-      };
+          imgElement.src = finalImageSrc;
+        };
 
-      reader.readAsDataURL(file);
+        originalImg.src = e.target.result as string;
+      }
+    };
+
+    reader.readAsDataURL(file);
     }
   };
 
@@ -3825,7 +3911,240 @@ export default function Editor() {
       alert('❌ Failed to process masked edit. Please try again.');
     }
   };
-  
+
+  // Check if image has exposed background (doesn't cover full printable area)
+  const hasExposedBackground = (img: fabric.Image): boolean => {
+    const tolerance = 2; // px tolerance for rounding
+    const imgW = (img.width || 0) * (img.scaleX || 1);
+    const imgH = (img.height || 0) * (img.scaleY || 1);
+    const imgLeft = (img.left || 0) - imgW / 2; // center origin
+    const imgTop = (img.top || 0) - imgH / 2;
+    const imgRight = imgLeft + imgW;
+    const imgBottom = imgTop + imgH;
+
+    const areaLeft = CONTROL_PADDING;
+    const areaTop = VERTICAL_PADDING;
+    const areaRight = CONTROL_PADDING + DISPLAY_WIDTH;
+    const areaBottom = VERTICAL_PADDING + DISPLAY_HEIGHT;
+
+    const result = (
+      imgLeft > areaLeft + tolerance ||
+      imgTop > areaTop + tolerance ||
+      imgRight < areaRight - tolerance ||
+      imgBottom < areaBottom - tolerance
+    );
+
+    console.log('🔍 hasExposedBackground check:', {
+      image: { left: imgLeft.toFixed(1), top: imgTop.toFixed(1), right: imgRight.toFixed(1), bottom: imgBottom.toFixed(1), w: imgW.toFixed(1), h: imgH.toFixed(1) },
+      canvas: { left: areaLeft, top: areaTop, right: areaRight, bottom: areaBottom },
+      tolerance,
+      result,
+    });
+
+    return result;
+  };
+
+  // Reusable outpaint helper: exports canvas, creates mask, calls API, returns new fabric.Image
+  const performOutpaint = async (
+    targetImage: fabric.Image,
+    skipEditCount: boolean
+  ): Promise<fabric.Image | null> => {
+    if (!canvas) return null;
+
+    console.log('🖼️ Outpaint: Starting outpainting process...');
+
+    // Step 1: Export the full canvas (with image + blank areas)
+    const exportMultiplier = EXPORT_WIDTH / DISPLAY_WIDTH;
+
+    // Temporarily hide UI elements during export
+    const uiElements = canvas.getObjects().filter((obj: any) =>
+      obj.data?.type === 'watermark' ||
+      obj.data?.isWatermark ||
+      obj.excludeFromExport === true ||
+      obj.isFallbackBorder === true ||
+      obj.isPrintImgBorder === true
+    );
+    uiElements.forEach((obj: any) => obj.set({ visible: false }));
+
+    // Temporarily remove clipPath for rectangular export
+    const savedClipPath = canvas.clipPath;
+    canvas.clipPath = undefined;
+
+    // Export the full canvas
+    const canvasImageData = canvas.toDataURL({
+      format: 'png',
+      quality: 1.0,
+      left: CONTROL_PADDING,
+      top: VERTICAL_PADDING,
+      width: DISPLAY_WIDTH,
+      height: DISPLAY_HEIGHT,
+      multiplier: exportMultiplier,
+    });
+
+    // Restore clipPath and UI elements
+    canvas.clipPath = savedClipPath;
+    uiElements.forEach((obj: any) => obj.set({ visible: true }));
+    canvas.renderAll();
+
+    console.log('✅ Canvas exported:', EXPORT_WIDTH, 'x', EXPORT_HEIGHT);
+
+    // Step 2: Create the mask
+    // For Imagen 3 outpainting: WHITE = areas to GENERATE, BLACK = areas to PRESERVE
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = EXPORT_WIDTH;
+    maskCanvas.height = EXPORT_HEIGHT;
+    const maskCtx = maskCanvas.getContext('2d')!;
+
+    // Fill entire mask with WHITE (areas to generate/fill)
+    maskCtx.fillStyle = 'white';
+    maskCtx.fillRect(0, 0, EXPORT_WIDTH, EXPORT_HEIGHT);
+
+    // Calculate the image position and size in export coordinates
+    const imgLeft = ((targetImage.left || 0) - CONTROL_PADDING) * exportMultiplier;
+    const imgTop = ((targetImage.top || 0) - VERTICAL_PADDING) * exportMultiplier;
+    const imgWidth = (targetImage.width || 0) * (targetImage.scaleX || 1) * exportMultiplier;
+    const imgHeight = (targetImage.height || 0) * (targetImage.scaleY || 1) * exportMultiplier;
+
+    // Draw BLACK rectangle where the image is (area to PRESERVE)
+    // Account for center origin
+    const drawLeft = imgLeft - imgWidth / 2;
+    const drawTop = imgTop - imgHeight / 2;
+
+    maskCtx.fillStyle = 'black';
+    maskCtx.fillRect(drawLeft, drawTop, imgWidth, imgHeight);
+
+    const maskImageData = maskCanvas.toDataURL('image/png');
+
+    console.log('✅ Mask created');
+    console.log('   Image area (preserve - BLACK):', { left: drawLeft, top: drawTop, width: imgWidth, height: imgHeight });
+
+    // Step 3: Send to Imagen 3 outpainting endpoint
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
+    console.log('🚀 Sending outpaint request to:', `${backendUrl}/api/ai-outpaint`);
+
+    const response = await fetch(`${backendUrl}/api/ai-outpaint`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        image: canvasImageData,
+        mask: maskImageData,
+        prompt: '',
+        userId: 'editor-user',
+        machineId: machineId || 'unknown',
+        sessionId: sessionId || 'unknown',
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!result.success) {
+      console.error('❌ Outpaint failed:', result.error);
+      throw new Error(result.error || 'Outpaint failed');
+    }
+
+    console.log('✅ Outpaint successful, loading result...');
+
+    // Step 4: Load the result image
+    return new Promise<fabric.Image | null>((resolve, reject) => {
+      const imgElement = new Image();
+      imgElement.crossOrigin = 'anonymous';
+
+      imgElement.onload = () => {
+        console.log('🔍 Outpaint result dimensions:', imgElement.width, 'x', imgElement.height);
+
+        const fabricImage = new fabric.Image(imgElement);
+
+        // Full canvas placement
+        const printableWidth = DISPLAY_WIDTH;
+        const printableHeight = DISPLAY_HEIGHT;
+        const targetLeft = CONTROL_PADDING + printableWidth / 2;
+        const targetTop = VERTICAL_PADDING + printableHeight / 2;
+        const scaleX = printableWidth / (fabricImage.width || 1);
+        const scaleY = printableHeight / (fabricImage.height || 1);
+
+        // Block automatic state saves during image replacement
+        isRestoringState.current = true;
+
+        // Remove old image from canvas
+        canvas.remove(targetImage);
+
+        fabricImage.set({
+          left: targetLeft,
+          top: targetTop,
+          originX: 'center',
+          originY: 'center',
+          scaleX: scaleX,
+          scaleY: scaleY,
+          angle: 0,
+          hasBorders: false,
+          borderColor: 'transparent',
+        });
+
+        if (normalControls.current) {
+          (fabricImage as any).controls = normalControls.current;
+        }
+
+        canvas.add(fabricImage);
+        canvas.setActiveObject(fabricImage);
+        canvas.renderAll();
+        setUploadedImage(fabricImage);
+
+        if (!skipEditCount) {
+          incrementAIEditCount();
+        }
+
+        // Allow state saves again
+        setTimeout(() => {
+          isRestoringState.current = false;
+          saveCanvasState();
+        }, 100);
+
+        console.log('✅ Outpaint complete!');
+        resolve(fabricImage);
+      };
+
+      imgElement.onerror = (err) => {
+        console.error('❌ Failed to load outpaint result image:', err);
+        reject(new Error('Failed to load outpaint result image'));
+      };
+
+      imgElement.src = result.imageUrl;
+    });
+  };
+
+  // Fill in Background - uses Imagen 3 outpainting to extend background
+  // Preserves the original image exactly and fills blank canvas areas
+  const handleFillBackground = async () => {
+    if (!canvas || !uploadedImage) {
+      alert('Please upload an image first');
+      return;
+    }
+
+    // Check AI edit limit BEFORE processing
+    if (!canUseAIEdit()) {
+      alert(`🚫 You've used all ${MAX_AI_EDITS} free AI edits for this session.\n\nYour design has been saved and you can still:\n• Add text and stickers\n• Apply filters\n• Submit your design for printing`);
+      return;
+    }
+
+    setIsProcessing(true);
+    setProcessingMessage('Filling Background...');
+    setAiError(null);
+
+    try {
+      await performOutpaint(uploadedImage, false);
+      setShowAIModal(false);
+    } catch (error: any) {
+      console.error('❌ Fill Background error:', error);
+      alert('❌ Fill Background failed: ' + (error.message || 'Please try again.'));
+    } finally {
+      setIsProcessing(false);
+      setProcessingMessage('');
+      setShowAIModal(false);
+    }
+  };
+
   const handleAIEdit = async () => {
     if (!canvas || !aiPrompt.trim()) return;
 
@@ -3835,7 +4154,19 @@ export default function Editor() {
       return;
     }
 
+    // Capture whether current image has exposed background BEFORE the edit
+    const needsOutpaint = uploadedImage ? hasExposedBackground(uploadedImage) : false;
+    // Save original position/scale for placing the edited image when outpaint is needed
+    const originalPosition = uploadedImage ? {
+      left: uploadedImage.left,
+      top: uploadedImage.top,
+      scaleX: uploadedImage.scaleX,
+      scaleY: uploadedImage.scaleY,
+      angle: uploadedImage.angle,
+    } : null;
+
     setIsProcessing(true);
+    setProcessingMessage('Applying AI Edit...');
     setAiError(null);
 
     try {
@@ -3954,12 +4285,13 @@ export default function Editor() {
 
       if (!result.success) {
         console.log('AI Edit failed:', result.error);
-        
+
         // Close the modal and show user-friendly alert
         setShowAIModal(false);
         setAiModalTab('custom');
         setShowMaskModal(false);
         setIsProcessing(false);
+        setProcessingMessage('');
         setFiltersTouched(false);
         setAiPrompt('');
         setMaskPrompt('');
@@ -3997,6 +4329,7 @@ export default function Editor() {
       if (!editedImageUrl) {
         console.error('❌ No edited image URL received from API');
         setIsProcessing(false);
+        setProcessingMessage('');
         setShowAIModal(false);
         alert('❌ Failed to receive edited image. Please try again.');
         return;
@@ -4010,66 +4343,70 @@ export default function Editor() {
       const loadTimeout = setTimeout(() => {
         console.error('⏱️ Image load timeout - taking too long');
         setIsProcessing(false);
+        setProcessingMessage('');
         setShowAIModal(false);
         alert('⏱️ Image loading timed out. Please try again.');
       }, 30000);
 
-      const handleImageLoad = function() {
+      const handleImageLoad = async function() {
         clearTimeout(loadTimeout);
         console.log('🔍 AI Edit Result:');
         console.log('  Received image dimensions:', imgElement.width, 'x', imgElement.height);
-
-        // IMMEDIATELY close modal so user can see the result
-        setShowAIModal(false);
-        setAiModalTab('custom');
-        setIsProcessing(false);
-        setAiPrompt('');
-        setFiltersTouched(false);
+        console.log('  Needs outpaint:', needsOutpaint);
 
         // Create fabric image from the loaded element
         const fabricImage = new fabric.Image(imgElement);
 
-        // Preserve the original image's position and scale
+        // Determine placement: if outpaint needed, use original position; otherwise fill canvas
         let targetLeft = CONTROL_PADDING + DISPLAY_WIDTH / 2;
         let targetTop = VERTICAL_PADDING + DISPLAY_HEIGHT / 2;
         let targetScaleX = 1;
         let targetScaleY = 1;
         let targetAngle = 0;
 
-        if (uploadedImage) {
-          // Save the original position and rotation
+        if (needsOutpaint && originalPosition) {
+          // Place at original position/scale (image will be smaller than canvas)
+          targetLeft = originalPosition.left || targetLeft;
+          targetTop = originalPosition.top || targetTop;
+          targetAngle = originalPosition.angle || 0;
+
+          // The AI edit returns an image of same dimensions as input.
+          // Scale it so its display size matches the original display size.
+          const origDisplayW = (uploadedImage?.width || 1) * (originalPosition.scaleX || 1);
+          const origDisplayH = (uploadedImage?.height || 1) * (originalPosition.scaleY || 1);
+          targetScaleX = origDisplayW / (fabricImage.width || 1);
+          targetScaleY = origDisplayH / (fabricImage.height || 1);
+
+          console.log('  Outpaint mode: placing at original position:', targetLeft, targetTop);
+          console.log('  Original display size:', origDisplayW, 'x', origDisplayH);
+          console.log('  Target scale:', targetScaleX, targetScaleY);
+        } else if (uploadedImage) {
+          // No outpaint: scale to FILL the canvas (existing behavior)
           targetLeft = uploadedImage.left || targetLeft;
           targetTop = uploadedImage.top || targetTop;
           targetAngle = uploadedImage.angle || 0;
 
-          // Calculate scale to FILL the canvas while maintaining aspect ratio
-          // Use the printable area dimensions (DISPLAY_WIDTH and DISPLAY_HEIGHT are already calculated)
           const printableWidth = DISPLAY_WIDTH;
           const printableHeight = DISPLAY_HEIGHT;
-
-          // Calculate scale to COVER (fill) the printable area while maintaining aspect ratio
-          // Using Math.max ensures the image fills the entire canvas (no black margins)
           const scaleToFitWidth = printableWidth / (fabricImage.width || 1);
           const scaleToFitHeight = printableHeight / (fabricImage.height || 1);
-          const uniformScale = Math.max(scaleToFitWidth, scaleToFitHeight); // Changed from Math.min to Math.max
+          const uniformScale = Math.max(scaleToFitWidth, scaleToFitHeight);
 
           targetScaleX = uniformScale;
-          targetScaleY = uniformScale; // Use same scale to maintain aspect ratio
+          targetScaleY = uniformScale;
 
-          console.log('  Preserving original position:', targetLeft, targetTop);
-          console.log('  New image size:', fabricImage.width, 'x', fabricImage.height);
-          console.log('  Canvas printable area:', printableWidth, 'x', printableHeight);
+          console.log('  Fill mode: scale to fill canvas');
           console.log('  Calculated uniform scale (FILL):', uniformScale);
-          console.log('  Preserving original angle:', targetAngle);
+        }
 
-          // Block automatic state saves during image replacement
-          isRestoringState.current = true;
+        // Block automatic state saves during image replacement
+        isRestoringState.current = true;
 
-          // Remove old image
+        if (uploadedImage) {
           canvas.remove(uploadedImage);
         }
 
-        // Place edited image at the same position/scale as original
+        // Place edited image
         fabricImage.set({
           left: targetLeft,
           top: targetTop,
@@ -4078,7 +4415,6 @@ export default function Editor() {
           scaleX: targetScaleX,
           scaleY: targetScaleY,
           angle: targetAngle,
-          // Apply custom control settings
           hasBorders: false,
           borderColor: 'transparent'
         });
@@ -4104,41 +4440,75 @@ export default function Editor() {
         canvas.renderAll();
         setUploadedImage(fabricImage);
 
-        // Increment AI edit counter after successful edit
+        // If outpaint is needed, chain the fill-background step
+        let finalImage = fabricImage;
+        if (needsOutpaint) {
+          try {
+            setProcessingMessage('Filling Background...');
+            console.log('🔄 Auto-fill: chaining outpaint after AI edit...');
+
+            // Allow state to settle before outpaint export
+            await new Promise(r => setTimeout(r, 50));
+            isRestoringState.current = false;
+            canvas.renderAll();
+
+            const outpaintResult = await performOutpaint(fabricImage, true); // skipEditCount=true
+            if (outpaintResult) {
+              finalImage = outpaintResult;
+              console.log('✅ Auto-fill background complete');
+            }
+          } catch (outpaintError: any) {
+            console.error('⚠️ Auto-fill background failed:', outpaintError);
+            alert('⚠️ AI edit succeeded but background fill failed. You can try "Fill in Background" manually.');
+            // Continue with the edited (unfilled) image - don't lose the edit
+          }
+        }
+
+        // Increment AI edit counter ONCE for the combined edit+fill
         incrementAIEditCount();
 
+        // Close modal and reset state
+        setShowAIModal(false);
+        setAiModalTab('custom');
+        setIsProcessing(false);
+        setProcessingMessage('');
+        setAiPrompt('');
+        setFiltersTouched(false);
+
         // CRITICAL: Update originalImageFile so next AI edit uses this edited version (sequential editing)
-        // Convert the edited image data URL to a File object
-        fetch(result.editedImageUrl)
-          .then(res => res.blob())
-          .then(blob => {
-            const editedFile = new File([blob], 'ai-edited-image.png', { type: 'image/png' });
-            setOriginalImageFile(editedFile);
-            console.log('✅ Updated originalImageFile for sequential AI edits');
-          })
-          .catch(err => {
-            console.error('⚠️ Failed to update originalImageFile:', err);
-            // Not critical - next edit will just use canvas export instead
-          });
+        // Use the final image (outpainted if applicable)
+        const finalImageSrc = (finalImage as any).getSrc ? (finalImage as any).getSrc() : (finalImage as any)._element?.src;
+        if (finalImageSrc) {
+          fetch(finalImageSrc)
+            .then(res => res.blob())
+            .then(blob => {
+              const editedFile = new File([blob], 'ai-edited-image.png', { type: 'image/png' });
+              setOriginalImageFile(editedFile);
+              console.log('✅ Updated originalImageFile for sequential AI edits');
+            })
+            .catch(err => {
+              console.error('⚠️ Failed to update originalImageFile:', err);
+            });
+        }
 
         // Save state after AI edit completes (new image added)
         // Keep isRestoringState=true during this to block automatic event-driven saves
         setTimeout(() => {
-          if (fabricImage) {
-            const imageSrc = (fabricImage as any).getSrc ? (fabricImage as any).getSrc() : (fabricImage as any)._element?.src;
+          if (finalImage) {
+            const imageSrc = (finalImage as any).getSrc ? (finalImage as any).getSrc() : (finalImage as any)._element?.src;
             const newState = {
               src: imageSrc,
-              left: fabricImage.left,
-              top: fabricImage.top,
-              scaleX: fabricImage.scaleX,
-              scaleY: fabricImage.scaleY,
-              angle: fabricImage.angle,
-              flipX: fabricImage.flipX,
-              flipY: fabricImage.flipY,
-              opacity: fabricImage.opacity,
-              originX: fabricImage.originX,
-              originY: fabricImage.originY,
-              filters: fabricImage.filters ? [...fabricImage.filters] : [],
+              left: finalImage.left,
+              top: finalImage.top,
+              scaleX: finalImage.scaleX,
+              scaleY: finalImage.scaleY,
+              angle: finalImage.angle,
+              flipX: finalImage.flipX,
+              flipY: finalImage.flipY,
+              opacity: finalImage.opacity,
+              originX: finalImage.originX,
+              originY: finalImage.originY,
+              filters: finalImage.filters ? [...finalImage.filters] : [],
               backgroundColor: canvasBackgroundColor
             };
             const newStateStr = JSON.stringify(newState);
@@ -4147,9 +4517,7 @@ export default function Editor() {
             if (lastSavedStateRef.current === newStateStr) {
               console.log('⏭️ Post-AI-edit state already saved (ref check), skipping');
             } else {
-              // Update ref synchronously BEFORE React state update
               lastSavedStateRef.current = newStateStr;
-
               setCanvasHistory(prev => {
                 console.log('📸 Post-AI-edit state WITH src saved to canvasHistory');
                 return [...prev, newStateStr].slice(-20);
@@ -4160,7 +4528,7 @@ export default function Editor() {
             isRestoringState.current = false;
 
             // Save to sessionStorage ONLY - skip history save since we already added state with src above
-            saveCanvasState(fabricImage, true);
+            saveCanvasState(finalImage, true);
             console.log('💾 AI edit persisted to sessionStorage (history save skipped)');
           }
         }, 100);
@@ -4175,6 +4543,7 @@ export default function Editor() {
         console.error('Failed to load image element:', error);
         setAiError('Failed to load edited image');
         setIsProcessing(false);
+        setProcessingMessage('');
         setShowAIModal(false);
         alert('❌ Failed to load edited image. Please try again.');
       };
@@ -4195,6 +4564,7 @@ export default function Editor() {
       setShowAIModal(false);
       setAiModalTab('custom');
       setIsProcessing(false);
+      setProcessingMessage('');
       setAiPrompt('');
       setFiltersTouched(false);
 
@@ -6434,6 +6804,29 @@ export default function Editor() {
                     <span className="text-gray-700 font-medium">Cinematic</span>
                   </button>
                 </div>
+
+                {/* Fill in Background - Separate Feature */}
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <p className="text-xs text-gray-500 mb-2">Image doesn't fill the canvas?</p>
+                  <button
+                    onClick={() => handleFillBackground()}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg hover:from-blue-600 hover:to-cyan-600 transition text-sm font-semibold"
+                    disabled={isProcessing || !uploadedImage}
+                  >
+                    {isProcessing && processingMessage === 'Filling Background...' ? (
+                      <>
+                        <span className="animate-spin">⚙️</span>
+                        <span>Filling Background...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-lg">🖼️</span>
+                        <span>Fill in Background</span>
+                      </>
+                    )}
+                  </button>
+                  <p className="text-xs text-gray-400 mt-1 text-center">Extends the image to fill the entire canvas</p>
+                </div>
               </div>
             </div>
 
@@ -6450,7 +6843,7 @@ export default function Editor() {
                 {isProcessing ? (
                   <>
                     <span className="animate-spin">⚙️</span>
-                    <span>Processing...</span>
+                    <span>{processingMessage || 'Processing...'}</span>
                   </>
                 ) : (
                   <>

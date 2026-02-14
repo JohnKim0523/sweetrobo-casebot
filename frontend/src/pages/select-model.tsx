@@ -251,7 +251,7 @@ export default function SelectModel() {
       setMachineOffline(false);
 
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':3001') : 'http://localhost:3001');
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? window.location.origin.replace(':3002', ':3003') : 'http://localhost:3003');
         const statusResponse = await fetch(`${backendUrl}/api/chitu/machine/${machineId}/status`);
         const statusData: MachineStatus = await statusResponse.json();
 
@@ -281,7 +281,7 @@ export default function SelectModel() {
       setInventoryError(null);
 
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':3001') : 'http://localhost:3001');
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? window.location.origin.replace(':3002', ':3003') : 'http://localhost:3003');
         const response = await fetch(`${backendUrl}/api/chitu/products/${machineId}?type=all&status=1`);
 
         if (!response.ok) {

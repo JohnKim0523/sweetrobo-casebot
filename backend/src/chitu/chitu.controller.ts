@@ -511,10 +511,15 @@ export class ChituController {
         );
       }
 
-      // Only allow Chitu CDN URLs for security
-      if (!url.startsWith('https://print-oss.gzchitu.cn/')) {
+      // Only allow trusted URLs for security
+      const allowedPrefixes = [
+        'https://print-oss.gzchitu.cn/',
+        'https://sweetrobo-phonecase-designs.s3.us-east-1.amazonaws.com/',
+      ];
+      const isAllowed = allowedPrefixes.some(prefix => url.startsWith(prefix));
+      if (!isAllowed) {
         throw new HttpException(
-          'Only Chitu CDN URLs are allowed',
+          'Only Chitu CDN and SweetRobo S3 URLs are allowed',
           HttpStatus.FORBIDDEN,
         );
       }

@@ -742,6 +742,161 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
   }
 
   /**
+   * Outpaint an image using Imagen 3 - extends the image to fill masked areas
+   * This preserves the original image exactly and only fills in the masked (black) areas
+   */
+  async outpaintImage(request: {
+    imageBase64: string; // Base64 encoded image (padded canvas with image)
+    maskBase64: string; // Base64 encoded mask (white=preserve, black=fill)
+    prompt?: string; // Optional prompt describing what to fill with
+    userId?: string;
+  }): Promise<ImageEditResponse> {
+    // Initialize Vertex AI if not already done
+    this.initialize();
+
+    const userId = request.userId || 'anonymous';
+
+    if (!this.projectId) {
+      return {
+        success: false,
+        error: 'Vertex AI is not configured. Please set GOOGLE_CLOUD_PROJECT_ID environment variable.',
+      };
+    }
+
+    // Check rate limit
+    const rateLimit = this.checkRateLimit(userId);
+    if (!rateLimit.allowed) {
+      return {
+        success: false,
+        error: 'Rate limit exceeded. Please try again later.',
+      };
+    }
+
+    try {
+      console.log(`🖼️ Outpainting image for user ${userId}...`);
+      console.log(`   Prompt: ${request.prompt || '(empty - auto extend)'}`);
+      console.log(`   Rate limit: ${rateLimit.remaining} requests remaining`);
+
+      // Use Imagen 3 REST API for outpainting
+      const apiEndpoint = `https://${this.location}-aiplatform.googleapis.com/v1/projects/${this.projectId}/locations/${this.location}/publishers/google/models/imagen-3.0-capability-001:predict`;
+
+      // Get access token
+      const { GoogleAuth } = await import('google-auth-library');
+
+      // Handle credentials from environment variable (Railway deployment)
+      const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+      let auth: any;
+
+      if (credentialsJson) {
+        const credentials = JSON.parse(credentialsJson);
+        auth = new GoogleAuth({
+          credentials,
+          scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+        });
+      } else {
+        auth = new GoogleAuth({
+          scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+        });
+      }
+
+      const client = await auth.getClient();
+      const accessToken = await client.getAccessToken();
+
+      // Prepare the request body for Imagen 3 outpainting
+      const requestBody = {
+        instances: [
+          {
+            prompt: request.prompt || '', // Empty string = AI extends intelligently
+            referenceImages: [
+              {
+                referenceType: 'REFERENCE_TYPE_RAW',
+                referenceId: 1,
+                referenceImage: {
+                  bytesBase64Encoded: request.imageBase64.replace(/^data:image\/\w+;base64,/, ''),
+                },
+              },
+              {
+                referenceType: 'REFERENCE_TYPE_MASK',
+                referenceId: 2,
+                referenceImage: {
+                  bytesBase64Encoded: request.maskBase64.replace(/^data:image\/\w+;base64,/, ''),
+                },
+                maskImageConfig: {
+                  maskMode: 'MASK_MODE_USER_PROVIDED',
+                  dilation: 0.03, // Recommended for outpainting to avoid visible seams
+                },
+              },
+            ],
+          },
+        ],
+        parameters: {
+          editConfig: {
+            baseSteps: 35, // Start at 35, increase if quality needs improvement
+          },
+          editMode: 'EDIT_MODE_OUTPAINT',
+          sampleCount: 1, // Just generate 1 image
+        },
+      };
+
+      console.log('🚀 Sending outpaint request to Imagen 3...');
+
+      const response = await this.executeWithTimeout(
+        fetch(apiEndpoint, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        }),
+        this.REQUEST_TIMEOUT,
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Imagen 3 API error:', response.status, errorText);
+        throw new Error(`Imagen 3 API error: ${response.status} - ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('📥 Imagen 3 response received');
+
+      // Extract the generated image from the response
+      if (!result.predictions || result.predictions.length === 0) {
+        throw new Error('No predictions returned from Imagen 3');
+      }
+
+      const prediction = result.predictions[0];
+
+      // Imagen 3 returns base64 encoded image in bytesBase64Encoded field
+      const outputImageBase64 = prediction.bytesBase64Encoded;
+
+      if (!outputImageBase64) {
+        console.error('❌ No image data in prediction:', prediction);
+        throw new Error('No image data returned from Imagen 3');
+      }
+
+      // Track cost (same as generation)
+      this.totalGenerateRequests++;
+      this.totalGenerateCost += this.COST_PER_GENERATE;
+
+      console.log(`✅ Outpainting successful for user ${userId}`);
+      console.log(`💰 Cost: $${this.COST_PER_GENERATE.toFixed(3)} this request`);
+
+      return {
+        success: true,
+        editedImageUrl: `data:image/png;base64,${outputImageBase64}`,
+      };
+    } catch (error) {
+      console.error('❌ Error outpainting image with Imagen 3:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
+  }
+
+  /**
    * Edit image with text prompt (simplified API)
    */
   async editWithPrompt(

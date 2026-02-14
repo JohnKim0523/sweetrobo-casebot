@@ -30,7 +30,7 @@ export const useWebSocket = () => {
   const [printProgress, setPrintProgress] = useState<PrintProgress | null>(null);
 
   useEffect(() => {
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3003';
     const newSocket = io(backendUrl);
 
     newSocket.on('connect', () => {

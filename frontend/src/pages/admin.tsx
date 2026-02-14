@@ -80,7 +80,7 @@ export default function AdminDashboard() {
     try {
       setLoading(true);
       setError(null);
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3003';
       const response = await fetch(`${backendUrl}/api/admin/s3-images`, {
         headers: {
           'Authorization': `Bearer ${adminToken}`
@@ -113,7 +113,7 @@ export default function AdminDashboard() {
   const loadQueueJobs = async () => {
     try {
       setLoadingJobs(true);
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3003';
       const response = await fetch(`${backendUrl}/api/chitu/queue/jobs?limit=50`);
       const data = await response.json();
 
@@ -134,7 +134,7 @@ export default function AdminDashboard() {
     try {
       setLoadingAiUsage(true);
       setAiUsageError(null);
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3003';
       const response = await fetch(`${backendUrl}/api/admin/ai-usage`, {
         headers: {
           'Authorization': `Bearer ${adminToken}`
@@ -166,7 +166,7 @@ export default function AdminDashboard() {
     try {
       setLoadingInventory(true);
       setInventoryError(null);
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3003';
       const response = await fetch(`${backendUrl}/api/chitu/inventory/${targetMachine}`);
       const data: InventoryGridResponse = await response.json();
 
@@ -204,7 +204,7 @@ export default function AdminDashboard() {
 
     try {
       setDeleting(key);
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3003';
       console.log('Sending DELETE request with key:', key);
 
       const response = await fetch(`${backendUrl}/api/admin/s3-images`, {
@@ -240,7 +240,7 @@ export default function AdminDashboard() {
 
     try {
       setDeletingJob(jobId);
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3003';
       const response = await fetch(`${backendUrl}/api/chitu/queue/cancel/${jobId}`, {
         method: 'POST',
         headers: {
@@ -276,7 +276,7 @@ export default function AdminDashboard() {
 
     try {
       setDeletingJob('all');
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3003';
 
       let successCount = 0;
       let failCount = 0;
@@ -633,7 +633,7 @@ export default function AdminDashboard() {
                           onClick={async () => {
                             // Download the TIF file from S3 via backend proxy
                             try {
-                              const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+                              const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3003';
                               const response = await fetch(`${backendUrl}/api/admin/s3-download?url=${encodeURIComponent(image.imageUrl || '')}`, {
                                 headers: {
                                   'Authorization': `Bearer ${adminToken}`
