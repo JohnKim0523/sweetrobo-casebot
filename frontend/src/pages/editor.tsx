@@ -2258,48 +2258,6 @@ export default function Editor() {
     };
     img.onerror = (err) => {
       console.error('❌ Failed to load print_img for clipPath - using default rounded corners:', err);
-
-      // Create a fallback rounded rectangle clipPath
-      if (canvas && fabric) {
-        // Remove any existing fallback border first to prevent duplicates
-        const existingFallback = canvas.getObjects().find((obj: any) => obj.isFallbackBorder);
-        if (existingFallback) {
-          canvas.remove(existingFallback);
-        }
-
-        const fallbackClip = new fabric.Rect({
-          left: CONTROL_PADDING,
-          top: VERTICAL_PADDING,
-          width: DISPLAY_WIDTH,
-          height: DISPLAY_HEIGHT,
-          rx: 20,  // Rounded corners
-          ry: 20,
-          absolutePositioned: true,
-        });
-        canvas.clipPath = fallbackClip;
-
-        // Also add a visible border so users can see the print area
-        const fallbackBorder = new fabric.Rect({
-          left: CONTROL_PADDING,
-          top: VERTICAL_PADDING,
-          width: DISPLAY_WIDTH,
-          height: DISPLAY_HEIGHT,
-          rx: 20,
-          ry: 20,
-          fill: 'transparent',
-          stroke: 'rgba(255, 255, 255, 0.5)',
-          strokeWidth: 2,
-          selectable: false,
-          evented: false,
-          excludeFromExport: true,
-          isFallbackBorder: true,
-        });
-        canvas.add(fallbackBorder);
-        canvas.bringObjectToFront(fallbackBorder);
-
-        canvas.renderAll();
-        console.log('✅ Applied fallback rounded rectangle clipPath');
-      }
     };
     img.src = proxyUrl;
   }, [canvas, fabric, DISPLAY_WIDTH, DISPLAY_HEIGHT, CONTROL_PADDING, VERTICAL_PADDING, crosshairLines]);
