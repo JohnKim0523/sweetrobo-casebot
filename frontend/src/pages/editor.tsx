@@ -297,6 +297,7 @@ export default function Editor() {
   }, [router.query.restore, canvas, fabric]);
 
   const [machineId, setMachineId] = useState<string | null>(null);
+  const watermarkObjRef = useRef<any>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTimestamp, setSessionTimestamp] = useState<number | null>(null);
   const [isSessionLocked, setIsSessionLocked] = useState(false);
@@ -2291,6 +2292,88 @@ export default function Editor() {
       scaleFactor: SCALE_FACTOR
     });
   }, [canvas, uploadedImage, CANVAS_TOTAL_WIDTH, CANVAS_TOTAL_HEIGHT, DISPLAY_WIDTH, DISPLAY_HEIGHT, SCALE_FACTOR, CONTROL_PADDING, VERTICAL_PADDING]);
+
+  // Fetch and display watermark overlay from S3 (if one exists for this machine)
+  useEffect(() => {
+    if (!canvas || !fabric || isDemoMode || !machineId) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3002', ':3003');
+        const res = await fetch(`${backendUrl}/api/chitu/watermark/${machineId}`);
+        const data = await res.json();
+        if (cancelled || !data.exists) return;
+
+        const proxyUrl = `${backendUrl}/api/chitu/image-proxy?url=${encodeURIComponent(data.url)}`;
+
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          if (cancelled || !canvas) return;
+
+          const fabricImg = new fabric.Image(img, {
+            selectable: false,
+            evented: false,
+            excludeFromExport: true,
+            opacity: 0.7,
+            data: { type: 'watermark', isWatermark: true },
+          });
+
+          // Scale to ~85% of display width, position bottom-right with 10px padding
+          const targetWidth = DISPLAY_WIDTH * 0.85;
+          const scale = targetWidth / img.width;
+          const scaledHeight = img.height * scale;
+
+          fabricImg.set({
+            scaleX: scale,
+            scaleY: scale,
+            left: CONTROL_PADDING + DISPLAY_WIDTH - targetWidth - 20,
+            top: VERTICAL_PADDING + DISPLAY_HEIGHT - scaledHeight - 20,
+          });
+
+          // Remove previous watermark if any
+          if (watermarkObjRef.current) {
+            canvas.remove(watermarkObjRef.current);
+          }
+
+          canvas.add(fabricImg);
+          canvas.bringObjectToFront(fabricImg);
+          watermarkObjRef.current = fabricImg;
+          canvas.renderAll();
+          console.log('✅ Watermark loaded and displayed for machine:', machineId);
+        };
+        img.onerror = () => {
+          console.warn('⚠️ Failed to load watermark image');
+        };
+        img.src = proxyUrl;
+      } catch (err) {
+        console.warn('⚠️ Failed to fetch watermark:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canvas, fabric, machineId, isDemoMode, DISPLAY_WIDTH, DISPLAY_HEIGHT, CONTROL_PADDING, VERTICAL_PADDING]);
+
+  // Keep watermark on top when new objects are added
+  useEffect(() => {
+    if (!canvas) return;
+
+    const bringWatermarkToFront = () => {
+      if (watermarkObjRef.current) {
+        canvas.bringObjectToFront(watermarkObjRef.current);
+      }
+    };
+
+    canvas.on('object:added', bringWatermarkToFront);
+
+    return () => {
+      canvas.off('object:added', bringWatermarkToFront);
+    };
+  }, [canvas]);
 
   // Ensure custom controls are always applied to uploaded image
   useEffect(() => {

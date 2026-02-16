@@ -95,4 +95,19 @@ export class S3Service {
 
     await this.s3.deleteObject(params).promise();
   }
+
+  async getWatermarkUrl(machineId: string): Promise<string | null> {
+    const key = `watermarks/${machineId}.png`;
+    try {
+      await this.s3
+        .headObject({ Bucket: this.bucketName, Key: key })
+        .promise();
+      return `https://${this.bucketName}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${key}`;
+    } catch (err: any) {
+      if (err.code === 'NotFound' || err.code === 'NoSuchKey') {
+        return null;
+      }
+      throw err;
+    }
+  }
 }

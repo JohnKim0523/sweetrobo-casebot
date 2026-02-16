@@ -498,6 +498,22 @@ export class ChituController {
   }
 
   /**
+   * Get watermark URL for a machine (if one exists in S3)
+   */
+  @Get('watermark/:machineId')
+  async getWatermark(@Param('machineId') machineId: string) {
+    try {
+      const url = await this.s3Service.getWatermarkUrl(machineId);
+      if (url) {
+        return { exists: true, url };
+      }
+      return { exists: false };
+    } catch (error) {
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  /**
    * Proxy image from Chitu CDN to avoid CORS issues
    * Used for loading phone case overlay templates
    */
