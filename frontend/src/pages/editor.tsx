@@ -6731,8 +6731,8 @@ export default function Editor() {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="w-full max-w-sm bg-white flex flex-col rounded-2xl shadow-2xl max-h-[90vh]">
             {/* Header */}
-            <div className="p-4 border-b border-gray-200 relative">
-              <h2 className="text-gray-900 text-base font-semibold">Edit with AI</h2>
+            <div className="p-4 relative bg-gradient-to-r from-purple-500 to-pink-500 rounded-t-2xl">
+              <h2 className="text-white text-base font-semibold flex items-center gap-1.5">&#10024; Edit with AI</h2>
               <button
                 onClick={() => {
                   // If filters were touched but not applied, revert changes
@@ -6772,7 +6772,7 @@ export default function Editor() {
                   setAiModalTab('custom');
                   setFiltersTouched(false);
                 }}
-                className="absolute top-4 right-4 w-6 h-6 flex items-center justify-center text-gray-400 hover:text-gray-600"
+                className="absolute top-4 right-4 w-6 h-6 flex items-center justify-center text-white/70 hover:text-white"
                 disabled={isProcessing}
               >
                 <span className="text-2xl leading-none">&times;</span>
@@ -6786,69 +6786,46 @@ export default function Editor() {
                 <textarea
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="Describe your edit (e.g., 'Make it look like oil painting')..."
-                  className="w-full px-3 py-2 bg-gray-50 rounded-lg border border-gray-300 focus:border-purple-500 focus:outline-none text-gray-900 text-sm mb-4"
+                  placeholder="Tell us how to remix your photo..."
+                  className="w-full px-3 py-2 bg-purple-50/50 rounded-lg border border-purple-200 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none text-gray-900 text-sm mb-4"
                   rows={3}
                   disabled={isProcessing}
                 />
 
-                <p className="text-xs text-gray-500 mb-2">Or choose a quick action:</p>
+                <p className="text-xs text-gray-500 mb-2">Try a vibe:</p>
 
                 {/* Quick Action Buttons Grid - 3x2 */}
                 <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setAiPrompt('Make it look like oil painting')}
-                    className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                    disabled={isProcessing}
-                  >
-                    <span className="text-xl">🎨</span>
-                    <span className="text-gray-700 font-medium">Oil Painting</span>
-                  </button>
-                  <button
-                    onClick={() => setAiPrompt('Convert to cartoon style')}
-                    className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                    disabled={isProcessing}
-                  >
-                    <span className="text-xl">🎭</span>
-                    <span className="text-gray-700 font-medium">Cartoon Style</span>
-                  </button>
-                  <button
-                    onClick={() => setAiPrompt('Make it vintage')}
-                    className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                    disabled={isProcessing}
-                  >
-                    <span className="text-xl">📷</span>
-                    <span className="text-gray-700 font-medium">Vintage</span>
-                  </button>
-                  <button
-                    onClick={() => setAiPrompt('Add sunset lighting')}
-                    className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                    disabled={isProcessing}
-                  >
-                    <span className="text-xl">🌅</span>
-                    <span className="text-gray-700 font-medium">Sunset</span>
-                  </button>
-                  <button
-                    onClick={() => setAiPrompt('Apply watercolor effect')}
-                    className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                    disabled={isProcessing}
-                  >
-                    <span className="text-xl">💧</span>
-                    <span className="text-gray-700 font-medium">Watercolor</span>
-                  </button>
-                  <button
-                    onClick={() => setAiPrompt('Add dramatic cinematic lighting')}
-                    className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition text-sm"
-                    disabled={isProcessing}
-                  >
-                    <span className="text-xl">🎬</span>
-                    <span className="text-gray-700 font-medium">Cinematic</span>
-                  </button>
+                  {[
+                    { prompt: 'Turn this into a gorgeous oil painting with rich, dreamy brush strokes', emoji: '🎨', label: 'Oil Painting' },
+                    { prompt: 'Make this look like a cool cartoon or anime style illustration', emoji: '🎭', label: 'Cartoon Style' },
+                    { prompt: 'Give this a retro vintage film look with warm faded tones', emoji: '📷', label: 'Vintage' },
+                    { prompt: 'Add a warm golden hour sunset glow to the whole image', emoji: '🌅', label: 'Golden Hour' },
+                    { prompt: 'Transform this into a soft dreamy watercolor painting', emoji: '💧', label: 'Watercolor' },
+                    { prompt: 'Give this a dramatic cinematic movie poster look with bold lighting', emoji: '🎬', label: 'Cinematic' },
+                  ].map((item) => {
+                    const isActive = aiPrompt === item.prompt;
+                    return (
+                      <button
+                        key={item.label}
+                        onClick={() => setAiPrompt(isActive ? '' : item.prompt)}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg transition text-sm ${
+                          isActive
+                            ? 'bg-purple-100 border-2 border-purple-500 shadow-sm'
+                            : 'bg-white border border-gray-300 hover:border-purple-400 hover:bg-purple-50'
+                        }`}
+                        disabled={isProcessing}
+                      >
+                        <span className="text-xl">{item.emoji}</span>
+                        <span className={`font-medium ${isActive ? 'text-purple-700' : 'text-gray-700'}`}>{item.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Fill in Background - Separate Feature */}
                 <div className="mt-4 pt-4 border-t border-gray-200">
-                  <p className="text-xs text-gray-500 mb-2">Image doesn't fill the canvas?</p>
+                  <p className="text-xs text-gray-500 mb-2">Photo not filling the whole case?</p>
                   <button
                     onClick={() => handleFillBackground()}
                     className="w-full flex items-center justify-center gap-2 px-3 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg hover:from-blue-600 hover:to-cyan-600 transition text-sm font-semibold"
@@ -6866,7 +6843,7 @@ export default function Editor() {
                       </>
                     )}
                   </button>
-                  <p className="text-xs text-gray-400 mt-1 text-center">Extends the image to fill the entire canvas</p>
+                  <p className="text-xs text-gray-400 mt-1 text-center">AI extends your photo to fill the whole case</p>
                 </div>
               </div>
             </div>
@@ -6888,8 +6865,8 @@ export default function Editor() {
                   </>
                 ) : (
                   <>
-                    <span>&#10003;</span>
-                    <span>Apply</span>
+                    <span>&#10024;</span>
+                    <span>Make it happen</span>
                   </>
                 )}
               </button>
@@ -6915,8 +6892,8 @@ export default function Editor() {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="w-full max-w-sm bg-white flex flex-col rounded-2xl shadow-2xl max-h-[90vh]">
             {/* Header */}
-            <div className="p-4 border-b border-gray-200 relative">
-              <h2 className="text-gray-900 text-base font-semibold">Stickers & Effects</h2>
+            <div className="p-4 relative bg-gradient-to-r from-indigo-500 to-purple-500 rounded-t-2xl">
+              <h2 className="text-white text-base font-semibold flex items-center gap-1.5">&#127912; Customize</h2>
               <button
                 onClick={() => {
                   // Revert text color to initial state if changed
@@ -6929,34 +6906,34 @@ export default function Editor() {
                   setStickersModalTab('stickers');
                   setTextInput('');
                 }}
-                className="absolute top-4 right-4 w-6 h-6 flex items-center justify-center text-gray-400 hover:text-gray-600"
+                className="absolute top-4 right-4 w-6 h-6 flex items-center justify-center text-white/70 hover:text-white"
               >
                 <span className="text-2xl leading-none">&times;</span>
               </button>
             </div>
 
             {/* Tab Icons */}
-            <div className="flex items-center justify-around p-4 border-b border-gray-200">
+            <div className="flex items-center justify-around p-3 border-b border-gray-200 bg-gray-50/50">
               <button
                 onClick={() => setStickersModalTab('text')}
-                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${stickersModalTab === 'text' ? 'bg-purple-100' : ''}`}
+                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition ${stickersModalTab === 'text' ? 'bg-purple-100 border border-purple-300 shadow-sm' : 'hover:bg-gray-100'}`}
               >
-                <span className="text-2xl">T</span>
-                <span className="text-xs text-gray-700">Text</span>
+                <span className="text-2xl">&#9997;&#65039;</span>
+                <span className={`text-xs font-medium ${stickersModalTab === 'text' ? 'text-purple-700' : 'text-gray-500'}`}>Text</span>
               </button>
               <button
                 onClick={() => setStickersModalTab('stickers')}
-                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${stickersModalTab === 'stickers' ? 'bg-purple-100' : ''}`}
+                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition ${stickersModalTab === 'stickers' ? 'bg-purple-100 border border-purple-300 shadow-sm' : 'hover:bg-gray-100'}`}
               >
-                <span className="text-2xl">🎨</span>
-                <span className="text-xs text-gray-700">Stickers</span>
+                <span className="text-2xl">&#11088;</span>
+                <span className={`text-xs font-medium ${stickersModalTab === 'stickers' ? 'text-purple-700' : 'text-gray-500'}`}>Stickers</span>
               </button>
               <button
                 onClick={() => setStickersModalTab('filters')}
-                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg ${stickersModalTab === 'filters' ? 'bg-purple-100' : ''}`}
+                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition ${stickersModalTab === 'filters' ? 'bg-purple-100 border border-purple-300 shadow-sm' : 'hover:bg-gray-100'}`}
               >
-                <span className="text-2xl">☰</span>
-                <span className="text-xs text-gray-700">Filters</span>
+                <span className="text-2xl">&#9881;&#65039;</span>
+                <span className={`text-xs font-medium ${stickersModalTab === 'filters' ? 'text-purple-700' : 'text-gray-500'}`}>Filters</span>
               </button>
             </div>
 
@@ -7010,23 +6987,23 @@ export default function Editor() {
                   </div>
 
                   {/* Add Custom Text Label */}
-                  <label className="block text-sm font-semibold text-gray-900 mb-2">Add Custom Text</label>
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">Write your own</label>
 
                   {/* Text Input */}
                   <textarea
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
-                    placeholder="Enter your text..."
-                    className="w-full px-3 py-2 bg-gray-50 rounded-lg border border-gray-300 focus:border-purple-500 focus:outline-none text-gray-900 text-sm mb-3"
+                    placeholder="Type something cool..."
+                    className="w-full px-3 py-2 bg-purple-50/50 rounded-lg border border-purple-200 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none text-gray-900 text-sm mb-3"
                     rows={2}
                   />
 
                   {/* Font Family */}
-                  <label className="block text-xs font-semibold text-gray-900 mb-1">Font Family</label>
+                  <label className="block text-xs font-semibold text-gray-900 mb-1">Font</label>
                   <select
                     value={fontFamily}
                     onChange={(e) => setFontFamily(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-50 rounded-lg border border-gray-300 focus:border-purple-500 focus:outline-none text-gray-900 text-sm mb-3"
+                    className="w-full px-3 py-2 bg-purple-50/50 rounded-lg border border-purple-200 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none text-gray-900 text-sm mb-3"
                     style={{ fontFamily: fontFamily }}
                   >
                     <option value="Arial" style={{ fontFamily: 'Arial' }}>Arial</option>
@@ -7159,7 +7136,7 @@ export default function Editor() {
               {/* Stickers Tab */}
               {stickersModalTab === 'stickers' && (
                 <div className="flex flex-col h-full">
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Stickers</h3>
+                  <p className="text-xs text-gray-500 mb-3">Drop a sticker or upload your own</p>
 
                   {/* Upload Custom Sticker Button */}
                   <label className="w-full mb-3 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium text-sm text-center cursor-pointer hover:opacity-90 transition flex items-center justify-center gap-2">
@@ -7307,8 +7284,8 @@ export default function Editor() {
                         }
                       }
                     }}
-                    placeholder="Search or paste stickers..."
-                    className="w-full px-3 py-2 mb-3 bg-gray-50 rounded-lg border border-gray-300 focus:border-purple-500 focus:outline-none text-gray-900 text-sm"
+                    placeholder="Search stickers..."
+                    className="w-full px-3 py-2 mb-3 bg-purple-50/50 rounded-lg border border-purple-200 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none text-gray-900 text-sm"
                   />
 
                   {/* Sticker Grid - Scrollable */}
@@ -7492,7 +7469,7 @@ export default function Editor() {
               {stickersModalTab === 'filters' && (
                 <div className="flex flex-col h-full">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-900">Quick Effects</h3>
+                    <h3 className="text-sm font-semibold text-gray-900">Tweak the look</h3>
                   </div>
 
                   {/* Black & White and Background Color */}
@@ -7740,7 +7717,7 @@ export default function Editor() {
                         }}
                         className="w-full py-2.5 px-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-semibold rounded-lg hover:from-purple-600 hover:to-pink-600 transition-all shadow-sm flex items-center justify-center gap-2"
                       >
-                        ✓ Apply
+                        &#10024; Apply filters
                       </button>
                     </div>
                   )}
@@ -7797,11 +7774,11 @@ export default function Editor() {
                     // Reset custom text color icon
                     setCustomTextColor(null);
                   }}
-                  className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2"
+                  className="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2"
                   disabled={!textInput.trim()}
                 >
-                  <span>&#10003;</span>
-                  <span>Apply</span>
+                  <span>&#9997;&#65039;</span>
+                  <span>Drop it on</span>
                 </button>
                 <button
                   onClick={() => {
