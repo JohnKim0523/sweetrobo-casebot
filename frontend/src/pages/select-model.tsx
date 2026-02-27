@@ -257,6 +257,7 @@ export default function SelectModel() {
 
         console.log('📡 Machine status:', statusData);
         setMachineStatus(statusData);
+        sessionStorage.setItem('machineModel', statusData.machine?.model || '');
 
         if (!statusData.online) {
           console.warn('⚠️ Machine is offline:', statusData.message);

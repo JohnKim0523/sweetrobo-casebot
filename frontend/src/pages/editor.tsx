@@ -320,6 +320,8 @@ export default function Editor() {
     amount?: number;
   } | null>(null);
   const [jobId, setJobId] = useState<string | null>(null); // Track print job ID
+  const [isMiniCasebot, setIsMiniCasebot] = useState(false); // Mini casebot requires code entry
+  const [chituOrderId, setChituOrderId] = useState<string | null>(null); // Chitu order ID for mini casebot code
 
   // Preview and Payment modal states
   const [showPreviewModal, setShowPreviewModal] = useState(false);
@@ -600,6 +602,7 @@ export default function Editor() {
         console.log('🔒 Session is locked - restoring page state');
         setIsSessionLocked(true);
         setMachineId(machine || null);
+        setIsMiniCasebot(!!machine && sessionStorage.getItem('machineModel') === 'CT-sjk381');
         setSessionId(session);
 
         const pageState = sessionStorage.getItem(`page-state-${session}`);
@@ -701,6 +704,7 @@ export default function Editor() {
         sessionStorage.setItem(`session-model-${session}`, modelParam);
 
         setMachineId(machine || null);
+        setIsMiniCasebot(!!machine && sessionStorage.getItem('machineModel') === 'CT-sjk381');
         setSessionId(session);
         setIsCheckingSession(false);
         return;
@@ -872,6 +876,11 @@ export default function Editor() {
         payType: data.payType,
         amount: data.amount,
       });
+
+      // Capture chituOrderId for mini casebot code display
+      if (data.chituOrderId || data.orderId) {
+        setChituOrderId(data.chituOrderId || data.orderId);
+      }
 
       // Transition from waiting page to thank you page when payment is confirmed
       if (data.payStatus === 'paid') {
@@ -3792,12 +3801,24 @@ export default function Editor() {
           sessionId: sessionId || 'unknown',
         }),
       });
-      
+
+      if (response.status === 503) {
+        setShowAIModal(false);
+        setAiModalTab('custom');
+        setShowMaskModal(false);
+        setIsProcessing(false);
+        setFiltersTouched(false);
+        setAiPrompt('');
+        setMaskPrompt('');
+        alert('Lots of people are creating right now! Please try again in a few seconds.');
+        return;
+      }
+
       const result = await response.json();
-      
+
       if (!result.success) {
         console.log('AI Edit failed:', result.error);
-        
+
         // Close the modal and show user-friendly alert
         setShowAIModal(false);
         setAiModalTab('custom');
@@ -3806,7 +3827,7 @@ export default function Editor() {
         setFiltersTouched(false);
         setAiPrompt('');
         setMaskPrompt('');
-        
+
         // Show appropriate alert based on error type
         if (result.error?.includes('balance') || result.error?.includes('Exhausted balance') || result.error?.includes('insufficient funds')) {
           alert('💳 Insufficient funds. Please top up your AI credits to continue.');
@@ -4077,6 +4098,10 @@ export default function Editor() {
         sessionId: sessionId || 'unknown',
       }),
     });
+
+    if (response.status === 503) {
+      throw new Error('Lots of people are creating right now! Please try again in a few seconds.');
+    }
 
     const result = await response.json();
 
@@ -4738,7 +4763,13 @@ export default function Editor() {
           sessionId: sessionId || 'unknown',
         }),
       });
-      
+
+      if (response.status === 503) {
+        setIsProcessing(false);
+        alert('Lots of people are creating right now! Please try again in a few seconds.');
+        return;
+      }
+
       const result = await response.json();
 
       if (!result.success) {
@@ -5515,74 +5546,51 @@ export default function Editor() {
 
             <h1 className="text-3xl font-bold text-gray-900 mb-4">Design Submitted!</h1>
 
-            <p className="text-base text-gray-600 mb-8 leading-relaxed">
-              Please proceed to the machine to complete your payment.
-            </p>
+            {isMiniCasebot ? (
+              <>
+                <p className="text-base text-gray-600 mb-6 leading-relaxed">
+                  Enter this code on the machine to start printing.
+                </p>
 
-            <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-6 mb-6">
-              <p className="text-purple-800 font-semibold mb-2">Waiting for payment confirmation...</p>
-              <p className="text-sm text-purple-600">This page will automatically update once payment is received.</p>
-            </div>
-
-            {/* Order Status Display */}
-            {orderStatus && (
-              <div className="mb-6 space-y-3">
-                {/* Payment Status */}
-                {orderStatus.payStatus && (
-                  <div className={`rounded-xl p-4 ${
-                    orderStatus.payStatus === 'paid'
-                      ? 'bg-green-100 border-2 border-green-500'
-                      : orderStatus.payStatus === 'refunded'
-                      ? 'bg-yellow-100 border-2 border-yellow-500'
-                      : 'bg-gray-100 border-2 border-gray-300'
-                  }`}>
-                    <p className="text-xs uppercase tracking-wide mb-1 font-semibold text-gray-600">Payment Status</p>
-                    <div className="flex items-center gap-2">
-                      {orderStatus.payStatus === 'paid' && <span className="text-2xl">✅</span>}
-                      {orderStatus.payStatus === 'refunded' && <span className="text-2xl">↩️</span>}
-                      {orderStatus.payStatus === 'unpaid' && <span className="text-2xl">⏳</span>}
-                      <p className="text-lg font-bold capitalize">{orderStatus.payStatus}</p>
+                {chituOrderId ? (
+                  <div className="bg-purple-50 border-2 border-purple-300 rounded-2xl p-6 mb-6">
+                    <p className="text-sm text-purple-600 font-semibold mb-3 uppercase tracking-wide">Your Pickup Code</p>
+                    <div className="text-5xl font-bold tracking-[0.3em] text-purple-700 font-mono">
+                      {chituOrderId.slice(-4)}
                     </div>
-                    {orderStatus.payType && (
-                      <p className="text-sm text-gray-600 mt-1">via {orderStatus.payType}</p>
-                    )}
-                    {orderStatus.amount && (
-                      <p className="text-sm text-gray-600 mt-1">Amount: ${orderStatus.amount.toFixed(2)}</p>
-                    )}
+                    <p className="text-sm text-gray-500 mt-3">Enter these 4 digits on the machine screen</p>
+                  </div>
+                ) : (
+                  <div className="bg-purple-50 border-2 border-purple-200 rounded-2xl p-6 mb-6">
+                    <div className="flex items-center justify-center gap-3">
+                      <svg className="animate-spin h-5 w-5 text-purple-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      <p className="text-purple-700 font-semibold">Generating your pickup code...</p>
+                    </div>
+                    <p className="text-sm text-purple-500 mt-2">This will only take a few seconds</p>
                   </div>
                 )}
 
-                {/* Order Status */}
-                {orderStatus.status && (
-                  <div className={`rounded-xl p-4 ${
-                    orderStatus.status === 'completed'
-                      ? 'bg-green-100 border-2 border-green-500'
-                      : orderStatus.status === 'printing'
-                      ? 'bg-blue-100 border-2 border-blue-500'
-                      : orderStatus.status === 'failed'
-                      ? 'bg-red-100 border-2 border-red-500'
-                      : 'bg-gray-100 border-2 border-gray-300'
-                  }`}>
-                    <p className="text-xs uppercase tracking-wide mb-1 font-semibold text-gray-600">Order Status</p>
-                    <div className="flex items-center gap-2">
-                      {orderStatus.status === 'completed' && <span className="text-2xl">🎉</span>}
-                      {orderStatus.status === 'printing' && <span className="text-2xl">🖨️</span>}
-                      {orderStatus.status === 'failed' && <span className="text-2xl">❌</span>}
-                      {orderStatus.status === 'pending' && <span className="text-2xl">⏳</span>}
-                      {orderStatus.status === 'paid' && <span className="text-2xl">📦</span>}
-                      <p className="text-lg font-bold capitalize">{orderStatus.status}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-6">
+                  <p className="text-sm text-gray-600">This page will automatically update once payment is received at the machine.</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-base text-gray-600 mb-8 leading-relaxed">
+                  Please proceed to the machine to complete your payment.
+                </p>
+
+                <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-6 mb-6">
+                  <p className="text-purple-800 font-semibold mb-2">Waiting for payment confirmation...</p>
+                  <p className="text-sm text-purple-600">This page will automatically update once payment is received.</p>
+                </div>
+              </>
             )}
 
-            {sessionId && (
-              <div className="bg-gray-100 rounded-xl p-4">
-                <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-semibold">Session ID</p>
-                <p className="text-sm font-mono text-gray-700 break-all">{sessionId}</p>
-              </div>
-            )}
+
 
             {/* Demo Mode: Simulate Payment Button */}
             {isDemoMode && (
@@ -5689,87 +5697,18 @@ export default function Editor() {
                 : 'Your order has been received and is being processed.'}
             </p>
 
-            {/* Order Status Display */}
-            {orderStatus && (
-              <div className="mb-6 space-y-3">
-                {/* Payment Status */}
-                {orderStatus.payStatus && (
-                  <div className={`rounded-xl p-4 ${
-                    orderStatus.payStatus === 'paid'
-                      ? 'bg-green-100 border-2 border-green-500'
-                      : orderStatus.payStatus === 'refunded'
-                      ? 'bg-yellow-100 border-2 border-yellow-500'
-                      : 'bg-gray-100 border-2 border-gray-300'
-                  }`}>
-                    <p className="text-xs uppercase tracking-wide mb-1 font-semibold text-gray-600">Payment Status</p>
-                    <div className="flex items-center gap-2">
-                      {orderStatus.payStatus === 'paid' && <span className="text-2xl">✅</span>}
-                      {orderStatus.payStatus === 'refunded' && <span className="text-2xl">↩️</span>}
-                      {orderStatus.payStatus === 'unpaid' && <span className="text-2xl">⏳</span>}
-                      <p className="text-lg font-bold capitalize">{orderStatus.payStatus}</p>
-                    </div>
-                    {orderStatus.payType && (
-                      <p className="text-sm text-gray-600 mt-1">via {orderStatus.payType}</p>
-                    )}
-                    {orderStatus.amount && (
-                      <p className="text-sm text-gray-600 mt-1">Amount: ${orderStatus.amount.toFixed(2)}</p>
-                    )}
-                  </div>
-                )}
-
-                {/* Order Status */}
-                {orderStatus.status && (
-                  <div className={`rounded-xl p-4 ${
-                    orderStatus.status === 'completed'
-                      ? 'bg-green-100 border-2 border-green-500'
-                      : orderStatus.status === 'printing'
-                      ? 'bg-blue-100 border-2 border-blue-500'
-                      : orderStatus.status === 'failed'
-                      ? 'bg-red-100 border-2 border-red-500'
-                      : 'bg-gray-100 border-2 border-gray-300'
-                  }`}>
-                    <p className="text-xs uppercase tracking-wide mb-1 font-semibold text-gray-600">Print Status</p>
-                    <div className="flex items-center gap-2">
-                      {orderStatus.status === 'completed' && <span className="text-2xl">🎉</span>}
-                      {orderStatus.status === 'printing' && <span className="text-2xl">🖨️</span>}
-                      {orderStatus.status === 'failed' && <span className="text-2xl">❌</span>}
-                      {orderStatus.status === 'pending' && <span className="text-2xl">⏳</span>}
-                      {orderStatus.status === 'paid' && <span className="text-2xl">⏳</span>}
-                      <p className="text-lg font-bold">
-                        {orderStatus.status === 'completed' ? 'Ready for Pickup!' :
-                         orderStatus.status === 'printing' ? 'Printing...' :
-                         orderStatus.status === 'failed' ? 'Print Failed' :
-                         orderStatus.status === 'pending' ? 'Preparing...' :
-                         orderStatus.status === 'paid' ? 'Preparing...' :
-                         orderStatus.status}
-                      </p>
-                    </div>
-                    {orderStatus.status === 'completed' && (
-                      <p className="text-sm text-green-700 mt-2 font-medium">
-                        Your phone case is ready! Please collect it from the machine.
-                      </p>
-                    )}
-                    {orderStatus.status === 'printing' && (
-                      <p className="text-sm text-blue-700 mt-2">
-                        Your design is being printed. Please wait...
-                      </p>
-                    )}
-                    {orderStatus.status === 'failed' && (
-                      <p className="text-sm text-red-700 mt-2">
-                        Something went wrong. Please contact staff for assistance.
-                      </p>
-                    )}
-                  </div>
-                )}
+            {/* Mini Casebot: Show pickup code on thank you page */}
+            {isMiniCasebot && chituOrderId && (
+              <div className="bg-purple-50 border-2 border-purple-300 rounded-2xl p-6 mb-6">
+                <p className="text-sm text-purple-600 font-semibold mb-3 uppercase tracking-wide">Your Pickup Code</p>
+                <div className="text-5xl font-bold tracking-[0.3em] text-purple-700 font-mono">
+                  {chituOrderId.slice(-4)}
+                </div>
+                <p className="text-sm text-gray-500 mt-3">Enter these 4 digits on the machine screen</p>
               </div>
             )}
 
-            {sessionId && (
-              <div className="bg-gray-100 rounded-xl p-4">
-                <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-semibold">Session ID</p>
-                <p className="text-sm font-mono text-gray-700 break-all">{sessionId}</p>
-              </div>
-            )}
+
           </div>
         </div>
 
