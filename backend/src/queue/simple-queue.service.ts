@@ -1,5 +1,6 @@
 import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import * as crypto from 'crypto';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { S3Service } from '../s3/s3.service';
 import { ChituService } from '../chitu/chitu.service';
 import { OrderMappingService } from '../order-mapping/order-mapping.service';
@@ -56,6 +57,7 @@ export class SimpleQueueService {
     @Inject(forwardRef(() => ChituService))
     private readonly chituService: ChituService,
     private readonly orderMappingService: OrderMappingService,
+    private readonly eventEmitter: EventEmitter2,
   ) {
     // Load available machines from environment or use defaults
     const machinesEnv = process.env.AVAILABLE_MACHINES;
@@ -82,6 +84,15 @@ export class SimpleQueueService {
         }
       }
     }, 60000);
+
+    // Schedule old job cleanup every 6 hours
+    setInterval(
+      () => {
+        this.cleanupOldJobs();
+      },
+      6 * 60 * 60 * 1000,
+    );
+    console.log('🗑️ Job cleanup scheduled: every 6 hours (7-day retention)');
 
     // Start processing queue
     this.startProcessing();
@@ -311,6 +322,21 @@ export class SimpleQueueService {
             console.log(
               `🗺️ Registered order mapping: ${job.id} <-> ${orderResult.orderId}`,
             );
+
+            // Emit order status so frontend receives chituOrderId immediately
+            // (Mini casebots need this to display the pickup code)
+            this.eventEmitter.emit('order.status', {
+              orderId: orderResult.orderId,
+              orderNo: job.id,
+              jobId: job.id,
+              chituOrderId: orderResult.orderId,
+              machineId: job.data.machineId,
+              status: 'order_created',
+              timestamp: new Date(),
+            });
+            console.log(
+              `📡 Emitted order.status for pickup code: ${orderResult.orderId}`,
+            );
           }
         } else {
           throw new Error(
@@ -475,6 +501,31 @@ export class SimpleQueueService {
       error: job.error,
       attempts: job.attempts,
     }));
+  }
+
+  /**
+   * Remove completed/failed jobs older than 7 days to prevent unbounded memory growth
+   */
+  cleanupOldJobs(): void {
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - SEVEN_DAYS_MS;
+    const before = this.queue.length;
+
+    this.queue = this.queue.filter((job) => {
+      if (job.status === 'completed' && job.completedAt) {
+        return job.completedAt.getTime() > cutoff;
+      }
+      if (job.status === 'failed') {
+        const refTime = job.completedAt || job.createdAt;
+        return refTime.getTime() > cutoff;
+      }
+      return true; // Keep waiting/processing jobs
+    });
+
+    const removed = before - this.queue.length;
+    if (removed > 0) {
+      console.log(`🗑️ Job cleanup: removed ${removed} old completed/failed job(s). Queue size: ${this.queue.length}`);
+    }
   }
 
   getCompletedJobs(limit: number = 100) {
