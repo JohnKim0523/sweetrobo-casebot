@@ -657,9 +657,12 @@ export class ChituService {
       const brandMap = new Map();
       allBrands.forEach((brand) => {
         if (brandMap.has(brand.id)) {
-          // Brand exists, merge model lists
+          // Brand exists, merge model lists and deduplicate by product_id
           const existing = brandMap.get(brand.id);
-          existing.modelList = [...existing.modelList, ...brand.modelList];
+          const merged = [...existing.modelList, ...brand.modelList];
+          existing.modelList = Array.from(
+            new Map(merged.map((model) => [model.product_id, model])).values(),
+          );
         } else {
           brandMap.set(brand.id, { ...brand });
         }

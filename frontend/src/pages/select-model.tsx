@@ -793,7 +793,7 @@ export default function SelectModel() {
                 const isInStock = model.stock > 0;
                 return (
                   <button
-                    key={model.product_id}
+                    key={`${model.product_id}-${model.model}`}
                     onClick={() => handleModelSelect(model)}
                     disabled={!isInStock}
                     className={`
