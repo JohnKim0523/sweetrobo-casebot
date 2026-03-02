@@ -1,6 +1,55 @@
 import { VertexAI } from '@google-cloud/vertexai';
 import * as sharp from 'sharp';
 
+class ConcurrencySemaphore {
+  private running = 0;
+  private waitQueue: Array<{
+    resolve: () => void;
+    reject: (err: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }> = [];
+
+  constructor(
+    private maxConcurrent: number = 10,
+    private queueTimeout: number = 60000,
+  ) {}
+
+  async acquire(): Promise<void> {
+    if (this.running < this.maxConcurrent) {
+      this.running++;
+      return;
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const idx = this.waitQueue.findIndex((w) => w.resolve === resolve);
+        if (idx !== -1) this.waitQueue.splice(idx, 1);
+        reject(new Error('QUEUE_TIMEOUT'));
+      }, this.queueTimeout);
+
+      this.waitQueue.push({ resolve, reject, timer });
+    });
+  }
+
+  release(): void {
+    if (this.waitQueue.length > 0) {
+      const next = this.waitQueue.shift()!;
+      clearTimeout(next.timer);
+      next.resolve();
+    } else {
+      this.running--;
+    }
+  }
+
+  getStats(): { running: number; queued: number; maxConcurrent: number } {
+    return {
+      running: this.running,
+      queued: this.waitQueue.length,
+      maxConcurrent: this.maxConcurrent,
+    };
+  }
+}
+
 interface ImageEditRequest {
   imageUrl: string;
   prompt: string;
@@ -48,6 +97,9 @@ class VertexAIService {
   private readonly INITIAL_RETRY_DELAY = 500; // 0.5 seconds (reduced for faster retries)
   private readonly MAX_RETRY_DELAY = 5000; // 5 seconds (reduced max delay)
   private readonly REQUEST_TIMEOUT = 40000; // 40 seconds (increased for complex edits)
+
+  // Concurrency control
+  private semaphore = new ConcurrencySemaphore(10, 60000);
 
   // Cost tracking
   private readonly COST_PER_EDIT = 0.05; // $0.05 per edit (Gemini Flash Image)
@@ -123,6 +175,25 @@ class VertexAIService {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Execute a function with concurrency control
+   */
+  private async withConcurrencyControl<T>(fn: () => Promise<T>): Promise<T> {
+    await this.semaphore.acquire();
+    try {
+      return await fn();
+    } finally {
+      this.semaphore.release();
+    }
+  }
+
+  /**
+   * Get concurrency stats
+   */
+  getConcurrencyStats(): { running: number; queued: number; maxConcurrent: number } {
+    return this.semaphore.getStats();
   }
 
   /**
@@ -308,9 +379,9 @@ class VertexAIService {
       console.log(`   Prompt: ${request.prompt}`);
       console.log(`   Rate limit: ${rateLimit.remaining} requests remaining`);
 
-      // Wrap the entire API call AND response parsing in retry logic
+      // Wrap the entire API call AND response parsing in retry logic with concurrency control
       let retryAttempt = 0;
-      const editedImageBase64 = await this.retryWithBackoff(async () => {
+      const editedImageBase64 = await this.withConcurrencyControl(() => this.retryWithBackoff(async () => {
         // Get the generative model with explicit system instruction for editing
         const generativeModel = this.vertexAI!.getGenerativeModel({
           model: this.editModel,
@@ -507,7 +578,7 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
 
         // Return the image data (this will be retried if it fails)
         return foundImageBase64;
-      });
+      }));
 
       // For edits, we don't resize - frontend sends the image at the correct size already
       // Gemini processes it and returns it at approximately the same dimensions
@@ -574,8 +645,8 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
       );
       console.log(`   Rate limit: ${rateLimit.remaining} requests remaining`);
 
-      // Wrap the entire API call in retry and timeout logic
-      const result = await this.retryWithBackoff(async () => {
+      // Wrap the entire API call in retry and timeout logic with concurrency control
+      const result = await this.withConcurrencyControl(() => this.retryWithBackoff(async () => {
         // Get the Gemini model for image generation
         const imagenModel = this.vertexAI!.getGenerativeModel({
           model: this.generateModel,
@@ -617,7 +688,7 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
           imagenModel.generateContent(requestContent),
           this.REQUEST_TIMEOUT,
         );
-      });
+      }));
 
       const response = result.response;
 
@@ -777,104 +848,110 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
       console.log(`   Prompt: ${request.prompt || '(empty - auto extend)'}`);
       console.log(`   Rate limit: ${rateLimit.remaining} requests remaining`);
 
-      // Use Imagen 3 REST API for outpainting
-      const apiEndpoint = `https://${this.location}-aiplatform.googleapis.com/v1/projects/${this.projectId}/locations/${this.location}/publishers/google/models/imagen-3.0-capability-001:predict`;
+      // Wrap entire outpaint API call in concurrency control
+      const outputImageBase64 = await this.withConcurrencyControl(async () => {
+        // Use Imagen 3 REST API for outpainting
+        const apiEndpoint = `https://${this.location}-aiplatform.googleapis.com/v1/projects/${this.projectId}/locations/${this.location}/publishers/google/models/imagen-3.0-capability-001:predict`;
 
-      // Get access token
-      const { GoogleAuth } = await import('google-auth-library');
+        // Get access token
+        const { GoogleAuth } = await import('google-auth-library');
 
-      // Handle credentials from environment variable (Railway deployment)
-      const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
-      let auth: any;
+        // Handle credentials from environment variable (Railway deployment)
+        const credentialsJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+        let auth: any;
 
-      if (credentialsJson) {
-        const credentials = JSON.parse(credentialsJson);
-        auth = new GoogleAuth({
-          credentials,
-          scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-        });
-      } else {
-        auth = new GoogleAuth({
-          scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-        });
-      }
+        if (credentialsJson) {
+          const credentials = JSON.parse(credentialsJson);
+          auth = new GoogleAuth({
+            credentials,
+            scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+          });
+        } else {
+          auth = new GoogleAuth({
+            scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+          });
+        }
 
-      const client = await auth.getClient();
-      const accessToken = await client.getAccessToken();
+        const client = await auth.getClient();
+        const accessToken = await client.getAccessToken();
 
-      // Prepare the request body for Imagen 3 outpainting
-      const requestBody = {
-        instances: [
-          {
-            prompt: request.prompt || '', // Empty string = AI extends intelligently
-            referenceImages: [
-              {
-                referenceType: 'REFERENCE_TYPE_RAW',
-                referenceId: 1,
-                referenceImage: {
-                  bytesBase64Encoded: request.imageBase64.replace(/^data:image\/\w+;base64,/, ''),
+        // Prepare the request body for Imagen 3 outpainting
+        const requestBody = {
+          instances: [
+            {
+              prompt: request.prompt || '', // Empty string = AI extends intelligently
+              referenceImages: [
+                {
+                  referenceType: 'REFERENCE_TYPE_RAW',
+                  referenceId: 1,
+                  referenceImage: {
+                    bytesBase64Encoded: request.imageBase64.replace(/^data:image\/\w+;base64,/, ''),
+                  },
                 },
-              },
-              {
-                referenceType: 'REFERENCE_TYPE_MASK',
-                referenceId: 2,
-                referenceImage: {
-                  bytesBase64Encoded: request.maskBase64.replace(/^data:image\/\w+;base64,/, ''),
+                {
+                  referenceType: 'REFERENCE_TYPE_MASK',
+                  referenceId: 2,
+                  referenceImage: {
+                    bytesBase64Encoded: request.maskBase64.replace(/^data:image\/\w+;base64,/, ''),
+                  },
+                  maskImageConfig: {
+                    maskMode: 'MASK_MODE_USER_PROVIDED',
+                    dilation: 0.03, // Recommended for outpainting to avoid visible seams
+                  },
                 },
-                maskImageConfig: {
-                  maskMode: 'MASK_MODE_USER_PROVIDED',
-                  dilation: 0.03, // Recommended for outpainting to avoid visible seams
-                },
-              },
-            ],
+              ],
+            },
+          ],
+          parameters: {
+            editConfig: {
+              baseSteps: 35, // Start at 35, increase if quality needs improvement
+            },
+            editMode: 'EDIT_MODE_OUTPAINT',
+            sampleCount: 1, // Just generate 1 image
+            personGeneration: 'allow_all',
           },
-        ],
-        parameters: {
-          editConfig: {
-            baseSteps: 35, // Start at 35, increase if quality needs improvement
-          },
-          editMode: 'EDIT_MODE_OUTPAINT',
-          sampleCount: 1, // Just generate 1 image
-        },
-      };
+        };
 
-      console.log('🚀 Sending outpaint request to Imagen 3...');
+        console.log('🚀 Sending outpaint request to Imagen 3...');
 
-      const response = await this.executeWithTimeout(
-        fetch(apiEndpoint, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken.token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(requestBody),
-        }),
-        this.REQUEST_TIMEOUT,
-      );
+        const response = await this.executeWithTimeout(
+          fetch(apiEndpoint, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+          }),
+          this.REQUEST_TIMEOUT,
+        );
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Imagen 3 API error:', response.status, errorText);
-        throw new Error(`Imagen 3 API error: ${response.status} - ${errorText}`);
-      }
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('❌ Imagen 3 API error:', response.status, errorText);
+          throw new Error(`Imagen 3 API error: ${response.status} - ${errorText}`);
+        }
 
-      const result = await response.json();
-      console.log('📥 Imagen 3 response received');
+        const result = await response.json();
+        console.log('📥 Imagen 3 response received');
 
-      // Extract the generated image from the response
-      if (!result.predictions || result.predictions.length === 0) {
-        throw new Error('No predictions returned from Imagen 3');
-      }
+        // Extract the generated image from the response
+        if (!result.predictions || result.predictions.length === 0) {
+          throw new Error('No predictions returned from Imagen 3');
+        }
 
-      const prediction = result.predictions[0];
+        const prediction = result.predictions[0];
 
-      // Imagen 3 returns base64 encoded image in bytesBase64Encoded field
-      const outputImageBase64 = prediction.bytesBase64Encoded;
+        // Imagen 3 returns base64 encoded image in bytesBase64Encoded field
+        const imageBase64 = prediction.bytesBase64Encoded;
 
-      if (!outputImageBase64) {
-        console.error('❌ No image data in prediction:', prediction);
-        throw new Error('No image data returned from Imagen 3');
-      }
+        if (!imageBase64) {
+          console.error('❌ No image data in prediction:', prediction);
+          throw new Error('No image data returned from Imagen 3');
+        }
+
+        return imageBase64;
+      });
 
       // Track cost (same as generation)
       this.totalGenerateRequests++;
