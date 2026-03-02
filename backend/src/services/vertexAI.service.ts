@@ -541,7 +541,17 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
         const parts = candidate.content?.parts;
 
         if (!parts || parts.length === 0) {
-          throw new Error('No parts in candidate response');
+          const reason = candidate.finishReason || 'UNKNOWN';
+          console.error(`❌ No parts in candidate response. finishReason: ${reason}`);
+          const errorMessages: Record<string, string> = {
+            'IMAGE_PROHIBITED_CONTENT': 'This prompt references copyrighted or trademarked content (e.g. movie characters, brand logos). Try describing the style you want instead.',
+            'SAFETY': 'This prompt was blocked by safety filters. Try rephrasing with different words.',
+            'RECITATION': 'This prompt was blocked because it may reproduce copyrighted material. Try a more original description.',
+            'BLOCKED_REASON_UNSPECIFIED': 'This prompt was blocked for an unspecified reason. Try rephrasing.',
+            'PROHIBITED_CONTENT': 'This prompt contains prohibited content. Try a different description.',
+            'OTHER': 'The AI could not process this prompt. Try rephrasing.',
+          };
+          throw new Error(errorMessages[reason] || `AI edit failed (${reason}). Try a different prompt.`);
         }
 
         // Debug: Log each part type
@@ -737,7 +747,17 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
       const parts = candidate.content?.parts;
 
       if (!parts || parts.length === 0) {
-        throw new Error('No parts in candidate response');
+        const reason = candidate.finishReason || 'UNKNOWN';
+        console.error(`❌ No parts in candidate response. finishReason: ${reason}`);
+        const errorMessages: Record<string, string> = {
+          'IMAGE_PROHIBITED_CONTENT': 'This prompt references copyrighted or trademarked content (e.g. movie characters, brand logos). Try describing the style you want instead.',
+          'SAFETY': 'This prompt was blocked by safety filters. Try rephrasing with different words.',
+          'RECITATION': 'This prompt was blocked because it may reproduce copyrighted material. Try a more original description.',
+          'BLOCKED_REASON_UNSPECIFIED': 'This prompt was blocked for an unspecified reason. Try rephrasing.',
+          'PROHIBITED_CONTENT': 'This prompt contains prohibited content. Try a different description.',
+          'OTHER': 'The AI could not process this prompt. Try rephrasing.',
+        };
+        throw new Error(errorMessages[reason] || `AI generation failed (${reason}). Try a different prompt.`);
       }
 
       // Debug: Log each part type
@@ -929,7 +949,20 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
         if (!response.ok) {
           const errorText = await response.text();
           console.error('❌ Imagen 3 API error:', response.status, errorText);
-          throw new Error(`Imagen 3 API error: ${response.status} - ${errorText}`);
+          // Parse Google's error for a user-friendly message
+          let userMessage = `Background fill failed (error ${response.status}). Please try again.`;
+          try {
+            const errorJson = JSON.parse(errorText);
+            const msg = errorJson?.error?.message || '';
+            if (msg.includes('Person Generation')) {
+              userMessage = 'Background fill blocked: the image contains people. This should not happen — please report this issue.';
+            } else if (msg.includes('blocked')) {
+              userMessage = 'Background fill was blocked by safety filters. Try a different image or prompt.';
+            } else if (msg) {
+              userMessage = msg;
+            }
+          } catch {}
+          throw new Error(userMessage);
         }
 
         const result = await response.json();
