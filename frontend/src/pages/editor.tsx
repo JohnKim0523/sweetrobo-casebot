@@ -3970,7 +3970,13 @@ export default function Editor() {
       setShowMaskModal(false);
       setIsProcessing(false);
       setMaskPrompt('');
-      alert('❌ Failed to process masked edit. Please try again.');
+      const msg = error.message || '';
+      const isNetworkError = msg === 'Failed to fetch' || msg === 'Load failed' || msg.includes('NetworkError');
+      if (isNetworkError) {
+        alert('Connection lost during AI edit. Please check your WiFi or cellular signal and try again.');
+      } else {
+        alert('Failed to process AI edit: ' + (msg || 'Please try again.'));
+      }
     }
   };
 
@@ -4203,7 +4209,13 @@ export default function Editor() {
       setShowAIModal(false);
     } catch (error: any) {
       console.error('❌ Fill Background error:', error);
-      alert('❌ Fill Background failed: ' + (error.message || 'Please try again.'));
+      const msg = error.message || '';
+      const isNetworkError = msg === 'Failed to fetch' || msg === 'Load failed' || msg.includes('NetworkError');
+      if (isNetworkError) {
+        alert('Connection lost during background fill. Please check your WiFi or cellular signal and try again.');
+      } else {
+        alert('Fill Background failed: ' + (msg || 'Please try again.'));
+      }
     } finally {
       setIsProcessing(false);
       setProcessingMessage('');
@@ -4634,11 +4646,12 @@ export default function Editor() {
       setAiPrompt('');
       setFiltersTouched(false);
 
-      // Check if error is network/server issue
-      if (error.message?.includes('fetch') || error.message?.includes('NetworkError') || error.code === 'ECONNREFUSED') {
-        alert('⚠️ Backend server is offline. Please start the backend server and try again.');
+      const msg = error.message || '';
+      const isNetworkError = msg === 'Failed to fetch' || msg === 'Load failed' || msg.includes('NetworkError') || error.code === 'ECONNREFUSED';
+      if (isNetworkError) {
+        alert('Connection lost during AI edit. Please check your WiFi or cellular signal and try again.');
       } else {
-        alert('❌ Failed to process image. Please try again.');
+        alert('Failed to process AI edit: ' + (msg || 'Please try again.'));
       }
     }
   };
@@ -4927,7 +4940,13 @@ export default function Editor() {
       // Re-enable state saves on error
       isRestoringState.current = false;
       console.log('🔓 State saves re-enabled after AI generation error');
-      alert('❌ Failed to generate image. Please try again.');
+      const msg = error.message || '';
+      const isNetworkError = msg === 'Failed to fetch' || msg === 'Load failed' || msg.includes('NetworkError');
+      if (isNetworkError) {
+        alert('Connection lost during AI generation. Please check your WiFi or cellular signal and try again.');
+      } else {
+        alert('Failed to generate image: ' + (msg || 'Please try again.'));
+      }
     }
   };
   
@@ -5400,9 +5419,15 @@ export default function Editor() {
         } else {
           console.error('❌ Cannot persist preview state - sessionId is null!');
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error submitting design:', error);
-        alert('Failed to submit design');
+        const msg = error?.message || '';
+        const isNetworkError = msg === 'Failed to fetch' || msg === 'Load failed' || msg.includes('NetworkError');
+        if (isNetworkError) {
+          alert('Connection lost while preparing your design. Please check your WiFi or cellular signal and try again.');
+        } else {
+          alert('Failed to submit design: ' + (msg || 'Unknown error. Please try again.'));
+        }
       }
     }
   };
@@ -8238,7 +8263,13 @@ export default function Editor() {
                       }
                     } catch (error: any) {
                       console.error('Submission error:', error);
-                      alert('Failed to submit design: ' + error.message);
+                      const msg = error.message || '';
+                      const isNetworkError = msg === 'Failed to fetch' || msg === 'Load failed' || msg.includes('NetworkError') || error.name === 'AbortError';
+                      if (isNetworkError) {
+                        alert('Connection lost during upload. Please check your WiFi or cellular signal and tap "Submit Design" to try again.');
+                      } else {
+                        alert('Failed to submit design: ' + msg);
+                      }
                       setIsUploading(false);
                     }
                   }}

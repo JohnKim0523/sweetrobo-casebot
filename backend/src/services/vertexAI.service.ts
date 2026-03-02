@@ -280,10 +280,16 @@ class VertexAIService {
     }
 
     // CRITICAL: Retry when Gemini returns text instead of image
-    // This happens randomly and retrying with a different prompt usually fixes it
+    // This happens randomly and retrying usually fixes it
     if (
       error.message?.includes('No edited image returned') ||
-      error.message?.includes('No generated image returned')
+      error.message?.includes('No generated image returned') ||
+      error.message?.includes('could not generate') ||
+      error.message?.includes('could not edit') ||
+      error.message?.includes('not able to create') ||
+      error.message?.includes('not able to generate') ||
+      error.message?.includes('unable to create') ||
+      error.message?.includes('unable to generate')
     ) {
       return true;
     }
@@ -579,10 +585,10 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
 
         if (!foundImageBase64) {
           // If no image returned, Gemini might have returned text explanation
-          const textResponse = parts.map((p) => p.text).join('');
+          const textResponse = parts.map((p) => p.text).join('').trim();
           console.log('📝 Gemini response (text only):', textResponse);
           throw new Error(
-            'No edited image returned from Gemini 2.5 Flash Image. The model may have interpreted this as a vision task instead of an image editing task, or safety filters blocked the edit.',
+            'The AI couldn\'t edit this image. This may be due to copyrighted content, real people/celebrities, or safety filters. Please try again or rephrase your prompt.',
           );
         }
 
@@ -785,10 +791,10 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
 
       if (!generatedImageBase64) {
         // If no image returned, Imagen might have returned text explanation
-        const textResponse = parts.map((p) => p.text).join('');
+        const textResponse = parts.map((p) => p.text).join('').trim();
         console.log('📝 Imagen response (text only):', textResponse);
         throw new Error(
-          'No generated image returned from Imagen 3. The model may have blocked the prompt due to safety filters.',
+          'The AI couldn\'t generate this image. This may be due to copyrighted content, real people/celebrities, or safety filters. Please try again or rephrase your prompt.',
         );
       }
 
