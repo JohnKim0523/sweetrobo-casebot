@@ -17,6 +17,24 @@ export class S3Service {
       process.env.AWS_BUCKET_NAME || 'sweetrobo-phonecase-designs';
 
     console.log('🔐 S3 Service initialized (backup storage only)');
+
+    // Run cleanup once on startup (delayed 30s to let app finish initializing)
+    setTimeout(() => {
+      this.cleanupOldDesigns().catch((err) =>
+        console.error('❌ S3 cleanup failed on startup:', err),
+      );
+    }, 30000);
+
+    // Schedule cleanup every 6 hours
+    setInterval(
+      () => {
+        this.cleanupOldDesigns().catch((err) =>
+          console.error('❌ S3 scheduled cleanup failed:', err),
+        );
+      },
+      6 * 60 * 60 * 1000,
+    );
+    console.log('🗑️ S3 cleanup scheduled: every 6 hours (7-day retention for designs/)');
   }
 
   async uploadImage(
@@ -94,6 +112,41 @@ export class S3Service {
     };
 
     await this.s3.deleteObject(params).promise();
+  }
+
+  async cleanupOldDesigns(): Promise<void> {
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+    const cutoff = new Date(Date.now() - SEVEN_DAYS_MS);
+    let deletedCount = 0;
+    let continuationToken: string | undefined;
+
+    console.log(`🗑️ Starting S3 cleanup: deleting designs/ older than ${cutoff.toISOString()}`);
+
+    do {
+      const params: AWS.S3.ListObjectsV2Request = {
+        Bucket: this.bucketName,
+        Prefix: 'designs/',
+        ContinuationToken: continuationToken,
+      };
+
+      const result = await this.s3.listObjectsV2(params).promise();
+      const objects = result.Contents || [];
+
+      for (const obj of objects) {
+        if (obj.LastModified && obj.LastModified < cutoff && obj.Key) {
+          await this.s3
+            .deleteObject({ Bucket: this.bucketName, Key: obj.Key })
+            .promise();
+          deletedCount++;
+        }
+      }
+
+      continuationToken = result.IsTruncated
+        ? result.NextContinuationToken
+        : undefined;
+    } while (continuationToken);
+
+    console.log(`🗑️ S3 cleanup complete: deleted ${deletedCount} old design(s)`);
   }
 
   async getWatermarkUrl(machineId: string): Promise<string | null> {

@@ -210,13 +210,19 @@ class VertexAIService {
       const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
       const imageBuffer = Buffer.from(base64Data, 'base64');
 
-      // Resize image to target dimensions maintaining aspect ratio
-      // Use 'cover' to fill the area completely while maintaining aspect ratio (minimal crop)
-      const resizedBuffer = await sharp(imageBuffer)
+      // Strip any white/near-white margins the AI may have generated,
+      // then resize to fill the target case dimensions edge-to-edge.
+      // Flatten ensures a solid rectangle with no transparency (phone mask handles corner rounding)
+      const trimmed = await sharp(imageBuffer)
+        .trim({ threshold: 30 })
+        .toBuffer();
+
+      const resizedBuffer = await sharp(trimmed)
         .resize(targetWidth, targetHeight, {
-          fit: 'cover', // Maintain aspect ratio, crop minimally if needed
-          position: 'center', // Center the content when cropping
+          fit: 'cover',
+          position: 'center',
         })
+        .flatten()
         .png()
         .toBuffer();
 
@@ -661,16 +667,15 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
       );
       console.log(`   Rate limit: ${rateLimit.remaining} requests remaining`);
 
-      // Wrap the entire API call in retry and timeout logic with concurrency control
-      const result = await this.withConcurrencyControl(() => this.retryWithBackoff(async () => {
+      // Wrap the entire API call + response validation in retry logic
+      // This ensures text-refusals (model returns text instead of image) get retried automatically
+      const generatedImageBase64 = await this.withConcurrencyControl(() => this.retryWithBackoff(async () => {
         // Get the Gemini model for image generation
         const imagenModel = this.vertexAI!.getGenerativeModel({
           model: this.generateModel,
         });
 
-        // Build the prompt (include negative prompt if provided)
-        // Prepend "Generate an image:" to clearly indicate we want generation, not editing
-        // Add orientation guidance based on aspect ratio
+        // Build the prompt with orientation guidance based on aspect ratio
         const aspectRatio =
           request.width && request.height ? request.width / request.height : 1;
         const orientationHint =
@@ -685,7 +690,6 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
           fullPrompt += `\n\nAvoid: ${request.negativePrompt}`;
         }
 
-        // Prepare the request - simple format for Gemini image generation
         const requestContent = {
           contents: [
             {
@@ -700,103 +704,58 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
         };
 
         // Generate image with Gemini (with timeout)
-        return await this.executeWithTimeout(
+        const result = await this.executeWithTimeout(
           imagenModel.generateContent(requestContent),
           this.REQUEST_TIMEOUT,
         );
-      }));
 
-      const response = result.response;
+        const response = result.response;
 
-      // Debug: Log the entire response structure
-      console.log(
-        '🔍 Full API Response:',
-        JSON.stringify(
-          {
-            hasCandidates: !!response.candidates,
-            candidatesLength: response.candidates?.length,
-            promptFeedback: response.promptFeedback,
-          },
-          null,
-          2,
-        ),
-      );
-
-      // Extract generated image from response
-      const candidates = response.candidates;
-      if (!candidates || candidates.length === 0) {
-        console.error(
-          '❌ No candidates in response. Prompt may have been blocked.',
-        );
-        console.error('Prompt feedback:', response.promptFeedback);
-        throw new Error(
-          'No candidates returned from Imagen 3. This could be due to safety filters or inappropriate content in the prompt.',
-        );
-      }
-
-      const candidate = candidates[0];
-      console.log(
-        '🔍 Candidate structure:',
-        JSON.stringify(
-          {
-            hasContent: !!candidate.content,
-            hasParts: !!candidate.content?.parts,
-            partsLength: candidate.content?.parts?.length,
-            finishReason: candidate.finishReason,
-            safetyRatings: candidate.safetyRatings,
-          },
-          null,
-          2,
-        ),
-      );
-
-      const parts = candidate.content?.parts;
-
-      if (!parts || parts.length === 0) {
-        const reason = candidate.finishReason || 'UNKNOWN';
-        console.error(`❌ No parts in candidate response. finishReason: ${reason}`);
-        const errorMessages: Record<string, string> = {
-          'IMAGE_PROHIBITED_CONTENT': 'This prompt references copyrighted or trademarked content (e.g. movie characters, brand logos). Try describing the style you want instead.',
-          'SAFETY': 'This prompt was blocked by safety filters. Try rephrasing with different words.',
-          'RECITATION': 'This prompt was blocked because it may reproduce copyrighted material. Try a more original description.',
-          'BLOCKED_REASON_UNSPECIFIED': 'This prompt was blocked for an unspecified reason. Try rephrasing.',
-          'PROHIBITED_CONTENT': 'This prompt contains prohibited content. Try a different description.',
-          'OTHER': 'The AI could not process this prompt. Try rephrasing.',
-        };
-        throw new Error(errorMessages[reason] || `AI generation failed (${reason}). Try a different prompt.`);
-      }
-
-      // Debug: Log each part type
-      console.log('🔍 Parts breakdown:');
-      parts.forEach((part, index) => {
-        console.log(`  Part ${index}:`, {
-          hasText: !!part.text,
-          hasInlineData: !!part.inlineData,
-          inlineDataMimeType: part.inlineData?.mimeType,
-          inlineDataLength: part.inlineData?.data?.length,
-        });
-      });
-
-      // Look for image data in response
-      let generatedImageBase64: string | undefined;
-      for (const part of parts) {
-        if (part.inlineData) {
-          generatedImageBase64 = part.inlineData.data;
-          console.log(
-            `✅ Found image data: ${generatedImageBase64.length} characters`,
-          );
-          break;
+        // Extract generated image from response
+        const candidates = response.candidates;
+        if (!candidates || candidates.length === 0) {
+          console.error('❌ No candidates in response. Prompt may have been blocked.');
+          const reason = response.promptFeedback?.blockReason || 'UNKNOWN';
+          const errorMessages: Record<string, string> = {
+            'IMAGE_PROHIBITED_CONTENT': 'This prompt references copyrighted or trademarked content (e.g. movie characters, brand logos). Try describing the style you want instead.',
+            'SAFETY': 'This prompt was blocked by safety filters. Try rephrasing with different words.',
+            'RECITATION': 'This prompt was blocked because it may reproduce copyrighted material. Try a more original description.',
+            'BLOCKED_REASON_UNSPECIFIED': 'This prompt was blocked for an unspecified reason. Try rephrasing.',
+            'PROHIBITED_CONTENT': 'This prompt contains prohibited content. Try a different description.',
+          };
+          throw new Error(errorMessages[reason] || `AI generation failed (${reason}). Try a different prompt.`);
         }
-      }
 
-      if (!generatedImageBase64) {
-        // If no image returned, Imagen might have returned text explanation
+        const candidate = candidates[0];
+        const parts = candidate.content?.parts;
+
+        if (!parts || parts.length === 0) {
+          const reason = candidate.finishReason || 'UNKNOWN';
+          console.error(`❌ No parts in candidate response. finishReason: ${reason}`);
+          const errorMessages: Record<string, string> = {
+            'IMAGE_PROHIBITED_CONTENT': 'This prompt references copyrighted or trademarked content (e.g. movie characters, brand logos). Try describing the style you want instead.',
+            'SAFETY': 'This prompt was blocked by safety filters. Try rephrasing with different words.',
+            'RECITATION': 'This prompt was blocked because it may reproduce copyrighted material. Try a more original description.',
+            'BLOCKED_REASON_UNSPECIFIED': 'This prompt was blocked for an unspecified reason. Try rephrasing.',
+            'PROHIBITED_CONTENT': 'This prompt contains prohibited content. Try a different description.',
+            'OTHER': 'The AI could not process this prompt. Try rephrasing.',
+          };
+          throw new Error(errorMessages[reason] || `AI generation failed (${reason}). Try a different prompt.`);
+        }
+
+        // Look for image data in response
+        for (const part of parts) {
+          if (part.inlineData) {
+            console.log(`✅ Found image data: ${part.inlineData.data.length} characters`);
+            return part.inlineData.data;
+          }
+        }
+
+        // No image found — model returned text instead (retryable)
         const textResponse = parts.map((p) => p.text).join('').trim();
-        console.log('📝 Imagen response (text only):', textResponse);
-        throw new Error(
-          'The AI couldn\'t generate this image. This may be due to copyrighted content, real people/celebrities, or safety filters. Please try again or rephrase your prompt.',
-        );
-      }
+        console.log('📝 Model returned text instead of image:', textResponse);
+        throw new Error('No generated image returned — model returned text instead of image');
+      }));
 
       // Resize if dimensions are specified
       let finalImageBase64 = generatedImageBase64;

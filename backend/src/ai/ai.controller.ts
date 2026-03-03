@@ -83,6 +83,13 @@ export class AiController {
         throw error;
       }
 
+      if (error instanceof Error && error.message === 'QUEUE_TIMEOUT') {
+        throw new HttpException(
+          'Server is busy, please try again in a moment',
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+
       throw new HttpException(
         error instanceof Error ? error.message : 'AI processing failed',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -158,6 +165,13 @@ export class AiController {
         throw error;
       }
 
+      if (error instanceof Error && error.message === 'QUEUE_TIMEOUT') {
+        throw new HttpException(
+          'Server is busy, please try again in a moment',
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+
       throw new HttpException(
         error instanceof Error ? error.message : 'AI outpainting failed',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -206,10 +220,10 @@ export class AiController {
 
       if (!result.success) {
         console.error('❌ Imagen 3 generation failed:', result.error);
-        throw new HttpException(
-          result.error || 'AI generation failed',
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
+        return {
+          success: false,
+          error: result.error || 'AI generation failed. Please try again.',
+        };
       }
 
       // Log AI usage to DynamoDB (non-blocking)
@@ -230,14 +244,17 @@ export class AiController {
     } catch (error) {
       console.error('💥 AI Create error:', error);
 
-      if (error instanceof HttpException) {
-        throw error;
+      if (error instanceof Error && error.message === 'QUEUE_TIMEOUT') {
+        return {
+          success: false,
+          error: 'Server is busy, please try again in a moment.',
+        };
       }
 
-      throw new HttpException(
-        error instanceof Error ? error.message : 'AI generation failed',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'AI generation failed. Please try again.',
+      };
     }
   }
 }

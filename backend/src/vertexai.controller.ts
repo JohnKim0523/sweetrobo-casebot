@@ -85,11 +85,27 @@ export class VertexAIController {
         throw error;
       }
 
+      if (error instanceof Error && error.message === 'QUEUE_TIMEOUT') {
+        throw new HttpException(
+          'Server is busy, please try again in a moment',
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+
       throw new HttpException(
         error instanceof Error ? error.message : 'Internal server error',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  /**
+   * Get AI concurrency queue status
+   * GET /api/vertex-ai/queue-status
+   */
+  @Get('queue-status')
+  getQueueStatus() {
+    return vertexAIService.getConcurrencyStats();
   }
 
   /**
