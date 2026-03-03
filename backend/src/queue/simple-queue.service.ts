@@ -220,6 +220,34 @@ export class SimpleQueueService {
    */
   private async startProcessing() {
     setInterval(async () => {
+      // Self-heal: reset jobs stuck in 'processing' for over 2 minutes
+      const staleThreshold = Date.now() - 2 * 60 * 1000;
+      const stuckJobs = this.queue.filter(
+        (j) =>
+          j.status === 'processing' &&
+          j.startedAt &&
+          j.startedAt.getTime() < staleThreshold,
+      );
+      for (const stuck of stuckJobs) {
+        console.log(
+          `⚠️ Resetting stale job ${stuck.id} (stuck in processing for >2min)`,
+        );
+        stuck.status = 'failed';
+        stuck.error = 'Timed out - stuck in processing';
+        this.activeJobs = Math.max(0, this.activeJobs - 1);
+      }
+
+      // Safety: ensure activeJobs counter never goes below 0 or above reality
+      const actualProcessing = this.queue.filter(
+        (j) => j.status === 'processing',
+      ).length;
+      if (this.activeJobs !== actualProcessing) {
+        console.log(
+          `🔧 Correcting activeJobs counter: ${this.activeJobs} -> ${actualProcessing}`,
+        );
+        this.activeJobs = actualProcessing;
+      }
+
       if (this.activeJobs >= this.MAX_CONCURRENT) {
         return;
       }
@@ -234,8 +262,10 @@ export class SimpleQueueService {
     }, 2000); // Check every 2 seconds
   }
 
+  private readonly JOB_TIMEOUT_MS = 90000; // 90 second timeout per job
+
   /**
-   * Process a single job
+   * Process a single job (with timeout protection)
    */
   private async processJob(job: QueueJob) {
     if (this.activeJobs >= this.MAX_CONCURRENT) {
@@ -260,104 +290,28 @@ export class SimpleQueueService {
     console.log(
       `🖨️ Processing job ${job.id} (attempt ${job.attempts}) for machine ${job.data.machineId}`,
     );
+    console.log(
+      `📊 Active jobs: ${this.activeJobs}/${this.MAX_CONCURRENT}, Queue waiting: ${this.queue.filter((j) => j.status === 'waiting').length}`,
+    );
 
     try {
-      // Upload image to S3 (PNG with 300 DPI for Chitu printer)
-      let imageUrl = job.data.imageUrl;
-      if (!imageUrl && job.data.image) {
-        console.log(`📤 Uploading image to S3...`);
-
-        const buffer = Buffer.from(
-          job.data.image.replace(/^data:image\/\w+;base64,/, ''),
-          'base64',
-        );
-
-        const key = `designs/${job.data.sessionId}/${Date.now()}.png`;
-        imageUrl = await this.s3Service.uploadImage(buffer, key, true); // Convert for print (PNG 300 DPI)
-        job.data.imageUrl = imageUrl;
-
-        console.log(`✅ Image uploaded as PNG (300 DPI): ${imageUrl}`);
-      }
-
-      // Create Chitu order with validated workflow
-      // This workflow will:
-      // 1. Check machine status
-      // 2. Get product list from machine
-      // 3. Verify inventory
-      // 4. Create order with correct product_id
-      if (job.data.machineId && job.data.phoneModel && imageUrl) {
-        console.log(`📦 Creating Chitu order...`);
-        console.log(
-          `🔑 Product ID from frontend: ${job.data.productId || 'not provided'}`,
-        );
-        const orderResult =
-          await this.chituService.createPrintOrderWithValidation({
-            deviceCode: job.data.machineId,
-            phoneModelName: job.data.phoneModel,
-            productId: job.data.productId, // Pass product_id directly (skips name matching)
-            imageUrl: imageUrl,
-            orderNo: job.id,
-            printCount: 1,
-            sessionId: job.data.sessionId,
-          });
-
-        if (orderResult.success) {
-          console.log(`✅ Chitu order created: ${orderResult.orderId}`);
-          console.log(
-            `📦 Product used: ${orderResult.details?.product?.name_en}`,
-          );
-          console.log(
-            `🔑 Product ID: ${orderResult.details?.product?.product_id}`,
-          );
-          job.data.chituOrderId = orderResult.orderId;
-
-          // Register mapping between our jobId and Chitu's orderId
-          // This allows MQTT status updates to be routed to the correct frontend client
-          if (orderResult.orderId) {
-            this.orderMappingService.registerMapping(
-              job.id,
-              orderResult.orderId,
-              job.data.machineId,
-            );
-            console.log(
-              `🗺️ Registered order mapping: ${job.id} <-> ${orderResult.orderId}`,
-            );
-
-            // Emit order status so frontend receives chituOrderId immediately
-            // (Mini casebots need this to display the pickup code)
-            this.eventEmitter.emit('order.status', {
-              orderId: orderResult.orderId,
-              orderNo: job.id,
-              jobId: job.id,
-              chituOrderId: orderResult.orderId,
-              machineId: job.data.machineId,
-              status: 'order_created',
-              timestamp: new Date(),
-            });
-            console.log(
-              `📡 Emitted order.status for pickup code: ${orderResult.orderId}`,
-            );
-          }
-        } else {
-          throw new Error(
-            `Chitu order creation failed: ${orderResult.message}`,
-          );
-        }
-      } else {
-        console.log(`⚠️ Skipping Chitu order creation - missing required data`);
-        console.log(`   machineId: ${job.data.machineId ? '✅' : '❌'}`);
-        console.log(`   phoneModel: ${job.data.phoneModel ? '✅' : '❌'}`);
-        console.log(`   imageUrl: ${imageUrl ? '✅' : '❌'}`);
-      }
+      // Wrap entire processing in a timeout to prevent hanging forever
+      await Promise.race([
+        this.executeJob(job),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Job processing timed out after 90s')),
+            this.JOB_TIMEOUT_MS,
+          ),
+        ),
+      ]);
 
       // Mark as completed
       job.status = 'completed';
       job.completedAt = new Date();
       console.log(`✅ Job ${job.id} completed successfully`);
-
-      // Keep jobs in memory for S3 section display (don't auto-delete)
     } catch (error) {
-      console.error(`❌ Job ${job.id} failed:`, error);
+      console.error(`❌ Job ${job.id} failed:`, error.message || error);
 
       if (job.attempts < 3) {
         // Retry
@@ -370,6 +324,94 @@ export class SimpleQueueService {
       }
     } finally {
       this.activeJobs--;
+      console.log(`📊 Active jobs after completion: ${this.activeJobs}`);
+    }
+  }
+
+  /**
+   * Execute the actual job work (S3 upload + Chitu order creation)
+   */
+  private async executeJob(job: QueueJob): Promise<void> {
+    // Upload image to S3 (PNG with 300 DPI for Chitu printer)
+    let imageUrl = job.data.imageUrl;
+    if (!imageUrl && job.data.image) {
+      console.log(`📤 Uploading image to S3...`);
+
+      const buffer = Buffer.from(
+        job.data.image.replace(/^data:image\/\w+;base64,/, ''),
+        'base64',
+      );
+
+      const key = `designs/${job.data.sessionId}/${Date.now()}.png`;
+      imageUrl = await this.s3Service.uploadImage(buffer, key, true);
+      job.data.imageUrl = imageUrl;
+
+      console.log(`✅ Image uploaded as PNG (300 DPI): ${imageUrl}`);
+    }
+
+    // Create Chitu order with validated workflow
+    if (job.data.machineId && job.data.phoneModel && imageUrl) {
+      console.log(`📦 Creating Chitu order...`);
+      console.log(
+        `🔑 Product ID from frontend: ${job.data.productId || 'not provided'}`,
+      );
+      const orderResult =
+        await this.chituService.createPrintOrderWithValidation({
+          deviceCode: job.data.machineId,
+          phoneModelName: job.data.phoneModel,
+          productId: job.data.productId,
+          imageUrl: imageUrl,
+          orderNo: job.id,
+          printCount: 1,
+          sessionId: job.data.sessionId,
+        });
+
+      if (orderResult.success) {
+        console.log(`✅ Chitu order created: ${orderResult.orderId}`);
+        console.log(
+          `📦 Product used: ${orderResult.details?.product?.name_en}`,
+        );
+        console.log(
+          `🔑 Product ID: ${orderResult.details?.product?.product_id}`,
+        );
+        job.data.chituOrderId = orderResult.orderId;
+
+        // Register mapping between our jobId and Chitu's orderId
+        if (orderResult.orderId) {
+          this.orderMappingService.registerMapping(
+            job.id,
+            orderResult.orderId,
+            job.data.machineId,
+          );
+          console.log(
+            `🗺️ Registered order mapping: ${job.id} <-> ${orderResult.orderId}`,
+          );
+
+          // Emit order status so frontend receives chituOrderId immediately
+          // (Mini casebots need this to display the pickup code)
+          this.eventEmitter.emit('order.status', {
+            orderId: orderResult.orderId,
+            orderNo: job.id,
+            jobId: job.id,
+            chituOrderId: orderResult.orderId,
+            machineId: job.data.machineId,
+            status: 'order_created',
+            timestamp: new Date(),
+          });
+          console.log(
+            `📡 Emitted order.status for pickup code: ${orderResult.orderId}`,
+          );
+        }
+      } else {
+        throw new Error(
+          `Chitu order creation failed: ${orderResult.message}`,
+        );
+      }
+    } else {
+      console.log(`⚠️ Skipping Chitu order creation - missing required data`);
+      console.log(`   machineId: ${job.data.machineId ? '✅' : '❌'}`);
+      console.log(`   phoneModel: ${job.data.phoneModel ? '✅' : '❌'}`);
+      console.log(`   imageUrl: ${imageUrl ? '✅' : '❌'}`);
     }
   }
 
