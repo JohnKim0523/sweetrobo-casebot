@@ -85,14 +85,11 @@ export class SimpleQueueService {
       }
     }, 60000);
 
-    // Schedule old job cleanup every 6 hours
-    setInterval(
-      () => {
-        this.cleanupOldJobs();
-      },
-      6 * 60 * 60 * 1000,
-    );
-    console.log('🗑️ Job cleanup scheduled: every 6 hours (7-day retention)');
+    // Clean up finished jobs every 5 minutes (10-minute retention)
+    setInterval(() => {
+      this.cleanupOldJobs();
+    }, 5 * 60 * 1000);
+    console.log('🗑️ Job cleanup scheduled: every 5 minutes (10-min retention)');
 
     // Start processing queue
     this.startProcessing();
@@ -220,45 +217,50 @@ export class SimpleQueueService {
    */
   private async startProcessing() {
     setInterval(async () => {
-      // Self-heal: reset jobs stuck in 'processing' for over 2 minutes
-      const staleThreshold = Date.now() - 2 * 60 * 1000;
-      const stuckJobs = this.queue.filter(
-        (j) =>
-          j.status === 'processing' &&
-          j.startedAt &&
-          j.startedAt.getTime() < staleThreshold,
-      );
-      for (const stuck of stuckJobs) {
-        console.log(
-          `⚠️ Resetting stale job ${stuck.id} (stuck in processing for >2min)`,
+      try {
+        // Self-heal: reset jobs stuck in 'processing' for over 2 minutes
+        const staleThreshold = Date.now() - 2 * 60 * 1000;
+        const stuckJobs = this.queue.filter(
+          (j) =>
+            j.status === 'processing' &&
+            j.startedAt &&
+            j.startedAt.getTime() < staleThreshold,
         );
-        stuck.status = 'failed';
-        stuck.error = 'Timed out - stuck in processing';
-        this.activeJobs = Math.max(0, this.activeJobs - 1);
-      }
+        for (const stuck of stuckJobs) {
+          console.log(
+            `⚠️ Resetting stale job ${stuck.id} (stuck in processing for >2min)`,
+          );
+          stuck.status = 'failed';
+          stuck.error = 'Timed out - stuck in processing';
+          this.activeJobs = Math.max(0, this.activeJobs - 1);
+        }
 
-      // Safety: ensure activeJobs counter never goes below 0 or above reality
-      const actualProcessing = this.queue.filter(
-        (j) => j.status === 'processing',
-      ).length;
-      if (this.activeJobs !== actualProcessing) {
-        console.log(
-          `🔧 Correcting activeJobs counter: ${this.activeJobs} -> ${actualProcessing}`,
-        );
-        this.activeJobs = actualProcessing;
-      }
+        // Safety: ensure activeJobs counter never goes below 0 or above reality
+        const actualProcessing = this.queue.filter(
+          (j) => j.status === 'processing',
+        ).length;
+        if (this.activeJobs !== actualProcessing) {
+          console.log(
+            `🔧 Correcting activeJobs counter: ${this.activeJobs} -> ${actualProcessing}`,
+          );
+          this.activeJobs = actualProcessing;
+        }
 
-      if (this.activeJobs >= this.MAX_CONCURRENT) {
-        return;
-      }
+        if (this.activeJobs >= this.MAX_CONCURRENT) {
+          return;
+        }
 
-      const waitingJobs = this.queue.filter((j) => j.status === 'waiting');
-      if (waitingJobs.length === 0) {
-        return;
-      }
+        const waitingJobs = this.queue.filter((j) => j.status === 'waiting');
+        if (waitingJobs.length === 0) {
+          return;
+        }
 
-      const job = waitingJobs[0];
-      await this.processJob(job);
+        const job = waitingJobs[0];
+        await this.processJob(job);
+      } catch (error) {
+        // Log but never let the processor die — next interval tick will retry
+        console.error('❌ Queue processor error (will retry next tick):', error?.message || error);
+      }
     }, 2000); // Check every 2 seconds
   }
 
@@ -347,6 +349,9 @@ export class SimpleQueueService {
       job.data.imageUrl = imageUrl;
 
       console.log(`✅ Image uploaded as PNG (300 DPI): ${imageUrl}`);
+
+      // Free the base64 string from memory — it's on S3 now
+      job.data.image = '';
     }
 
     // Create Chitu order with validated workflow
@@ -549,8 +554,8 @@ export class SimpleQueueService {
    * Remove completed/failed jobs older than 7 days to prevent unbounded memory growth
    */
   cleanupOldJobs(): void {
-    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-    const cutoff = Date.now() - SEVEN_DAYS_MS;
+    const TEN_MINUTES_MS = 10 * 60 * 1000;
+    const cutoff = Date.now() - TEN_MINUTES_MS;
     const before = this.queue.length;
 
     this.queue = this.queue.filter((job) => {
