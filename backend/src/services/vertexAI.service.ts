@@ -210,13 +210,19 @@ class VertexAIService {
       const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
       const imageBuffer = Buffer.from(base64Data, 'base64');
 
-      // Resize image to target dimensions maintaining aspect ratio
-      // Use 'cover' to fill the area completely while maintaining aspect ratio (minimal crop)
-      const resizedBuffer = await sharp(imageBuffer)
+      // Strip any white/near-white margins the AI may have generated,
+      // then resize to fill the target case dimensions edge-to-edge.
+      // Flatten ensures a solid rectangle with no transparency (phone mask handles corner rounding)
+      const trimmed = await sharp(imageBuffer)
+        .trim({ threshold: 30 })
+        .toBuffer();
+
+      const resizedBuffer = await sharp(trimmed)
         .resize(targetWidth, targetHeight, {
-          fit: 'cover', // Maintain aspect ratio, crop minimally if needed
-          position: 'center', // Center the content when cropping
+          fit: 'cover',
+          position: 'center',
         })
+        .flatten()
         .png()
         .toBuffer();
 
