@@ -9,6 +9,7 @@ export interface PrintJobData {
   sessionId: string;
   machineId: string;
   image: string;
+  imageKey?: string; // S3 key from presigned upload (new flow)
   imageUrl?: string;
   phoneModel: string;
   phoneModelId: string;
@@ -44,8 +45,8 @@ export class SimpleQueueService {
   private processing = false;
   private submissionCache = new Map<string, number>();
   private readonly DUPLICATE_WINDOW_MS = 10000; // 10 seconds
-  private readonly MAX_CONCURRENT = 3;
-  private readonly RATE_LIMIT_DELAY = 1000; // 1 second between API calls
+  private readonly MAX_CONCURRENT = 10;
+  private readonly RATE_LIMIT_DELAY = 200; // 200ms between API calls (minimal throttle)
   private activeJobs = 0;
   private machineRoundRobin = 0;
   private availableMachines: string[];
@@ -100,11 +101,10 @@ export class SimpleQueueService {
    */
   private createFingerprint(data: Partial<PrintJobData>): string {
     const timeWindow = Math.floor(Date.now() / this.DUPLICATE_WINDOW_MS);
+    const imageId = data.imageKey || data.image?.substring(0, 100) || '';
     const fingerprint = crypto
       .createHash('md5')
-      .update(
-        `${data.sessionId}-${data.image?.substring(0, 100)}-${timeWindow}`,
-      )
+      .update(`${data.sessionId}-${imageId}-${timeWindow}`)
       .digest('hex');
     return fingerprint;
   }
@@ -255,13 +255,15 @@ export class SimpleQueueService {
           return;
         }
 
-        const job = waitingJobs[0];
-        await this.processJob(job);
+        // Process ALL available slots in parallel, not just one per tick
+        const availableSlots = this.MAX_CONCURRENT - this.activeJobs;
+        const jobsToProcess = waitingJobs.slice(0, availableSlots);
+        await Promise.all(jobsToProcess.map((job) => this.processJob(job)));
       } catch (error) {
         // Log but never let the processor die — next interval tick will retry
         console.error('❌ Queue processor error (will retry next tick):', error?.message || error);
       }
-    }, 2000); // Check every 2 seconds
+    }, 500); // Check every 500ms for faster pickup
   }
 
   private readonly JOB_TIMEOUT_MS = 90000; // 90 second timeout per job
@@ -334,10 +336,20 @@ export class SimpleQueueService {
    * Execute the actual job work (S3 upload + Chitu order creation)
    */
   private async executeJob(job: QueueJob): Promise<void> {
-    // Upload image to S3 (PNG with 300 DPI for Chitu printer)
+    // Get print-ready image URL
     let imageUrl = job.data.imageUrl;
+
+    // New flow: image already on S3 via presigned upload — just rotate for print
+    if (!imageUrl && job.data.imageKey) {
+      console.log(`🔄 Processing presigned upload for print: ${job.data.imageKey}`);
+      imageUrl = await this.s3Service.processForPrint(job.data.imageKey);
+      job.data.imageUrl = imageUrl;
+      console.log(`✅ Print image ready: ${imageUrl}`);
+    }
+
+    // Legacy flow: base64 image in request body
     if (!imageUrl && job.data.image) {
-      console.log(`📤 Uploading image to S3...`);
+      console.log(`📤 Uploading image to S3 (legacy base64 flow)...`);
 
       const buffer = Buffer.from(
         job.data.image.replace(/^data:image\/\w+;base64,/, ''),

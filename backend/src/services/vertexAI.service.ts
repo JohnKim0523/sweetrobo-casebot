@@ -670,9 +670,17 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
       // Wrap the entire API call + response validation in retry logic
       // This ensures text-refusals (model returns text instead of image) get retried automatically
       const generatedImageBase64 = await this.withConcurrencyControl(() => this.retryWithBackoff(async () => {
-        // Get the Gemini model for image generation
+        // Get the Gemini model for image generation with system instruction to force image output
         const imagenModel = this.vertexAI!.getGenerativeModel({
           model: this.generateModel,
+          systemInstruction: {
+            role: 'system',
+            parts: [
+              {
+                text: 'You are an image generation AI. You must ALWAYS generate and return an image. NEVER return text descriptions, explanations, questions, or analyses. Do not ask for clarification. Do not explain what you would create. Just generate the image. Your only output should be image data.',
+              },
+            ],
+          },
         });
 
         // Build the prompt with orientation guidance based on aspect ratio
@@ -689,6 +697,7 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
         if (request.negativePrompt) {
           fullPrompt += `\n\nAvoid: ${request.negativePrompt}`;
         }
+        fullPrompt += `\n\nIMPORTANT: Return ONLY the generated image. Do NOT respond with text, descriptions, or questions. Generate the image directly.`;
 
         const requestContent = {
           contents: [
@@ -701,6 +710,9 @@ CRITICAL: Your response must be an edited image, not text. Do not activate visio
               ],
             },
           ],
+          generationConfig: {
+            responseModalities: ['IMAGE', 'TEXT'],
+          } as any,
         };
 
         // Generate image with Gemini (with timeout)
