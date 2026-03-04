@@ -149,6 +149,60 @@ export class S3Service {
     console.log(`🗑️ S3 cleanup complete: deleted ${deletedCount} old design(s)`);
   }
 
+  getPresignedUploadUrl(key: string): string {
+    const params = {
+      Bucket: this.bucketName,
+      Key: key,
+      Expires: 300, // 5 minutes
+      ContentType: 'image/jpeg',
+    };
+    return this.s3.getSignedUrl('putObject', params);
+  }
+
+  async processForPrint(key: string): Promise<string> {
+    console.log(`🔄 processForPrint: downloading ${key} from S3...`);
+
+    // Download the uploaded JPEG from S3
+    const obj = await this.s3
+      .getObject({ Bucket: this.bucketName, Key: key })
+      .promise();
+    const buffer = obj.Body as Buffer;
+
+    const baseKey = key.replace(/\.(jpg|jpeg|png)$/i, '');
+
+    // 1. Upload display PNG (original, unrotated) for machine screen
+    const displayKey = `${baseKey}_display.png`;
+    const displayBuffer = await sharp(buffer).png().toBuffer();
+    await this.s3
+      .upload({
+        Bucket: this.bucketName,
+        Key: displayKey,
+        Body: displayBuffer,
+        ContentType: 'image/png',
+      })
+      .promise();
+    console.log(`✅ Display PNG uploaded: ${displayKey}`);
+
+    // 2. Upload print PNG (rotated 90°, 300 DPI) for Chitu printer
+    const printKey = `${baseKey}.png`;
+    const printBuffer = await sharp(buffer)
+      .rotate(90)
+      .withMetadata({ density: 300 })
+      .png({ quality: 100 })
+      .toBuffer();
+    const printResult = await this.s3
+      .upload({
+        Bucket: this.bucketName,
+        Key: printKey,
+        Body: printBuffer,
+        ContentType: 'image/png',
+      })
+      .promise();
+    console.log(`✅ Print PNG uploaded (rotated 90°, 300 DPI): ${printKey}`);
+
+    return printResult.Location;
+  }
+
   async getWatermarkUrl(machineId: string): Promise<string | null> {
     const key = `watermarks/${machineId}.png`;
     try {

@@ -5241,23 +5241,25 @@ export default function Editor() {
           });
         }
         
-        // Check size and warn if too large
-        const sizeInBytes = dataURL.length * 0.75; // Approximate size in bytes
+        // Convert masked PNG to JPEG (replace transparency with white, ~5-10x smaller)
+        const jpegDataURL: string = await new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const jpegCanvas = document.createElement('canvas');
+            jpegCanvas.width = img.width;
+            jpegCanvas.height = img.height;
+            const jpegCtx = jpegCanvas.getContext('2d')!;
+            jpegCtx.fillStyle = '#FFFFFF';
+            jpegCtx.fillRect(0, 0, img.width, img.height);
+            jpegCtx.drawImage(img, 0, 0);
+            resolve(jpegCanvas.toDataURL('image/jpeg', 0.92));
+          };
+          img.src = dataURL;
+        });
+
+        const sizeInBytes = jpegDataURL.length * 0.75;
         const sizeInMB = sizeInBytes / 1024 / 1024;
-        console.log(`📦 Image size: ${sizeInMB.toFixed(2)} MB`);
-        
-        // Vercel has a 4.5MB limit for API requests
-        const maxSizeMB = 4.0; // Stay under 4MB to be safe
-        
-        if (sizeInMB > maxSizeMB) {
-          alert(`Image too large (${sizeInMB.toFixed(1)}MB). Maximum is ${maxSizeMB}MB for web upload. Please use a smaller photo.`);
-          setDebugInfo(`Failed: Image ${sizeInMB.toFixed(1)}MB > ${maxSizeMB}MB limit`);
-          return;
-        }
-        
-        // Use SAME high-quality image for printer (no separate JPEG conversion)
-        // This prevents quality loss from format conversion
-        const jpegDataURL = dataURL;
+        console.log(`📦 JPEG image size: ${sizeInMB.toFixed(2)} MB (converted from PNG)`);
         
         // Restore crosshair and border visibility
         if (crosshairLines.vertical) crosshairLines.vertical.visible = originalVerticalVisible;
@@ -5367,12 +5369,12 @@ export default function Editor() {
 
         // Preview data for confirmation page
         const previewData = {
-          designImage: dataURL, // Masked design WITH camera cutouts applied
+          designImage: dataURL, // Masked design WITH camera cutouts applied (PNG for preview)
           canvasState: canvasJSON, // Save full canvas state for restoration
           phoneTemplate: phoneModel?.thumbnailPath || null, // WebP thumbnail for UI preview
           phoneName: phoneModel?.displayName || 'Custom Phone Case',
           submissionData: {
-            image: dataURL, // Send masked design to printer (WITH camera cutouts)
+            // No base64 image — will upload JPEG directly to S3 via presigned URL
             machineId: machineId,
             sessionId: sessionId || `session_${Date.now()}`,
             phoneModel: phoneModel?.displayName || 'Default Phone Case',
@@ -5391,8 +5393,9 @@ export default function Editor() {
         // Store preview image for modal
         setPreviewImage(dataURL);
 
-        // Store submission data for payment completion
+        // Store submission data and JPEG for presigned upload
         (window as any).__submissionData = previewData.submissionData;
+        (window as any).__jpegDataURL = jpegDataURL;
 
         console.log('✅ Showing preview modal...');
         setIsUploading(false);
@@ -8197,6 +8200,7 @@ export default function Editor() {
                     try {
                       // Get submission data from window
                       const submissionData = (window as any).__submissionData;
+                      const jpegDataURL = (window as any).__jpegDataURL;
 
                       // DEMO MODE: Mark submission as demo (no Chitu order, S3 upload only)
                       if (isDemoMode) {
@@ -8205,14 +8209,44 @@ export default function Editor() {
                         console.log('🎮 DEMO MODE: Submitting design (S3 only, no Chitu order)');
                       }
 
-                      // Submit to backend (S3 upload + print job)
                       const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
+
+                      // Step 1: Get presigned S3 upload URL
+                      console.log('🔗 Getting presigned upload URL...');
+                      const presignRes = await fetch(`${backendUrl}/api/chitu/presign-upload`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          sessionId: submissionData.sessionId,
+                          machineId: submissionData.machineId,
+                        }),
+                      });
+                      const { uploadUrl, imageKey } = await presignRes.json();
+                      console.log('✅ Presigned URL received, key:', imageKey);
+
+                      // Step 2: Upload JPEG directly to S3
+                      console.log('📤 Uploading JPEG to S3...');
+                      const binaryStr = atob(jpegDataURL.split(',')[1]);
+                      const bytes = new Uint8Array(binaryStr.length);
+                      for (let i = 0; i < binaryStr.length; i++) {
+                        bytes[i] = binaryStr.charCodeAt(i);
+                      }
+                      await fetch(uploadUrl, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'image/jpeg' },
+                        body: bytes,
+                      });
+                      console.log('✅ JPEG uploaded to S3');
+
+                      // Free JPEG data from memory
+                      delete (window as any).__jpegDataURL;
+
+                      // Step 3: Submit print job with S3 key (no base64 image)
+                      console.log('🖨️ Submitting print job with imageKey...');
                       const response = await fetch(`${backendUrl}/api/chitu/print`, {
                         method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify(submissionData),
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...submissionData, imageKey }),
                       });
 
                       const result = await response.json();
@@ -8226,6 +8260,7 @@ export default function Editor() {
 
                         // Clear data
                         delete (window as any).__submissionData;
+                        delete (window as any).__jpegDataURL;
                         setShowPreviewModal(false);
                         setPreviewImage(null);
 

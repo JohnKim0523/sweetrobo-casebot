@@ -272,13 +272,34 @@ export class ChituController {
   }
 
   /**
+   * Get a presigned S3 upload URL for direct browser upload
+   */
+  @Post('presign-upload')
+  async presignUpload(
+    @Body() body: { sessionId: string; machineId: string },
+  ) {
+    try {
+      const sessionId = body.sessionId || `anon_${Date.now()}`;
+      const imageKey = `designs/${sessionId}/${Date.now()}.jpg`;
+      const uploadUrl = this.s3Service.getPresignedUploadUrl(imageKey);
+
+      console.log(`🔗 Presigned upload URL generated: ${imageKey}`);
+      return { uploadUrl, imageKey };
+    } catch (error) {
+      console.error('❌ Presign failed:', error.message);
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  /**
    * Submit design to print (replacement for old flow)
    */
   @Post('print')
   async submitPrint(
     @Body()
     body: {
-      image: string;
+      image?: string;
+      imageKey?: string; // S3 key from presigned upload (new flow)
       machineId?: string;
       phoneModel?: string;
       phoneModelId?: string;
@@ -300,7 +321,8 @@ export class ChituController {
       const result = await this.queueService.addPrintJob({
         sessionId: body.sessionId || `anon_${Date.now()}`,
         machineId: body.machineId,
-        image: body.image,
+        image: body.image || '',
+        imageKey: body.imageKey,
         phoneModel: body.phoneModel || 'Default',
         phoneModelId: body.phoneModelId || 'default',
         productId: body.productId, // NEW: Pass product_id to queue
