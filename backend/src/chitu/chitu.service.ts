@@ -41,7 +41,7 @@ export class ChituService {
     // Create axios instance with base configuration
     this.apiClient = axios.create({
       baseURL: this.config.baseUrl,
-      timeout: 30000,
+      timeout: 60000,
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
@@ -90,70 +90,90 @@ export class ChituService {
   }
 
   /**
-   * Make authenticated API request
+   * Make authenticated API request with retry logic
    * Each API endpoint has specific required fields for signature calculation
    */
   private async request<T = any>(
     endpoint: string,
     params: Record<string, any> = {},
     method: 'GET' | 'POST' = 'POST',
+    maxRetries: number = 2,
   ): Promise<ChituResponse<T> | any> {
-    try {
-      // Add appid to all requests (required by all endpoints)
-      const requestParams: Record<string, any> = {
-        appid: this.config.appId,
-        ...params,
-      };
+    // Add appid to all requests (required by all endpoints)
+    const requestParams: Record<string, any> = {
+      appid: this.config.appId,
+      ...params,
+    };
 
-      // Generate signature based on actual parameters (no timestamp/nonce needed)
-      requestParams.sign = this.generateSignature(requestParams);
+    // Generate signature based on actual parameters (no timestamp/nonce needed)
+    requestParams.sign = this.generateSignature(requestParams);
 
-      console.log(`\n📤 Chitu API Request: ${endpoint}`);
-      console.log(`📊 Parameters: ${JSON.stringify(requestParams, null, 2)}`);
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          const delay = attempt * 3000; // 3s, 6s backoff
+          console.log(`🔄 Chitu API retry ${attempt}/${maxRetries} for ${endpoint} (waiting ${delay}ms)...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
 
-      const response = await this.apiClient.request<ChituResponse<T>>({
-        method,
-        url: endpoint,
-        data: requestParams,
-      });
+        console.log(`\n📤 Chitu API Request: ${endpoint}${attempt > 0 ? ` (attempt ${attempt + 1})` : ''}`);
+        console.log(`📊 Parameters: ${JSON.stringify(requestParams, null, 2)}`);
 
-      console.log(
-        `✅ Response Status: ${response.data?.status || response.data?.code}`,
-      );
-      console.log(
-        `💬 Message: ${response.data?.msg || response.data?.message}`,
-      );
+        const response = await this.apiClient.request<ChituResponse<T>>({
+          method,
+          url: endpoint,
+          data: requestParams,
+        });
 
-      // Check for errors in response
-      const errorResponse = response.data as any;
-      if (errorResponse.status && errorResponse.status !== 200) {
-        console.error('❌ Chitu API Error:', errorResponse.msg);
+        console.log(
+          `✅ Response Status: ${response.data?.status || response.data?.code}`,
+        );
+        console.log(
+          `💬 Message: ${response.data?.msg || response.data?.message}`,
+        );
+
+        // Check for errors in response
+        const errorResponse = response.data as any;
+        if (errorResponse.status && errorResponse.status !== 200) {
+          console.error('❌ Chitu API Error:', errorResponse.msg);
+          throw new HttpException(
+            `Chitu API Error: ${errorResponse.msg}`,
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+
+        if (
+          typeof response.data.code !== 'undefined' &&
+          response.data.code !== 0
+        ) {
+          throw new HttpException(
+            `Chitu API Error: ${response.data.message}`,
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+
+        return response.data;
+      } catch (error) {
+        const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout');
+        const isNetworkError = error.code === 'ECONNRESET' || error.code === 'ENOTFOUND' || error.message?.includes('ECONNREFUSED');
+        const isRetryable = isTimeout || isNetworkError;
+
+        // Don't retry business logic errors (4xx from Chitu)
+        if (error instanceof HttpException) {
+          throw error;
+        }
+
+        if (isRetryable && attempt < maxRetries) {
+          console.log(`⚠️ Chitu API ${isTimeout ? 'timeout' : 'network error'} on ${endpoint}, will retry...`);
+          continue;
+        }
+
+        console.error(`❌ Chitu API Error (final):`, error.message);
         throw new HttpException(
-          `Chitu API Error: ${errorResponse.msg}`,
-          HttpStatus.BAD_REQUEST,
+          `Failed to call Chitu API: ${error.message}`,
+          HttpStatus.INTERNAL_SERVER_ERROR,
         );
       }
-
-      if (
-        typeof response.data.code !== 'undefined' &&
-        response.data.code !== 0
-      ) {
-        throw new HttpException(
-          `Chitu API Error: ${response.data.message}`,
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      return response.data;
-    } catch (error) {
-      console.error(`❌ Chitu API Error:`, error.message);
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      throw new HttpException(
-        `Failed to call Chitu API: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
     }
   }
 

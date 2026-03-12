@@ -44,12 +44,14 @@ export class SimpleQueueService {
   private processing = false;
   private submissionCache = new Map<string, number>();
   private readonly DUPLICATE_WINDOW_MS = 10000; // 10 seconds
-  private readonly MAX_CONCURRENT = 3;
+  private readonly MAX_CONCURRENT = 20;
   private readonly RATE_LIMIT_DELAY = 1000; // 1 second between API calls
   private activeJobs = 0;
   private machineRoundRobin = 0;
   private availableMachines: string[];
   private lastApiCall = 0;
+  private processorAlive = false;
+  private lastProcessorTick = 0;
 
   constructor(
     @Inject(forwardRef(() => S3Service))
@@ -216,22 +218,88 @@ export class SimpleQueueService {
   }
 
   /**
-   * Start processing queue
+   * Start processing queue with self-healing
    */
   private async startProcessing() {
-    setInterval(async () => {
-      if (this.activeJobs >= this.MAX_CONCURRENT) {
-        return;
-      }
+    this.processorAlive = true;
 
-      const waitingJobs = this.queue.filter((j) => j.status === 'waiting');
-      if (waitingJobs.length === 0) {
-        return;
-      }
+    // Main processing loop
+    setInterval(() => {
+      this.lastProcessorTick = Date.now();
 
-      const job = waitingJobs[0];
-      await this.processJob(job);
-    }, 2000); // Check every 2 seconds
+      try {
+        if (this.activeJobs >= this.MAX_CONCURRENT) {
+          return;
+        }
+
+        const waitingJobs = this.queue.filter((j) => j.status === 'waiting');
+        if (waitingJobs.length === 0) {
+          return;
+        }
+
+        const job = waitingJobs[0];
+        // Fire and forget — don't await in setInterval
+        this.processJob(job).catch((err) => {
+          console.error(`❌ Queue processor error (job ${job.id}):`, err?.message || err);
+        });
+      } catch (err) {
+        console.error('❌ Queue processor tick error:', err?.message || err);
+      }
+    }, 2000);
+
+    // Self-healing: detect and recover stuck jobs every 60 seconds
+    setInterval(() => {
+      try {
+        this.healStuckJobs();
+      } catch (err) {
+        console.error('❌ Self-heal error:', err?.message || err);
+      }
+    }, 60000);
+
+    // Health logging every 5 minutes
+    setInterval(() => {
+      const waiting = this.queue.filter((j) => j.status === 'waiting').length;
+      const processing = this.queue.filter((j) => j.status === 'processing').length;
+      const completed = this.queue.filter((j) => j.status === 'completed').length;
+      const failed = this.queue.filter((j) => j.status === 'failed').length;
+      if (waiting > 0 || processing > 0) {
+        console.log(`📊 Queue health: ${waiting} waiting, ${processing} processing, ${completed} completed, ${failed} failed | activeJobs: ${this.activeJobs} | total: ${this.queue.length}`);
+      }
+    }, 5 * 60 * 1000);
+
+    console.log('✅ Queue processor started with self-healing');
+  }
+
+  /**
+   * Detect and recover stuck jobs
+   */
+  private healStuckJobs() {
+    const now = Date.now();
+    const STUCK_TIMEOUT = 3 * 60 * 1000; // 3 minutes — no single job should take this long
+    let healed = 0;
+
+    for (const job of this.queue) {
+      if (job.status === 'processing' && job.startedAt) {
+        const elapsed = now - job.startedAt.getTime();
+        if (elapsed > STUCK_TIMEOUT) {
+          console.log(`🔧 Healing stuck job ${job.id} (stuck for ${Math.round(elapsed / 1000)}s)`);
+          job.status = job.attempts >= 3 ? 'failed' : 'waiting';
+          job.error = 'Job timed out and was auto-recovered';
+          healed++;
+        }
+      }
+    }
+
+    // Fix activeJobs counter if it's out of sync
+    const actualProcessing = this.queue.filter((j) => j.status === 'processing').length;
+    if (this.activeJobs !== actualProcessing) {
+      console.log(`🔧 Fixing activeJobs counter: was ${this.activeJobs}, actual processing: ${actualProcessing}`);
+      this.activeJobs = actualProcessing;
+    }
+
+    if (healed > 0) {
+      console.log(`🔧 Self-healed ${healed} stuck job(s)`);
+    }
   }
 
   /**
@@ -277,6 +345,9 @@ export class SimpleQueueService {
         job.data.imageUrl = imageUrl;
 
         console.log(`✅ Image uploaded as PNG (300 DPI): ${imageUrl}`);
+
+        // Free base64 image data from memory — it's now in S3
+        job.data.image = '';
       }
 
       // Create Chitu order with validated workflow
