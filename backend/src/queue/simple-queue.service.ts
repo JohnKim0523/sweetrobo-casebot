@@ -36,6 +36,7 @@ interface QueueJob {
   completedAt?: Date;
   error?: string;
   attempts: number;
+  _processingToken?: string; // Unique token per processJob invocation — prevents healed jobs from interfering
 }
 
 @Injectable()
@@ -46,7 +47,7 @@ export class SimpleQueueService {
   private readonly DUPLICATE_WINDOW_MS = 10000; // 10 seconds
   private readonly MAX_CONCURRENT = 20;
   private readonly RATE_LIMIT_DELAY = 1000; // 1 second between API calls
-  private activeJobs = 0;
+  private readonly JOB_TIMEOUT = 2 * 60 * 1000; // 2 minutes — hard timeout per job
   private machineRoundRobin = 0;
   private availableMachines: string[];
   private lastApiCall = 0;
@@ -98,6 +99,13 @@ export class SimpleQueueService {
 
     // Start processing queue
     this.startProcessing();
+  }
+
+  /**
+   * Derived active job count — always accurate, can never desync
+   */
+  private get activeJobCount(): number {
+    return this.queue.filter((j) => j.status === 'processing').length;
   }
 
   /**
@@ -190,7 +198,7 @@ export class SimpleQueueService {
       `✅ Print job queued: ${job.id} for machine: ${data.machineId}`,
     );
     console.log(
-      `📊 Queue size: ${this.queue.length}, Active jobs: ${this.activeJobs}`,
+      `📊 Queue size: ${this.queue.length}, Active jobs: ${this.activeJobCount}`,
     );
 
     return {
@@ -223,12 +231,13 @@ export class SimpleQueueService {
   private async startProcessing() {
     this.processorAlive = true;
 
-    // Main processing loop
+    // Main processing loop — picks up ONE waiting job per tick
     setInterval(() => {
       this.lastProcessorTick = Date.now();
 
       try {
-        if (this.activeJobs >= this.MAX_CONCURRENT) {
+        const activeCount = this.activeJobCount;
+        if (activeCount >= this.MAX_CONCURRENT) {
           return;
         }
 
@@ -238,7 +247,9 @@ export class SimpleQueueService {
         }
 
         const job = waitingJobs[0];
+        console.log(`⏰ Queue tick: picking up ${job.id} (${waitingJobs.length} waiting, ${activeCount} active)`);
         // Fire and forget — don't await in setInterval
+        // processJob marks job as 'processing' synchronously before any await
         this.processJob(job).catch((err) => {
           console.error(`❌ Queue processor error (job ${job.id}):`, err?.message || err);
         });
@@ -247,25 +258,23 @@ export class SimpleQueueService {
       }
     }, 2000);
 
-    // Self-healing: detect and recover stuck jobs every 60 seconds
+    // Self-healing: detect and recover stuck jobs every 30 seconds
     setInterval(() => {
       try {
         this.healStuckJobs();
       } catch (err) {
         console.error('❌ Self-heal error:', err?.message || err);
       }
-    }, 60000);
+    }, 30000);
 
-    // Health logging every 5 minutes
+    // Health logging every 2 minutes
     setInterval(() => {
       const waiting = this.queue.filter((j) => j.status === 'waiting').length;
       const processing = this.queue.filter((j) => j.status === 'processing').length;
       const completed = this.queue.filter((j) => j.status === 'completed').length;
       const failed = this.queue.filter((j) => j.status === 'failed').length;
-      if (waiting > 0 || processing > 0) {
-        console.log(`📊 Queue health: ${waiting} waiting, ${processing} processing, ${completed} completed, ${failed} failed | activeJobs: ${this.activeJobs} | total: ${this.queue.length}`);
-      }
-    }, 5 * 60 * 1000);
+      console.log(`📊 Queue health: ${waiting} waiting, ${processing} processing, ${completed} completed, ${failed} failed | total: ${this.queue.length}`);
+    }, 2 * 60 * 1000);
 
     console.log('✅ Queue processor started with self-healing');
   }
@@ -275,7 +284,7 @@ export class SimpleQueueService {
    */
   private healStuckJobs() {
     const now = Date.now();
-    const STUCK_TIMEOUT = 3 * 60 * 1000; // 3 minutes — no single job should take this long
+    const STUCK_TIMEOUT = this.JOB_TIMEOUT + 30000; // Job timeout + 30s grace period
     let healed = 0;
 
     for (const job of this.queue) {
@@ -283,18 +292,13 @@ export class SimpleQueueService {
         const elapsed = now - job.startedAt.getTime();
         if (elapsed > STUCK_TIMEOUT) {
           console.log(`🔧 Healing stuck job ${job.id} (stuck for ${Math.round(elapsed / 1000)}s)`);
+          // Invalidate the old processJob's token so its finally/catch won't interfere
+          job._processingToken = undefined;
           job.status = job.attempts >= 3 ? 'failed' : 'waiting';
           job.error = 'Job timed out and was auto-recovered';
           healed++;
         }
       }
-    }
-
-    // Fix activeJobs counter if it's out of sync
-    const actualProcessing = this.queue.filter((j) => j.status === 'processing').length;
-    if (this.activeJobs !== actualProcessing) {
-      console.log(`🔧 Fixing activeJobs counter: was ${this.activeJobs}, actual processing: ${actualProcessing}`);
-      this.activeJobs = actualProcessing;
     }
 
     if (healed > 0) {
@@ -306,11 +310,27 @@ export class SimpleQueueService {
    * Process a single job
    */
   private async processJob(job: QueueJob) {
-    if (this.activeJobs >= this.MAX_CONCURRENT) {
+    // Guard: skip if already picked up by another tick or at capacity
+    if (job.status !== 'waiting') {
+      return;
+    }
+    if (this.activeJobCount >= this.MAX_CONCURRENT) {
       return;
     }
 
-    // Rate limiting
+    // CRITICAL: Claim job synchronously before any await
+    // This prevents the next setInterval tick from picking up the same job
+    const processingToken = `${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    job._processingToken = processingToken;
+    job.status = 'processing';
+    job.startedAt = new Date();
+    job.attempts++;
+
+    console.log(
+      `🔄 Job ${job.id} claimed (${this.activeJobCount} active, attempt ${job.attempts})`,
+    );
+
+    // Rate limiting (safe to await now — job is already marked as 'processing')
     const now = Date.now();
     const timeSinceLastCall = now - this.lastApiCall;
     if (timeSinceLastCall < this.RATE_LIMIT_DELAY) {
@@ -318,129 +338,148 @@ export class SimpleQueueService {
       console.log(`⏳ Rate limiting: waiting ${delay}ms`);
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
-
-    this.activeJobs++;
-    job.status = 'processing';
-    job.startedAt = new Date();
-    job.attempts++;
     this.lastApiCall = Date.now();
+
+    // Check if job was reclaimed by healer during rate limit wait
+    if (job._processingToken !== processingToken) {
+      console.log(`⚠️ Job ${job.id} was reclaimed during rate limit, aborting`);
+      return;
+    }
 
     console.log(
       `🖨️ Processing job ${job.id} (attempt ${job.attempts}) for machine ${job.data.machineId}`,
     );
 
     try {
-      // Upload image to S3 (PNG with 300 DPI for Chitu printer)
-      let imageUrl = job.data.imageUrl;
-      if (!imageUrl && job.data.image) {
-        console.log(`📤 Uploading image to S3...`);
+      // Wrap all work in a hard timeout — prevents hanging S3/Chitu calls from blocking forever
+      await Promise.race([
+        this.executeJobWork(job, processingToken),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Job timed out after ${this.JOB_TIMEOUT / 1000}s`)), this.JOB_TIMEOUT),
+        ),
+      ]);
 
-        const buffer = Buffer.from(
-          job.data.image.replace(/^data:image\/\w+;base64,/, ''),
-          'base64',
-        );
-
-        const key = `designs/${job.data.sessionId}/${Date.now()}.png`;
-        imageUrl = await this.s3Service.uploadImage(buffer, key, true); // Convert for print (PNG 300 DPI)
-        job.data.imageUrl = imageUrl;
-
-        console.log(`✅ Image uploaded as PNG (300 DPI): ${imageUrl}`);
-
-        // Free base64 image data from memory — it's now in S3
-        job.data.image = '';
+      // Verify we still own the job before marking complete
+      if (job._processingToken !== processingToken) {
+        console.log(`⚠️ Job ${job.id} ownership changed, skipping completion`);
+        return;
       }
 
-      // Create Chitu order with validated workflow
-      // This workflow will:
-      // 1. Check machine status
-      // 2. Get product list from machine
-      // 3. Verify inventory
-      // 4. Create order with correct product_id
-      if (job.data.machineId && job.data.phoneModel && imageUrl) {
-        console.log(`📦 Creating Chitu order...`);
-        console.log(
-          `🔑 Product ID from frontend: ${job.data.productId || 'not provided'}`,
-        );
-        const orderResult =
-          await this.chituService.createPrintOrderWithValidation({
-            deviceCode: job.data.machineId,
-            phoneModelName: job.data.phoneModel,
-            productId: job.data.productId, // Pass product_id directly (skips name matching)
-            imageUrl: imageUrl,
-            orderNo: job.id,
-            printCount: 1,
-            sessionId: job.data.sessionId,
-          });
-
-        if (orderResult.success) {
-          console.log(`✅ Chitu order created: ${orderResult.orderId}`);
-          console.log(
-            `📦 Product used: ${orderResult.details?.product?.name_en}`,
-          );
-          console.log(
-            `🔑 Product ID: ${orderResult.details?.product?.product_id}`,
-          );
-          job.data.chituOrderId = orderResult.orderId;
-
-          // Register mapping between our jobId and Chitu's orderId
-          // This allows MQTT status updates to be routed to the correct frontend client
-          if (orderResult.orderId) {
-            this.orderMappingService.registerMapping(
-              job.id,
-              orderResult.orderId,
-              job.data.machineId,
-            );
-            console.log(
-              `🗺️ Registered order mapping: ${job.id} <-> ${orderResult.orderId}`,
-            );
-
-            // Emit order status so frontend receives chituOrderId immediately
-            // (Mini casebots need this to display the pickup code)
-            this.eventEmitter.emit('order.status', {
-              orderId: orderResult.orderId,
-              orderNo: job.id,
-              jobId: job.id,
-              chituOrderId: orderResult.orderId,
-              machineId: job.data.machineId,
-              status: 'order_created',
-              timestamp: new Date(),
-            });
-            console.log(
-              `📡 Emitted order.status for pickup code: ${orderResult.orderId}`,
-            );
-          }
-        } else {
-          throw new Error(
-            `Chitu order creation failed: ${orderResult.message}`,
-          );
-        }
-      } else {
-        console.log(`⚠️ Skipping Chitu order creation - missing required data`);
-        console.log(`   machineId: ${job.data.machineId ? '✅' : '❌'}`);
-        console.log(`   phoneModel: ${job.data.phoneModel ? '✅' : '❌'}`);
-        console.log(`   imageUrl: ${imageUrl ? '✅' : '❌'}`);
-      }
-
-      // Mark as completed
       job.status = 'completed';
       job.completedAt = new Date();
       console.log(`✅ Job ${job.id} completed successfully`);
-
-      // Keep jobs in memory for S3 section display (don't auto-delete)
     } catch (error) {
-      console.error(`❌ Job ${job.id} failed:`, error);
+      // Only handle error if we still own the job
+      if (job._processingToken !== processingToken) {
+        console.log(`⚠️ Job ${job.id} ownership changed, ignoring error: ${error?.message}`);
+        return;
+      }
+
+      console.error(`❌ Job ${job.id} failed:`, error?.message || error);
 
       if (job.attempts < 3) {
-        // Retry
         job.status = 'waiting';
+        job._processingToken = undefined;
         console.log(`🔄 Retrying job ${job.id} (${job.attempts}/3)`);
       } else {
-        // Mark as failed
         job.status = 'failed';
-        job.error = error.message;
+        job.error = error?.message || 'Unknown error';
+        console.log(`💀 Job ${job.id} permanently failed after ${job.attempts} attempts`);
       }
-    } finally {
-      this.activeJobs--;
+    }
+    // No finally { activeJobs-- } needed — activeJobCount is derived from job status
+  }
+
+  /**
+   * Execute the actual job work (S3 upload + Chitu order creation)
+   * Separated from processJob so Promise.race can enforce a hard timeout
+   */
+  private async executeJobWork(job: QueueJob, processingToken: string) {
+    // Upload image to S3 (PNG with 300 DPI for Chitu printer)
+    let imageUrl = job.data.imageUrl;
+    if (!imageUrl && job.data.image) {
+      console.log(`📤 Uploading image to S3...`);
+
+      const buffer = Buffer.from(
+        job.data.image.replace(/^data:image\/\w+;base64,/, ''),
+        'base64',
+      );
+
+      const key = `designs/${job.data.sessionId}/${Date.now()}.png`;
+      imageUrl = await this.s3Service.uploadImage(buffer, key, true);
+      job.data.imageUrl = imageUrl;
+
+      console.log(`✅ Image uploaded as PNG (300 DPI): ${imageUrl}`);
+
+      // Free base64 image data from memory — it's now in S3
+      job.data.image = '';
+    }
+
+    // Check if job was reclaimed by healer during S3 upload
+    if (job._processingToken !== processingToken) {
+      throw new Error('Job ownership changed during processing');
+    }
+
+    // Create Chitu order with validated workflow
+    if (job.data.machineId && job.data.phoneModel && imageUrl) {
+      console.log(`📦 Creating Chitu order...`);
+      console.log(
+        `🔑 Product ID from frontend: ${job.data.productId || 'not provided'}`,
+      );
+      const orderResult =
+        await this.chituService.createPrintOrderWithValidation({
+          deviceCode: job.data.machineId,
+          phoneModelName: job.data.phoneModel,
+          productId: job.data.productId,
+          imageUrl: imageUrl,
+          orderNo: job.id,
+          printCount: 1,
+          sessionId: job.data.sessionId,
+        });
+
+      if (orderResult.success) {
+        console.log(`✅ Chitu order created: ${orderResult.orderId}`);
+        console.log(
+          `📦 Product used: ${orderResult.details?.product?.name_en}`,
+        );
+        console.log(
+          `🔑 Product ID: ${orderResult.details?.product?.product_id}`,
+        );
+        job.data.chituOrderId = orderResult.orderId;
+
+        if (orderResult.orderId) {
+          this.orderMappingService.registerMapping(
+            job.id,
+            orderResult.orderId,
+            job.data.machineId,
+          );
+          console.log(
+            `🗺️ Registered order mapping: ${job.id} <-> ${orderResult.orderId}`,
+          );
+
+          this.eventEmitter.emit('order.status', {
+            orderId: orderResult.orderId,
+            orderNo: job.id,
+            jobId: job.id,
+            chituOrderId: orderResult.orderId,
+            machineId: job.data.machineId,
+            status: 'order_created',
+            timestamp: new Date(),
+          });
+          console.log(
+            `📡 Emitted order.status for pickup code: ${orderResult.orderId}`,
+          );
+        }
+      } else {
+        throw new Error(
+          `Chitu order creation failed: ${orderResult.message}`,
+        );
+      }
+    } else {
+      console.log(`⚠️ Skipping Chitu order creation - missing required data`);
+      console.log(`   machineId: ${job.data.machineId ? '✅' : '❌'}`);
+      console.log(`   phoneModel: ${job.data.phoneModel ? '✅' : '❌'}`);
+      console.log(`   imageUrl: ${imageUrl ? '✅' : '❌'}`);
     }
   }
 
@@ -486,7 +525,7 @@ export class SimpleQueueService {
       completed,
       failed,
       total: this.queue.length,
-      activeJobs: this.activeJobs,
+      activeJobs: this.activeJobCount,
       machineLoads,
     };
   }

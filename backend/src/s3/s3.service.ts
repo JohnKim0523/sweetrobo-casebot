@@ -12,6 +12,11 @@ export class S3Service {
       accessKeyId: process.env.AWS_ACCESS_KEY_ID,
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
       region: process.env.AWS_REGION || 'us-east-1',
+      httpOptions: {
+        timeout: 30000, // 30 second timeout — prevents hanging forever on slow/dead connections
+        connectTimeout: 10000, // 10 second connection timeout
+      },
+      maxRetries: 2, // Retry up to 2 times on transient errors
     });
     this.bucketName =
       process.env.AWS_BUCKET_NAME || 'sweetrobo-phonecase-designs';
