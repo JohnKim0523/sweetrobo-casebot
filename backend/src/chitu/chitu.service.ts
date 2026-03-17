@@ -30,15 +30,10 @@ export class ChituService {
       appSecret: this.configService.get<string>('CHITU_APP_SECRET') || '',
     };
 
-    // Validate config
     if (!this.config.appId || !this.config.appSecret) {
-      console.error('❌ Chitu API credentials not configured!');
-      console.error(
-        'Please set CHITU_APP_ID and CHITU_APP_SECRET in your .env file',
-      );
+      console.error('[CHITU] Missing CHITU_APP_ID or CHITU_APP_SECRET in .env');
     }
 
-    // Create axios instance with base configuration
     this.apiClient = axios.create({
       baseURL: this.config.baseUrl,
       timeout: 60000,
@@ -47,12 +42,6 @@ export class ChituService {
         Accept: 'application/json',
       },
     });
-
-    console.log('🚀 Chitu Service initialized');
-    console.log(`📍 Base URL: ${this.config.baseUrl}`);
-    console.log(
-      `🔑 App ID: ${this.config.appId ? this.config.appId.substring(0, 10) + '...' : 'NOT SET'}`,
-    );
   }
 
   /**
@@ -81,11 +70,6 @@ export class ChituService {
       .update(signString)
       .digest('hex');
 
-    console.log(`🔐 Signature calculation:`);
-    console.log(`   Parameters: ${sortedKeys.join(', ')}`);
-    console.log(`   Sign string: ${signString.substring(0, 50)}...`);
-    console.log(`   Signature: ${signature}`);
-
     return signature;
   }
 
@@ -111,26 +95,15 @@ export class ChituService {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         if (attempt > 0) {
-          const delay = attempt * 3000; // 3s, 6s backoff
-          console.log(`🔄 Chitu API retry ${attempt}/${maxRetries} for ${endpoint} (waiting ${delay}ms)...`);
+          const delay = attempt * 3000;
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
-
-        console.log(`\n📤 Chitu API Request: ${endpoint}${attempt > 0 ? ` (attempt ${attempt + 1})` : ''}`);
-        console.log(`📊 Parameters: ${JSON.stringify(requestParams, null, 2)}`);
 
         const response = await this.apiClient.request<ChituResponse<T>>({
           method,
           url: endpoint,
           data: requestParams,
         });
-
-        console.log(
-          `✅ Response Status: ${response.data?.status || response.data?.code}`,
-        );
-        console.log(
-          `💬 Message: ${response.data?.msg || response.data?.message}`,
-        );
 
         // Check for errors in response
         const errorResponse = response.data as any;
@@ -164,11 +137,10 @@ export class ChituService {
         }
 
         if (isRetryable && attempt < maxRetries) {
-          console.log(`⚠️ Chitu API ${isTimeout ? 'timeout' : 'network error'} on ${endpoint}, will retry...`);
           continue;
         }
 
-        console.error(`❌ Chitu API Error (final):`, error.message);
+        console.error(`[CHITU] ${endpoint} failed:`, error.message);
         throw new HttpException(
           `Failed to call Chitu API: ${error.message}`,
           HttpStatus.INTERNAL_SERVER_ERROR,
@@ -185,15 +157,12 @@ export class ChituService {
     page: number = 1,
     limit: number = 10,
   ): Promise<MachineListResponse> {
-    console.log(`\n📋 Getting machine list (page: ${page}, limit: ${limit})`);
-
     const response = await this.request<MachineListResponse>(
       '/api/openApi/machineList',
       { page, limit },
     );
 
     const machines = response.data?.list || [];
-    console.log(`✅ Found ${machines.length} machines`);
 
     return {
       machines: machines.map((m: any) => ({
@@ -215,8 +184,6 @@ export class ChituService {
    * Use this when you have the encrypted device_id
    */
   async getMachineDetailsByDeviceId(deviceId: string): Promise<MachineDetails> {
-    console.log(`\n🔍 Getting details for device_id: ${deviceId}`);
-
     const response = await this.request<MachineDetails>(
       '/api/openApi/machineDetails',
       { device_id: deviceId },
@@ -231,8 +198,6 @@ export class ChituService {
    * Use this when you have the plain text machine code (e.g., CT0700046)
    */
   async getMachineDetailsByCode(deviceCode: string): Promise<MachineDetails> {
-    console.log(`\n🔍 Getting details for device_code: ${deviceCode}`);
-
     const response = await this.request<MachineDetails>(
       '/api/openApi/machineDetailsTwo',
       { device_code: deviceCode },
@@ -246,13 +211,6 @@ export class ChituService {
    */
   private parseMachineDetails(response: any): MachineDetails {
     const machine = response.data?.data || response.data;
-
-    if (machine) {
-      console.log(`📱 Machine: ${machine.name}`);
-      console.log(`🌐 Status: ${machine.online_status}`);
-      console.log(`⚙️ Model: ${machine.machine_model}`);
-      console.log(`📍 Address: ${machine.address}`);
-    }
 
     return {
       merchant_id: machine.mer_id,
@@ -308,10 +266,6 @@ export class ChituService {
   async getProductCatalog(
     request: ProductCatalogRequest,
   ): Promise<ProductCatalogResponse> {
-    console.log(`\n📦 Getting product catalog for device`);
-    console.log(`📱 Device ID: ${request.device_id}`);
-    console.log(`🔧 Type: ${request.type}`);
-
     const response = await this.request<ProductCatalogResponse>(
       '/api/openApi/machineProductList',
       {
@@ -326,34 +280,12 @@ export class ChituService {
     const data = response.data;
 
     if (data && data.list) {
-      console.log(`✅ Found ${data.count} total products`);
-      console.log(`📋 Brands: ${data.list.length}`);
-
       // Map 'id' field to 'product_id' for consistency with our TypeScript interface
       data.list.forEach((brand) => {
-        console.log(
-          `  - ${brand.name_en} (${brand.name_cn}): ${brand.modelList.length} models`,
-        );
-        brand.modelList = brand.modelList.map((model) => {
-          const originalId = model.id;
-          const mappedProductId = model.product_id || originalId;
-
-          // Log the ID mapping and stock for debugging
-          if (originalId && !model.product_id) {
-            console.log(
-              `    Mapped id -> product_id: ${originalId} for ${model.name_en} (Stock: ${model.stock})`,
-            );
-          } else {
-            console.log(
-              `    ${model.name_en} - product_id: ${mappedProductId} (Stock: ${model.stock})`,
-            );
-          }
-
-          return {
-            ...model,
-            product_id: mappedProductId,
-          };
-        });
+        brand.modelList = brand.modelList.map((model) => ({
+          ...model,
+          product_id: model.product_id || model.id,
+        }));
       });
     }
 
@@ -386,8 +318,6 @@ export class ChituService {
    * Required fields: appid, device_id
    */
   async getInventoryGrid(deviceId: string): Promise<InventoryGridResponse> {
-    console.log(`\n📦 Getting inventory grid for device: ${deviceId}`);
-
     const response = await this.request<any>(
       '/api/openApi/machineInventoryInfo',
       { device_id: deviceId },
@@ -396,33 +326,11 @@ export class ChituService {
     const data = response.data?.data;
 
     if (!data || !data.stock) {
-      console.log(
-        '⚠️ No inventory grid data returned - machine may not be a Case Bot',
-      );
       throw new HttpException(
         'No inventory grid data available. This endpoint is only for Case Bot machines (CT-sjk360).',
         HttpStatus.BAD_REQUEST,
       );
     }
-
-    console.log(`✅ Inventory grid retrieved`);
-    console.log(`📊 Rows: ${data.stock.length}`);
-    console.log(`📋 Products in catalog: ${data.proList?.length || 0}`);
-    console.log(`⚙️ Machine model: ${data.machine_model}`);
-
-    // Count occupied slots
-    let occupiedSlots = 0;
-    let totalStock = 0;
-    data.stock.forEach((row: any) => {
-      row.column.forEach((slot: any) => {
-        if (slot.product_id !== 0) {
-          occupiedSlots++;
-          totalStock += slot.stock;
-        }
-      });
-    });
-    console.log(`📍 Occupied slots: ${occupiedSlots}/64`);
-    console.log(`📦 Total stock: ${totalStock}`);
 
     return {
       stock: data.stock,
@@ -450,10 +358,6 @@ export class ChituService {
   async createPrintOrder(
     request: CreateOrderRequest,
   ): Promise<CreateOrderResponse> {
-    console.log(`\n🖨️ Creating print order`);
-    console.log(`📱 Device ID: ${request.device_id}`);
-    console.log(`🖼️ Image URL: ${request.image_url}`);
-
     // machineCreateOrder requires device_id (encrypted), not device_code
     const params = {
       device_id: request.device_id, // Encrypted device ID
@@ -560,10 +464,6 @@ export class ChituService {
     deviceId: string,
     qrcodeUrl: string,
   ): Promise<{ success: boolean; message: string }> {
-    console.log(`\n📱 Uploading QR code to machine`);
-    console.log(`📱 Device ID: ${deviceId}`);
-    console.log(`🔗 QR Code URL: ${qrcodeUrl}`);
-
     const response = await this.request('/api/openApi/machineQRCode', {
       device_id: deviceId,
       qrcode: qrcodeUrl,
@@ -593,8 +493,6 @@ export class ChituService {
   async checkMachineStatus(
     deviceCode: string,
   ): Promise<{ ready: boolean; message: string; details?: MachineDetails }> {
-    console.log(`\n🔍 Checking machine status for: ${deviceCode}`);
-
     try {
       const machineDetails = await this.getMachineDetailsByCode(deviceCode);
 
@@ -614,14 +512,12 @@ export class ChituService {
         };
       }
 
-      console.log(`✅ Machine is online and ready`);
       return {
         ready: true,
         message: 'Machine is online and ready',
         details: machineDetails,
       };
     } catch (error) {
-      console.error(`❌ Failed to check machine status:`, error.message);
       return {
         ready: false,
         message: `Failed to check machine status: ${error.message}`,
@@ -642,8 +538,6 @@ export class ChituService {
     product?: PhoneModel;
     deviceId?: string;
   }> {
-    console.log(`\n📦 Finding product for phone model: ${phoneModelName}`);
-
     try {
       // Get device_id for the catalog request
       const deviceId = await this.getDeviceIdFromCode(deviceCode);
@@ -694,20 +588,13 @@ export class ChituService {
       };
 
       if (!catalog.list || catalog.list.length === 0) {
-        console.log('❌ Catalog is empty or undefined');
-        console.log('Catalog data:', JSON.stringify(catalog, null, 2));
         return {
           available: false,
           message: 'No products available for this machine',
         };
       }
 
-      console.log(
-        `🔍 Searching for "${phoneModelName}" in ${catalog.list.length} brand(s)`,
-      );
-
-      // Normalize search term for better matching
-      // IMPORTANT: Remove ALL spaces to handle inconsistent naming (e.g., "iPhone 15" vs "iPhone15")
+      // Normalize search term — remove all spaces to handle inconsistent naming
       const normalizeString = (str: string) => {
         return str
           .toLowerCase()
@@ -716,75 +603,29 @@ export class ChituService {
       };
 
       const normalizedSearch = normalizeString(phoneModelName);
-      console.log(`🔍 Normalized search term: "${normalizedSearch}"`);
 
       // Search for the phone model across all brands
       let foundProduct: PhoneModel | undefined;
 
       for (const brand of catalog.list) {
-        console.log(
-          `  Checking brand: ${brand.name_en} with ${brand.modelList.length} models`,
-        );
-
-        // Log all models for debugging
-        brand.modelList.forEach((model) => {
-          console.log(
-            `    - Model: ${model.name_en} (${model.name_cn}), Stock: ${model.stock}, ID: ${model.product_id}`,
-          );
-        });
-
-        // Try multiple matching strategies
         foundProduct = brand.modelList.find((model) => {
           const normalizedNameEn = normalizeString(model.name_en || '');
           const normalizedNameCn = normalizeString(model.name_cn || '');
 
-          // Strategy 1: Exact match (normalized)
-          if (
+          return (
             normalizedNameEn === normalizedSearch ||
-            normalizedNameCn === normalizedSearch
-          ) {
-            console.log(`    ✅ Exact match found: ${model.name_en}`);
-            return true;
-          }
-
-          // Strategy 2: Contains match
-          if (
+            normalizedNameCn === normalizedSearch ||
             normalizedNameEn.includes(normalizedSearch) ||
-            normalizedNameCn.includes(normalizedSearch)
-          ) {
-            console.log(`    ✅ Partial match found: ${model.name_en}`);
-            return true;
-          }
-
-          // Strategy 3: Search term contains model name (for cases like "iPhone 14" matching "iPhone 14 Plus")
-          if (
+            normalizedNameCn.includes(normalizedSearch) ||
             normalizedSearch.includes(normalizedNameEn) ||
             normalizedSearch.includes(normalizedNameCn)
-          ) {
-            console.log(`    ✅ Reverse match found: ${model.name_en}`);
-            return true;
-          }
-
-          return false;
+          );
         });
 
-        if (foundProduct) {
-          console.log(
-            `✅ Found product: ${foundProduct.name_en} (${foundProduct.name_cn})`,
-          );
-          console.log(`📊 Stock: ${foundProduct.stock}`);
-          console.log(`🔑 Product ID: ${foundProduct.product_id}`);
-          break;
-        }
+        if (foundProduct) break;
       }
 
       if (!foundProduct) {
-        console.log(
-          `❌ Phone model "${phoneModelName}" not found after searching all brands`,
-        );
-        console.log(
-          `💡 Tip: Make sure the product exists in the machine's catalog and has stock > 0`,
-        );
         return {
           available: false,
           message: `Phone model "${phoneModelName}" not found in machine's product catalog`,
@@ -801,7 +642,6 @@ export class ChituService {
         };
       }
 
-      console.log(`✅ Product is available with sufficient stock`);
       return {
         available: true,
         message: 'Product found and in stock',
@@ -809,7 +649,6 @@ export class ChituService {
         deviceId,
       };
     } catch (error) {
-      console.error(`❌ Failed to verify product:`, error.message);
       return {
         available: false,
         message: `Failed to verify product: ${error.message}`,
@@ -840,13 +679,6 @@ export class ChituService {
     message: string;
     details?: any;
   }> {
-    console.log(`\n🚀 Starting validated print order workflow`);
-    console.log(`📱 Device: ${params.deviceCode}`);
-    console.log(`📱 Phone Model: ${params.phoneModelName}`);
-    console.log(
-      `🔑 Product ID (from frontend): ${params.productId || 'not provided - will use name matching'}`,
-    );
-
     try {
       // Step 1: Check machine status
       const statusCheck = await this.checkMachineStatus(params.deviceCode);
@@ -866,20 +698,12 @@ export class ChituService {
 
       // Step 2-3: Use direct productId if provided, otherwise fall back to name matching
       if (params.productId && !params.productId.startsWith('demo-')) {
-        // FAST PATH: Use product_id directly from frontend (already fetched from API)
-        console.log(
-          `✅ Using direct product_id from frontend: ${params.productId}`,
-        );
         finalProductId = params.productId;
         productDetails = {
           product_id: params.productId,
           name_en: params.phoneModelName,
         };
       } else {
-        // FALLBACK: Name matching (for backwards compatibility or demo mode)
-        console.log(
-          `🔍 No direct product_id, falling back to name matching...`,
-        );
         const productCheck = await this.findProductAndVerifyInventory(
           params.deviceCode,
           params.phoneModelName,
@@ -899,9 +723,6 @@ export class ChituService {
       // Step 4: Image processing is assumed to be done by caller
       // Image must be in PNG format at this point (300 DPI)
 
-      // Step 5: Create order with product_id
-      console.log(`\n📝 Creating order with product_id: ${finalProductId}`);
-
       const orderResult = await this.createOrder({
         deviceId: deviceId,
         productId: finalProductId,
@@ -912,7 +733,6 @@ export class ChituService {
       });
 
       if (orderResult.success) {
-        console.log(`✅ Order created successfully: ${orderResult.orderId}`);
         return {
           success: true,
           orderId: orderResult.orderId,
@@ -930,7 +750,6 @@ export class ChituService {
         };
       }
     } catch (error) {
-      console.error(`❌ Print order workflow failed:`, error.message);
       return {
         success: false,
         message: `Print order workflow failed: ${error.message}`,
@@ -951,11 +770,6 @@ export class ChituService {
     printCount?: number; // Number of copies (default 1)
     sessionId?: string; // For tracking
   }): Promise<{ success: boolean; orderId?: string; message: string }> {
-    console.log(`\n📦 Creating Chitu order`);
-    console.log(`📱 Device ID: ${params.deviceId}`);
-    console.log(`🎯 Product ID: ${params.productId}`);
-    console.log(`🖼️ Image URL: ${params.imageUrl}`);
-
     const response = await this.request(
       '/api/openApi/machineCreateOrder', // Correct endpoint
       {
@@ -970,28 +784,11 @@ export class ChituService {
     );
 
     if (response.status === 200) {
-      console.log(`✅ Order created successfully`);
-      console.log(
-        `📦 Full response data:`,
-        JSON.stringify(response.data, null, 2),
-      );
-
-      // Extract order_id from nested result object
       const orderId =
         response.data?.result?.orderId ||
         response.data?.order_id ||
         response.data?.orderId ||
         response.data?.id;
-
-      if (orderId) {
-        console.log(`✅ Order ID extracted: ${orderId}`);
-      } else {
-        console.log(`⚠️ Warning: order_id not found in response`);
-        console.log(
-          `   Response structure:`,
-          JSON.stringify(response.data, null, 2),
-        );
-      }
 
       return {
         success: true,
@@ -999,7 +796,6 @@ export class ChituService {
         message: response.msg || 'Order created successfully',
       };
     } else {
-      console.error(`❌ Order creation failed: ${response.msg}`);
       return {
         success: false,
         message: response.msg || 'Order creation failed',
@@ -1029,8 +825,6 @@ export class ChituService {
    * Test connection to Chitu API
    */
   async testConnection(): Promise<any> {
-    console.log('\n🧪 Testing Chitu API Connection...');
-
     try {
       const results = {
         timestamp: new Date().toISOString(),
@@ -1042,8 +836,6 @@ export class ChituService {
         steps: [] as any[],
       };
 
-      // Step 1: Get machine list
-      console.log('\n1️⃣ Testing machine list API...');
       const machines = await this.getMachineList(1, 10);
 
       results.steps.push({
@@ -1068,7 +860,6 @@ export class ChituService {
       );
 
       if (targetMachine) {
-        console.log(`\n2️⃣ Testing machine details for: ${targetMachineCode}`);
         const machineDetails =
           await this.getMachineDetailsByCode(targetMachineCode);
 
@@ -1086,8 +877,6 @@ export class ChituService {
           },
         });
       } else {
-        console.log(`\n⚠️ Machine ${targetMachineCode} not found in list`);
-
         // Try to get details anyway (might not be in list due to pagination)
         try {
           const machineDetails =
@@ -1112,8 +901,6 @@ export class ChituService {
         }
       }
 
-      // Step 3: Test order creation (will fail until API is ready)
-      console.log('\n3️⃣ Testing order creation API...');
       try {
         // Use the helper method that converts device_code to device_id
         const testOrder = await this.createPrintOrderByCode(
@@ -1139,7 +926,6 @@ export class ChituService {
 
       return results;
     } catch (error) {
-      console.error('❌ Test failed:', error);
       throw new HttpException(
         `Chitu API test failed: ${error.message}`,
         HttpStatus.SERVICE_UNAVAILABLE,

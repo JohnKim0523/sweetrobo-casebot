@@ -8,7 +8,6 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ChituModule } from './chitu/chitu.module';
 import { AiModule } from './ai/ai.module';
-import { AdminModule } from './admin/admin.module';
 import { MqttModule } from './mqtt/mqtt.module';
 import { WebsocketModule } from './websocket/websocket.module';
 import { VertexAIController } from './vertexai.controller';
@@ -46,7 +45,6 @@ import { OrderMappingModule } from './order-mapping/order-mapping.module';
       : []),
     ChituModule,
     AiModule,
-    AdminModule,
     MqttModule,
     WebsocketModule,
     OrderMappingModule,

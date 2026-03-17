@@ -5615,55 +5615,53 @@ export default function Editor() {
               </>
             )}
 
-
-
             {/* Demo Mode: Simulate Payment Button */}
             {isDemoMode && (
-              <div className="mt-6">
-                <div className="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-4 mb-4">
-                  <p className="text-yellow-800 text-sm font-semibold">🎮 Demo Mode</p>
-                  <p className="text-yellow-700 text-xs mt-1">Click below to simulate a payment confirmation</p>
-                </div>
-                <button
-                  onClick={async () => {
-                    if (!jobId) {
-                      alert('No job ID found. Please submit a design first.');
-                      return;
-                    }
+                  <div className="mt-6">
+                    <div className="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-4 mb-4">
+                      <p className="text-yellow-800 text-sm font-semibold">🎮 Demo Mode</p>
+                      <p className="text-yellow-700 text-xs mt-1">Click below to simulate a payment confirmation</p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!jobId) {
+                          alert('No job ID found. Please submit a design first.');
+                          return;
+                        }
 
-                    try {
-                      const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
-                      console.log('🎮 Simulating payment for jobId:', jobId);
+                        try {
+                          const backendUrl = process.env.NEXT_PUBLIC_API_URL || window.location.origin.replace(':3000', ':3001');
+                          console.log('🎮 Simulating payment for jobId:', jobId);
 
-                      const response = await fetch(`${backendUrl}/api/chitu/test/payment`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          machineId: machineId || 'DEMO_MACHINE',
-                          jobId: jobId,
-                          amount: 25.99
-                        })
-                      });
+                          const response = await fetch(`${backendUrl}/api/chitu/test/payment`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              machineId: machineId || 'DEMO_MACHINE',
+                              jobId: jobId,
+                              amount: 25.99
+                            })
+                          });
 
-                      const result = await response.json();
-                      console.log('🎮 Simulate payment result:', result);
+                          const result = await response.json();
+                          console.log('🎮 Simulate payment result:', result);
 
-                      if (!result.success) {
-                        alert('Failed to simulate payment: ' + (result.message || 'Unknown error'));
-                      }
-                      // If successful, the WebSocket will receive the payment confirmation
-                      // and automatically transition to the thank you page
-                    } catch (error: any) {
-                      console.error('❌ Simulate payment error:', error);
-                      alert('Failed to simulate payment: ' + error.message);
-                    }
-                  }}
-                  className="w-full bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white font-semibold py-3 px-6 rounded-lg transition shadow-md"
-                >
-                  🧪 Simulate Payment
-                </button>
-              </div>
-            )}
+                          if (!result.success) {
+                            alert('Failed to simulate payment: ' + (result.message || 'Unknown error'));
+                          }
+                          // If successful, the WebSocket will receive the payment confirmation
+                          // and automatically transition to the thank you page
+                        } catch (error: any) {
+                          console.error('❌ Simulate payment error:', error);
+                          alert('Failed to simulate payment: ' + error.message);
+                        }
+                      }}
+                      className="w-full bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white font-semibold py-3 px-6 rounded-lg transition shadow-md"
+                    >
+                      🧪 Simulate Payment
+                    </button>
+                  </div>
+                )}
           </div>
         </div>
 

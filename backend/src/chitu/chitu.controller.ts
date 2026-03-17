@@ -29,7 +29,6 @@ export class ChituController {
    */
   @Get('test')
   async runTest() {
-    console.log('\n🧪 === CHITU API TEST STARTED ===\n');
     return await this.chituService.testConnection();
   }
 
@@ -290,12 +289,6 @@ export class ChituController {
     },
   ) {
     try {
-      console.log('\n🖨️ === NEW PRINT JOB REQUEST ===');
-      console.log(`📱 Session: ${body.sessionId}`);
-      console.log(`📱 Model: ${body.phoneModel}`);
-      console.log(`📦 Product ID: ${body.productId || 'not provided'}`);
-      console.log(`🎯 Machine: ${body.machineId || 'auto-assign'}`);
-
       // Add to queue with duplicate prevention and load balancing
       const result = await this.queueService.addPrintJob({
         sessionId: body.sessionId || `anon_${Date.now()}`,
@@ -316,17 +309,12 @@ export class ChituController {
       });
 
       if (!result.success) {
-        console.log(`⚠️ Job rejected: ${result.error}`);
         return {
           success: false,
           error: result.error,
           message: result.error,
         };
       }
-
-      console.log(`✅ Job queued: ${result.jobId}`);
-      console.log(`📊 Queue position: ${result.position}`);
-      console.log(`⏱️ Estimated time: ${(result.estimatedTime || 0) / 1000}s`);
 
       return {
         success: true,
@@ -445,16 +433,10 @@ export class ChituController {
   @Post('qr-code')
   async uploadQRCode(@Body() body: { machineId: string; url: string }) {
     try {
-      console.log('\n📱 === UPLOAD QR CODE REQUEST ===');
-      console.log(`Machine: ${body.machineId}`);
-      console.log(`URL: ${body.url}`);
-
       const result = await this.chituService.uploadQRCodeByCode(
         body.machineId,
         body.url,
       );
-
-      console.log(`✅ QR code upload result:`, result);
 
       return {
         success: result.success,
@@ -476,11 +458,6 @@ export class ChituController {
     @Body() body: { machineId: string; jobId: string; amount?: number },
   ) {
     try {
-      console.log('\n🧪 === TEST PAYMENT SIMULATION ===');
-      console.log(`Machine: ${body.machineId}`);
-      console.log(`Job ID: ${body.jobId}`);
-      console.log(`Amount: $${body.amount || 25.99}`);
-
       this.mqttService.simulatePaymentConfirmation(
         body.machineId,
         body.jobId,

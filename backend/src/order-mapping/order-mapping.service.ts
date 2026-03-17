@@ -28,7 +28,6 @@ export class OrderMappingService {
   constructor() {
     // Cleanup old entries every hour
     setInterval(() => this.cleanup(), 60 * 60 * 1000);
-    console.log('🗺️ OrderMappingService initialized');
   }
 
   /**
@@ -39,8 +38,6 @@ export class OrderMappingService {
     chituOrderId: string,
     machineId?: string,
   ): void {
-    console.log(`🗺️ Registering order mapping: ${jobId} <-> ${chituOrderId}`);
-
     this.chituToJobId.set(chituOrderId, jobId);
     this.jobIdToChitu.set(jobId, chituOrderId);
     this.timestamps.set(jobId, Date.now());
@@ -103,9 +100,6 @@ export class OrderMappingService {
       }
     }
 
-    if (cleaned > 0) {
-      console.log(`🧹 Cleaned up ${cleaned} old order mappings`);
-    }
   }
 
   /**

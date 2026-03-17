@@ -22,7 +22,6 @@ export class WebsocketGateway
   private clients: Map<string, Socket> = new Map();
 
   handleConnection(client: Socket) {
-    console.log(`🔗 Client connected: ${client.id}`);
     this.clients.set(client.id, client);
 
     // Send initial connection confirmation
@@ -33,7 +32,6 @@ export class WebsocketGateway
   }
 
   handleDisconnect(client: Socket) {
-    console.log(`💔 Client disconnected: ${client.id}`);
     this.clients.delete(client.id);
   }
 
@@ -41,76 +39,51 @@ export class WebsocketGateway
   @SubscribeMessage('subscribe:machine')
   handleMachineSubscription(client: Socket, deviceId: string) {
     client.join(`machine:${deviceId}`);
-    console.log(`📡 Client ${client.id} subscribed to machine ${deviceId}`);
     return { subscribed: true, deviceId };
   }
 
-  // Subscribe to specific order updates
   @SubscribeMessage('subscribe:order')
   handleOrderSubscription(client: Socket, orderId: string) {
     client.join(`order:${orderId}`);
-    console.log(`📡 Client ${client.id} subscribed to order ${orderId}`);
     return { subscribed: true, orderId };
   }
 
-  // Listen for MQTT machine status updates and broadcast
   @OnEvent('machine.status')
   handleMachineStatus(data: any) {
-    console.log('🖨️ Broadcasting machine status:', data);
 
     // Broadcast to all clients watching this machine
     this.server.to(`machine:${data.device_id}`).emit('machine:status', data);
 
-    // Also broadcast to admin dashboard
-    this.server.emit('admin:machine:status', data);
+      this.server.emit('admin:machine:status', data);
   }
 
-  // Listen for MQTT order updates and broadcast
   @OnEvent('order.update')
   handleOrderUpdate(data: any) {
-    console.log('📦 Broadcasting order update:', data);
 
     // Broadcast to clients watching this order
     this.server.to(`order:${data.order_id}`).emit('order:update', data);
 
-    // Also broadcast to admin dashboard
     this.server.emit('admin:order:update', data);
   }
 
-  // Listen for MQTT payment updates
   @OnEvent('payment.update')
   handlePaymentUpdate(data: any) {
-    console.log('💳 Broadcasting payment update:', data);
 
     // Broadcast payment updates
     this.server.emit('payment:update', data);
   }
 
-  // Listen for MQTT order status updates (payment + printing status)
   @OnEvent('order.status')
   handleOrderStatus(data: any) {
-    console.log('📦 Broadcasting order status:', data);
-
-    // Broadcast to clients watching this specific order by orderNo
     if (data.orderNo) {
-      console.log(`📡 Broadcasting to order:${data.orderNo}`);
       this.server.to(`order:${data.orderNo}`).emit('order:status', data);
     }
-
-    // Also broadcast to jobId room if different from orderNo
-    // This ensures the frontend receives the update even if subscribed with jobId
     if (data.jobId && data.jobId !== data.orderNo) {
-      console.log(`📡 Broadcasting to order:${data.jobId}`);
       this.server.to(`order:${data.jobId}`).emit('order:status', data);
     }
-
-    // Broadcast to clients watching this machine
     if (data.machineId) {
-      console.log(`📡 Broadcasting to machine:${data.machineId}`);
       this.server.to(`machine:${data.machineId}`).emit('order:status', data);
     }
-
-    // Also broadcast to admin dashboard
     this.server.emit('admin:order:status', data);
   }
 

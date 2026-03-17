@@ -21,7 +21,6 @@ export class S3Service {
     this.bucketName =
       process.env.AWS_BUCKET_NAME || 'sweetrobo-phonecase-designs';
 
-    console.log('🔐 S3 Service initialized (backup storage only)');
   }
 
   async uploadImage(
@@ -29,42 +28,32 @@ export class S3Service {
     key: string,
     convertForPrint: boolean = false,
   ): Promise<string> {
-    // For Chitu printer: Upload PNG for printing with 300 DPI and 90° rotation
     if (convertForPrint) {
-      console.log('🔄 Converting image to PNG (300 DPI) for Chitu printer...');
-
-      // Get base key without extension
       const baseKey = key.replace(/\.(png|jpg|jpeg|tif)$/i, '');
       const displayPngKey = `${baseKey}_display.png`;
       const printPngKey = `${baseKey}.png`;
 
-      // 1. Upload PNG for display (original, no rotation)
-      console.log('📤 Uploading PNG for machine display...');
-      const displayParams = {
+      // Upload display PNG (original, no rotation)
+      await this.s3.upload({
         Bucket: this.bucketName,
         Key: displayPngKey,
         Body: buffer,
         ContentType: 'image/png',
-      };
-      await this.s3.upload(displayParams).promise();
-      console.log('✅ Display PNG uploaded:', displayPngKey);
+      }).promise();
 
-      // 2. Create PNG for printing (rotated 90° clockwise, 300 DPI)
-      console.log('🔄 Creating print PNG with 90° rotation and 300 DPI...');
+      // Upload print PNG (rotated 90° clockwise, 300 DPI)
       const printBuffer = await sharp(buffer)
-        .rotate(90) // Rotate 90° clockwise
-        .withMetadata({ density: 300 }) // Set 300 DPI
+        .rotate(90)
+        .withMetadata({ density: 300 })
         .png({ quality: 100 })
         .toBuffer();
 
-      const printParams = {
+      const printResult = await this.s3.upload({
         Bucket: this.bucketName,
         Key: printPngKey,
         Body: printBuffer,
         ContentType: 'image/png',
-      };
-      const printResult = await this.s3.upload(printParams).promise();
-      console.log('✅ Print PNG uploaded (rotated 90°, 300 DPI):', printPngKey);
+      }).promise();
 
       // Return print PNG URL
       return printResult.Location;

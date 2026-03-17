@@ -39,22 +39,13 @@ async function bootstrap() {
 
   app.enableCors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or Postman)
       if (!origin) return callback(null, true);
 
-      // Log the origin for debugging
-      console.log('🌐 CORS request from origin:', origin);
-      console.log('✅ Allowed origins:', allowedOrigins);
-
       if (allowedOrigins.includes(origin) || origin.includes('localhost')) {
-        console.log('✅ Origin allowed:', origin);
         callback(null, true);
       } else if (process.env.NODE_ENV !== 'production') {
-        // In development, allow all origins
-        console.log('✅ Development mode - allowing origin:', origin);
         callback(null, true);
       } else {
-        console.log('❌ Origin blocked:', origin);
         callback(new Error('Not allowed by CORS'));
       }
     },
@@ -76,8 +67,6 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3001;
   await app.listen(port, '0.0.0.0'); // Listen on all network interfaces
-  console.log(`🚀 Backend server is running on http://localhost:${port}`);
-  console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔒 CORS enabled for: ${allowedOrigins.join(', ')}`);
+  console.log(`Backend running on http://localhost:${port}`);
 }
 bootstrap();

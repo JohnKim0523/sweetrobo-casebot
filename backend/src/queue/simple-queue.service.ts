@@ -39,9 +39,11 @@ interface QueueJob {
   _processingToken?: string; // Unique token per processJob invocation — prevents healed jobs from interfering
 }
 
+// Module-level queue — eliminates any possible `this` binding issues with setInterval
+const QUEUE: QueueJob[] = [];
+
 @Injectable()
 export class SimpleQueueService {
-  private queue: QueueJob[] = [];
   private processing = false;
   private submissionCache = new Map<string, number>();
   private readonly DUPLICATE_WINDOW_MS = 10000; // 10 seconds
@@ -66,16 +68,8 @@ export class SimpleQueueService {
     const machinesEnv = process.env.AVAILABLE_MACHINES;
     if (machinesEnv) {
       this.availableMachines = machinesEnv.split(',').map((m) => m.trim());
-      console.log(
-        `✅ Loaded ${this.availableMachines.length} machines from environment:`,
-        this.availableMachines,
-      );
     } else {
-      // Fallback to defaults if not configured
       this.availableMachines = ['machine-1', 'machine-2', 'machine-3'];
-      console.log(
-        '⚠️ Using default machine IDs. Set AVAILABLE_MACHINES in .env for production',
-      );
     }
 
     // Clean up old cache entries every minute
@@ -88,14 +82,14 @@ export class SimpleQueueService {
       }
     }, 60000);
 
-    // Schedule old job cleanup every 6 hours
+    // Schedule job cleanup every 10 minutes (removes abandoned/stale jobs)
     setInterval(
       () => {
         this.cleanupOldJobs();
       },
-      6 * 60 * 60 * 1000,
+      10 * 60 * 1000,
     );
-    console.log('🗑️ Job cleanup scheduled: every 6 hours (7-day retention)');
+    setTimeout(() => this.cleanupOldJobs(), 5000);
 
     // Start processing queue
     this.startProcessing();
@@ -105,7 +99,7 @@ export class SimpleQueueService {
    * Derived active job count — always accurate, can never desync
    */
   private get activeJobCount(): number {
-    return this.queue.filter((j) => j.status === 'processing').length;
+    return QUEUE.filter((j) => j.status === 'processing').length;
   }
 
   /**
@@ -130,7 +124,6 @@ export class SimpleQueueService {
     const lastSubmission = this.submissionCache.get(fingerprint);
 
     if (lastSubmission && now - lastSubmission < this.DUPLICATE_WINDOW_MS) {
-      console.log(`🚫 Duplicate submission detected: ${fingerprint}`);
       return true;
     }
 
@@ -147,7 +140,6 @@ export class SimpleQueueService {
         this.machineRoundRobin % this.availableMachines.length
       ];
     this.machineRoundRobin++;
-    console.log(`🎯 Assigned to machine: ${machine}`);
     return machine;
   }
 
@@ -191,14 +183,11 @@ export class SimpleQueueService {
     };
 
     // Add to queue (sorted by priority)
-    this.queue.push(job);
-    this.queue.sort((a, b) => a.priority - b.priority);
+    QUEUE.push(job);
+    QUEUE.sort((a, b) => a.priority - b.priority);
 
     console.log(
-      `✅ Print job queued: ${job.id} for machine: ${data.machineId}`,
-    );
-    console.log(
-      `📊 Queue size: ${this.queue.length}, Active jobs: ${this.activeJobCount}`,
+      `[QUEUE] + ${job.id} | machine=${data.machineId} | queue=${QUEUE.length} active=${this.activeJobCount}`,
     );
 
     return {
@@ -241,13 +230,12 @@ export class SimpleQueueService {
           return;
         }
 
-        const waitingJobs = this.queue.filter((j) => j.status === 'waiting');
+        const waitingJobs = QUEUE.filter((j) => j.status === 'waiting');
         if (waitingJobs.length === 0) {
           return;
         }
 
         const job = waitingJobs[0];
-        console.log(`⏰ Queue tick: picking up ${job.id} (${waitingJobs.length} waiting, ${activeCount} active)`);
         // Fire and forget — don't await in setInterval
         // processJob marks job as 'processing' synchronously before any await
         this.processJob(job).catch((err) => {
@@ -269,14 +257,13 @@ export class SimpleQueueService {
 
     // Health logging every 2 minutes
     setInterval(() => {
-      const waiting = this.queue.filter((j) => j.status === 'waiting').length;
-      const processing = this.queue.filter((j) => j.status === 'processing').length;
-      const completed = this.queue.filter((j) => j.status === 'completed').length;
-      const failed = this.queue.filter((j) => j.status === 'failed').length;
-      console.log(`📊 Queue health: ${waiting} waiting, ${processing} processing, ${completed} completed, ${failed} failed | total: ${this.queue.length}`);
+      const waiting = QUEUE.filter((j) => j.status === 'waiting').length;
+      const processing = QUEUE.filter((j) => j.status === 'processing').length;
+      const failed = QUEUE.filter((j) => j.status === 'failed').length;
+      console.log(`📊 Queue health: ${waiting} waiting, ${processing} processing, ${failed} failed | total: ${QUEUE.length}`);
     }, 2 * 60 * 1000);
 
-    console.log('✅ Queue processor started with self-healing');
+    console.log('[QUEUE] Processor started');
   }
 
   /**
@@ -287,7 +274,7 @@ export class SimpleQueueService {
     const STUCK_TIMEOUT = this.JOB_TIMEOUT + 30000; // Job timeout + 30s grace period
     let healed = 0;
 
-    for (const job of this.queue) {
+    for (const job of QUEUE) {
       if (job.status === 'processing' && job.startedAt) {
         const elapsed = now - job.startedAt.getTime();
         if (elapsed > STUCK_TIMEOUT) {
@@ -327,7 +314,7 @@ export class SimpleQueueService {
     job.attempts++;
 
     console.log(
-      `🔄 Job ${job.id} claimed (${this.activeJobCount} active, attempt ${job.attempts})`,
+      `[QUEUE] Processing ${job.id} | machine=${job.data.machineId} | attempt=${job.attempts} | active=${this.activeJobCount}`,
     );
 
     // Rate limiting (safe to await now — job is already marked as 'processing')
@@ -335,20 +322,14 @@ export class SimpleQueueService {
     const timeSinceLastCall = now - this.lastApiCall;
     if (timeSinceLastCall < this.RATE_LIMIT_DELAY) {
       const delay = this.RATE_LIMIT_DELAY - timeSinceLastCall;
-      console.log(`⏳ Rate limiting: waiting ${delay}ms`);
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
     this.lastApiCall = Date.now();
 
     // Check if job was reclaimed by healer during rate limit wait
     if (job._processingToken !== processingToken) {
-      console.log(`⚠️ Job ${job.id} was reclaimed during rate limit, aborting`);
       return;
     }
-
-    console.log(
-      `🖨️ Processing job ${job.id} (attempt ${job.attempts}) for machine ${job.data.machineId}`,
-    );
 
     try {
       // Wrap all work in a hard timeout — prevents hanging S3/Chitu calls from blocking forever
@@ -361,33 +342,31 @@ export class SimpleQueueService {
 
       // Verify we still own the job before marking complete
       if (job._processingToken !== processingToken) {
-        console.log(`⚠️ Job ${job.id} ownership changed, skipping completion`);
         return;
       }
 
       job.status = 'completed';
       job.completedAt = new Date();
-      console.log(`✅ Job ${job.id} completed successfully`);
+      console.log(`[QUEUE] Done ${job.id} | chituOrder=${job.data.chituOrderId}`);
+
+      // Remove from queue immediately — it's done, no reason to keep it
+      this.removeJob(job.id);
     } catch (error) {
       // Only handle error if we still own the job
       if (job._processingToken !== processingToken) {
-        console.log(`⚠️ Job ${job.id} ownership changed, ignoring error: ${error?.message}`);
         return;
       }
-
-      console.error(`❌ Job ${job.id} failed:`, error?.message || error);
 
       if (job.attempts < 3) {
         job.status = 'waiting';
         job._processingToken = undefined;
-        console.log(`🔄 Retrying job ${job.id} (${job.attempts}/3)`);
+        console.log(`[QUEUE] Retry ${job.id} (${job.attempts}/3): ${error?.message}`);
       } else {
         job.status = 'failed';
         job.error = error?.message || 'Unknown error';
-        console.log(`💀 Job ${job.id} permanently failed after ${job.attempts} attempts`);
+        console.error(`[QUEUE] FAILED ${job.id}: ${error?.message}`);
       }
     }
-    // No finally { activeJobs-- } needed — activeJobCount is derived from job status
   }
 
   /**
@@ -398,8 +377,6 @@ export class SimpleQueueService {
     // Upload image to S3 (PNG with 300 DPI for Chitu printer)
     let imageUrl = job.data.imageUrl;
     if (!imageUrl && job.data.image) {
-      console.log(`📤 Uploading image to S3...`);
-
       const buffer = Buffer.from(
         job.data.image.replace(/^data:image\/\w+;base64,/, ''),
         'base64',
@@ -408,10 +385,6 @@ export class SimpleQueueService {
       const key = `designs/${job.data.sessionId}/${Date.now()}.png`;
       imageUrl = await this.s3Service.uploadImage(buffer, key, true);
       job.data.imageUrl = imageUrl;
-
-      console.log(`✅ Image uploaded as PNG (300 DPI): ${imageUrl}`);
-
-      // Free base64 image data from memory — it's now in S3
       job.data.image = '';
     }
 
@@ -422,10 +395,6 @@ export class SimpleQueueService {
 
     // Create Chitu order with validated workflow
     if (job.data.machineId && job.data.phoneModel && imageUrl) {
-      console.log(`📦 Creating Chitu order...`);
-      console.log(
-        `🔑 Product ID from frontend: ${job.data.productId || 'not provided'}`,
-      );
       const orderResult =
         await this.chituService.createPrintOrderWithValidation({
           deviceCode: job.data.machineId,
@@ -438,13 +407,6 @@ export class SimpleQueueService {
         });
 
       if (orderResult.success) {
-        console.log(`✅ Chitu order created: ${orderResult.orderId}`);
-        console.log(
-          `📦 Product used: ${orderResult.details?.product?.name_en}`,
-        );
-        console.log(
-          `🔑 Product ID: ${orderResult.details?.product?.product_id}`,
-        );
         job.data.chituOrderId = orderResult.orderId;
 
         if (orderResult.orderId) {
@@ -452,9 +414,6 @@ export class SimpleQueueService {
             job.id,
             orderResult.orderId,
             job.data.machineId,
-          );
-          console.log(
-            `🗺️ Registered order mapping: ${job.id} <-> ${orderResult.orderId}`,
           );
 
           this.eventEmitter.emit('order.status', {
@@ -466,9 +425,6 @@ export class SimpleQueueService {
             status: 'order_created',
             timestamp: new Date(),
           });
-          console.log(
-            `📡 Emitted order.status for pickup code: ${orderResult.orderId}`,
-          );
         }
       } else {
         throw new Error(
@@ -476,10 +432,17 @@ export class SimpleQueueService {
         );
       }
     } else {
-      console.log(`⚠️ Skipping Chitu order creation - missing required data`);
-      console.log(`   machineId: ${job.data.machineId ? '✅' : '❌'}`);
-      console.log(`   phoneModel: ${job.data.phoneModel ? '✅' : '❌'}`);
-      console.log(`   imageUrl: ${imageUrl ? '✅' : '❌'}`);
+      throw new Error(`Missing required data: machineId=${!!job.data.machineId} phoneModel=${!!job.data.phoneModel} imageUrl=${!!imageUrl}`);
+    }
+  }
+
+  /**
+   * Remove a job from the queue by ID
+   */
+  private removeJob(jobId: string): void {
+    const index = QUEUE.findIndex((j) => j.id === jobId);
+    if (index !== -1) {
+      QUEUE.splice(index, 1);
     }
   }
 
@@ -487,7 +450,7 @@ export class SimpleQueueService {
    * Get queue position for a job
    */
   getQueuePosition(jobId: string): number {
-    const waitingJobs = this.queue.filter((j) => j.status === 'waiting');
+    const waitingJobs = QUEUE.filter((j) => j.status === 'waiting');
     const position = waitingJobs.findIndex((j) => j.id === jobId);
     return position === -1 ? 0 : position + 1;
   }
@@ -505,16 +468,16 @@ export class SimpleQueueService {
    * Get queue statistics
    */
   getQueueStats() {
-    const waiting = this.queue.filter((j) => j.status === 'waiting').length;
-    const processing = this.queue.filter(
+    const waiting = QUEUE.filter((j) => j.status === 'waiting').length;
+    const processing = QUEUE.filter(
       (j) => j.status === 'processing',
     ).length;
-    const completed = this.queue.filter((j) => j.status === 'completed').length;
-    const failed = this.queue.filter((j) => j.status === 'failed').length;
+    const completed = QUEUE.filter((j) => j.status === 'completed').length;
+    const failed = QUEUE.filter((j) => j.status === 'failed').length;
 
     const machineLoads = {};
     for (const machine of this.availableMachines) {
-      machineLoads[machine] = this.queue.filter(
+      machineLoads[machine] = QUEUE.filter(
         (j) => j.data.machineId === machine && j.status === 'waiting',
       ).length;
     }
@@ -524,7 +487,7 @@ export class SimpleQueueService {
       processing,
       completed,
       failed,
-      total: this.queue.length,
+      total: QUEUE.length,
       activeJobs: this.activeJobCount,
       machineLoads,
     };
@@ -534,7 +497,7 @@ export class SimpleQueueService {
    * Get job status
    */
   getJobStatus(jobId: string) {
-    const job = this.queue.find((j) => j.id === jobId);
+    const job = QUEUE.find((j) => j.id === jobId);
     if (!job) return null;
 
     return {
@@ -555,7 +518,7 @@ export class SimpleQueueService {
    * Cancel a job
    */
   cancelJob(jobId: string, sessionId: string) {
-    const job = this.queue.find((j) => j.id === jobId);
+    const job = QUEUE.find((j) => j.id === jobId);
 
     if (!job) {
       return { success: false, error: 'Job not found' };
@@ -567,10 +530,9 @@ export class SimpleQueueService {
     }
 
     // Remove from queue
-    const index = this.queue.indexOf(job);
+    const index = QUEUE.indexOf(job);
     if (index > -1) {
-      this.queue.splice(index, 1);
-      console.log(`🗑️ Job ${jobId} cancelled`);
+      QUEUE.splice(index, 1);
       return { success: true };
     }
 
@@ -583,7 +545,7 @@ export class SimpleQueueService {
    */
   getAllJobs(limit: number = 50) {
     // Sort by creation date, most recent first
-    const sortedJobs = [...this.queue].sort(
+    const sortedJobs = [...QUEUE].sort(
       (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
     );
 
@@ -614,65 +576,35 @@ export class SimpleQueueService {
   }
 
   /**
-   * Remove completed/failed jobs older than 7 days to prevent unbounded memory growth
+   * Clean up dead jobs from the queue
+   * - Completed jobs: removed immediately in processJob (never reach here)
+   * - Failed jobs: removed after 30 minutes (kept briefly for debugging visibility)
+   * - Waiting jobs: NEVER removed (they are legitimate orders in line)
    */
   cleanupOldJobs(): void {
-    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-    const cutoff = Date.now() - SEVEN_DAYS_MS;
-    const before = this.queue.length;
+    const THIRTY_MIN_MS = 30 * 60 * 1000;
+    const now = Date.now();
+    let removed = 0;
 
-    this.queue = this.queue.filter((job) => {
-      if (job.status === 'completed' && job.completedAt) {
-        return job.completedAt.getTime() > cutoff;
-      }
+    // Iterate backwards so splice doesn't shift indices
+    for (let i = QUEUE.length - 1; i >= 0; i--) {
+      const job = QUEUE[i];
       if (job.status === 'failed') {
         const refTime = job.completedAt || job.createdAt;
-        return refTime.getTime() > cutoff;
+        const age = now - refTime.getTime();
+        if (age > THIRTY_MIN_MS) {
+          QUEUE.splice(i, 1);
+          removed++;
+        }
+      } else if (job.status === 'completed') {
+        QUEUE.splice(i, 1);
+        removed++;
       }
-      return true; // Keep waiting/processing jobs
-    });
+    }
 
-    const removed = before - this.queue.length;
     if (removed > 0) {
-      console.log(`🗑️ Job cleanup: removed ${removed} old completed/failed job(s). Queue size: ${this.queue.length}`);
+      console.log(`[QUEUE] Cleanup: removed ${removed}, remaining=${QUEUE.length}`);
     }
   }
 
-  getCompletedJobs(limit: number = 100) {
-    // Filter only completed jobs
-    const completedJobs = this.queue.filter(
-      (job) => job.status === 'completed',
-    );
-
-    // Sort by completion date, most recent first
-    const sortedJobs = completedJobs.sort((a, b) => {
-      const aTime = a.completedAt?.getTime() || 0;
-      const bTime = b.completedAt?.getTime() || 0;
-      return bTime - aTime;
-    });
-
-    // Limit results
-    const limitedJobs = sortedJobs.slice(0, limit);
-
-    // Map to same format as getAllJobs
-    return limitedJobs.map((job) => ({
-      id: job.id,
-      status: job.status,
-      phoneModel: job.data.phoneModel,
-      phoneModelId: job.data.phoneModelId,
-      productId: job.data.productId,
-      machineId: job.data.machineId,
-      sessionId: job.data.sessionId,
-      dimensions: job.data.dimensions,
-      image: job.data.image, // Base64 PNG image for display
-      imageUrl: job.data.imageUrl, // S3 PNG URL for deletion
-      priority: job.priority,
-      queuePosition: 0, // Completed jobs have no queue position
-      createdAt: job.createdAt,
-      startedAt: job.startedAt,
-      completedAt: job.completedAt,
-      error: job.error,
-      attempts: job.attempts,
-    }));
-  }
 }
