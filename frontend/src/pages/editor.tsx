@@ -960,6 +960,30 @@ export default function Editor() {
     };
   }, [jobId, machineId]); // Reconnect if jobId or machineId changes
 
+  // Polling fallback for chituOrderId in case WebSocket event was missed (race condition)
+  useEffect(() => {
+    if (!jobId || chituOrderId) return;
+
+    const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || window.location.origin.replace(':3000', ':3001');
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/chitu/queue/job/${jobId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.chituOrderId) {
+            console.log('📡 Pickup code retrieved via polling:', data.chituOrderId);
+            setChituOrderId(data.chituOrderId);
+          }
+        }
+      } catch (err) {
+        // Silently retry on next interval
+      }
+    }, 3000);
+
+    return () => clearInterval(pollInterval);
+  }, [jobId, chituOrderId]);
+
   // Define control sets at component level to avoid scope issues
   const normalControls = useRef<any>(null);
   const cropControls = useRef<any>(null);

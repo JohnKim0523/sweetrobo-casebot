@@ -505,6 +505,7 @@ export class SimpleQueueService {
       status: job.status,
       position: job.status === 'waiting' ? this.getQueuePosition(jobId) : 0,
       machineId: job.data.machineId,
+      chituOrderId: job.data.chituOrderId || null,
       priority: job.priority,
       createdAt: job.createdAt,
       startedAt: job.startedAt,
