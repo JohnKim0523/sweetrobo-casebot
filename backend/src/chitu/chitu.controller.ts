@@ -14,6 +14,7 @@ import { ChituService } from './chitu.service';
 import { S3Service } from '../s3/s3.service';
 import { SimpleQueueService } from '../queue/simple-queue.service';
 import { MqttService } from '../mqtt/mqtt.service';
+import { OrderMappingService } from '../order-mapping/order-mapping.service';
 
 @Controller('api/chitu')
 export class ChituController {
@@ -22,6 +23,7 @@ export class ChituController {
     private readonly s3Service: S3Service,
     private readonly queueService: SimpleQueueService,
     private readonly mqttService: MqttService,
+    private readonly orderMappingService: OrderMappingService,
   ) {}
 
   /**
@@ -370,6 +372,18 @@ export class ChituController {
     return {
       success: true,
       job: status,
+    };
+  }
+
+  /**
+   * Get Chitu order ID for a job (used by frontend polling fallback)
+   */
+  @Get('order-id/:jobId')
+  async getOrderId(@Param('jobId') jobId: string) {
+    const chituOrderId = this.orderMappingService.getChituOrderId(jobId);
+    return {
+      success: true,
+      chituOrderId: chituOrderId || null,
     };
   }
 

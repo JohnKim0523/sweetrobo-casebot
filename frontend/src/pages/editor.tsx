@@ -961,14 +961,15 @@ export default function Editor() {
   }, [jobId, machineId]); // Reconnect if jobId or machineId changes
 
   // Polling fallback for chituOrderId in case WebSocket event was missed (race condition)
+  // Only runs for mini casebot since normal casebot doesn't use pickup codes
   useEffect(() => {
-    if (!jobId || chituOrderId) return;
+    if (!jobId || chituOrderId || !isMiniCasebot) return;
 
     const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || window.location.origin.replace(':3000', ':3001');
 
     const pollInterval = setInterval(async () => {
       try {
-        const res = await fetch(`${BACKEND_URL}/api/chitu/queue/job/${jobId}`);
+        const res = await fetch(`${BACKEND_URL}/api/chitu/order-id/${jobId}`);
         if (res.ok) {
           const data = await res.json();
           if (data.chituOrderId) {
@@ -982,7 +983,7 @@ export default function Editor() {
     }, 3000);
 
     return () => clearInterval(pollInterval);
-  }, [jobId, chituOrderId]);
+  }, [jobId, chituOrderId, isMiniCasebot]);
 
   // Define control sets at component level to avoid scope issues
   const normalControls = useRef<any>(null);
