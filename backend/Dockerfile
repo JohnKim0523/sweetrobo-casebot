@@ -16,6 +16,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY --from=build /app/dist ./dist
+COPY vertex-ai-key.json ./vertex-ai-key.json
 
 EXPOSE 3001
 
