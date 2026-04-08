@@ -35,6 +35,7 @@ async function bootstrap() {
     'https://sweetrobo.vercel.app',
     'https://sweetrobotracking.com', // sweetrobo-web-app production
     'https://www.sweetrobotracking.com', // sweetrobo-web-app production (www)
+    'https://casebot.sweetrobotracking.com', // casebot production
   ];
 
   app.enableCors({
