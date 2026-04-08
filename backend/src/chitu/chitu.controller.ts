@@ -525,6 +525,9 @@ export class ChituController {
       const allowedPrefixes = [
         'https://print-oss.gzchitu.cn/',
         'https://sweetrobo-phonecase-designs.s3.us-east-1.amazonaws.com/',
+        'https://sweetrobo-phonecase-designs.s3.amazonaws.com/',
+        'https://sweet-robo-public-dev.s3.us-east-1.amazonaws.com/',
+        'https://sweet-robo-public-dev.s3.amazonaws.com/',
       ];
       const isAllowed = allowedPrefixes.some(prefix => url.startsWith(prefix));
       if (!isAllowed) {

@@ -6,6 +6,7 @@ import * as sharp from 'sharp';
 export class S3Service {
   private s3: AWS.S3;
   private bucketName: string;
+  private watermarkBucketName: string;
 
   constructor() {
     this.s3 = new AWS.S3({
@@ -20,7 +21,8 @@ export class S3Service {
     });
     this.bucketName =
       process.env.AWS_BUCKET_NAME || 'sweetrobo-phonecase-designs';
-
+    this.watermarkBucketName =
+      process.env.WATERMARK_S3_BUCKET || 'sweet-robo-public-dev';
   }
 
   async uploadImage(
@@ -94,9 +96,13 @@ export class S3Service {
     const key = `watermarks/${machineId}.png`;
     try {
       await this.s3
-        .headObject({ Bucket: this.bucketName, Key: key })
+        .headObject({ Bucket: this.watermarkBucketName, Key: key })
         .promise();
-      return `https://${this.bucketName}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${key}`;
+      return this.s3.getSignedUrl('getObject', {
+        Bucket: this.watermarkBucketName,
+        Key: key,
+        Expires: 3600,
+      });
     } catch (err: any) {
       if (err.code === 'NotFound' || err.code === 'NoSuchKey') {
         return null;

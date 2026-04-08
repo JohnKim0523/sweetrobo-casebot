@@ -309,6 +309,8 @@ export default function Editor() {
   const [thankYouMessage, setThankYouMessage] = useState('Thank you for your design!');
   const [isCheckingSession, setIsCheckingSession] = useState(true); // Loading state
   const [crosshairLines, setCrosshairLines] = useState<{vertical: any, horizontal: any}>({vertical: null, horizontal: null});
+  // Printable area center (updated when print_img loads) - used for image centering and snap logic
+  const printableCenterRef = useRef<{x: number, y: number} | null>(null);
   const [isSnapping, setIsSnapping] = useState(false);
 
   // WebSocket and order tracking
@@ -362,11 +364,11 @@ export default function Editor() {
   const [sharpness, setSharpness] = useState(0);
   const [warmth, setWarmth] = useState(0);
   const [isBlackAndWhite, setIsBlackAndWhite] = useState(false);
-  const [canvasBackgroundColor, setCanvasBackgroundColor] = useState('#f3f4f6');
+  const [canvasBackgroundColor, setCanvasBackgroundColor] = useState('#d1d5db');
   const [filtersTouched, setFiltersTouched] = useState(false);
   // Store initial state when modal opens for reverting
   const [initialBWState, setInitialBWState] = useState(false);
-  const [initialBgColor, setInitialBgColor] = useState('#f3f4f6');
+  const [initialBgColor, setInitialBgColor] = useState('#d1d5db');
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showMaskModal, setShowMaskModal] = useState(false);  // New modal for mask editing
@@ -1285,7 +1287,10 @@ export default function Editor() {
 
   useEffect(() => {
     // Only initialize canvas when all conditions are met
-    if (!canvasRef.current || !fabric || isCheckingSession || isSessionLocked || showWaitingForPayment || showThankYou || canvas) {
+    // IMPORTANT: Wait for phoneModel dimensions to load before initializing canvas
+    // to prevent aspect ratio mismatch between default dimensions and actual print_img dimensions
+    const hasDimensions = phoneModel?.dimensions || isDemoMode;
+    if (!canvasRef.current || !fabric || isCheckingSession || isSessionLocked || showWaitingForPayment || showThankYou || canvas || !hasDimensions) {
       console.log('🛑 Canvas initialization blocked:', {
         hasCanvasRef: !!canvasRef.current,
         hasFabric: !!fabric,
@@ -1293,7 +1298,8 @@ export default function Editor() {
         isSessionLocked,
         showWaitingForPayment,
         showThankYou,
-        hasCanvas: !!canvas
+        hasCanvas: !!canvas,
+        hasDimensions: !!hasDimensions
       });
       return;
     }
@@ -1303,7 +1309,7 @@ export default function Editor() {
     const fabricCanvas = new fabric.Canvas(canvasRef.current, {
         width: CANVAS_TOTAL_WIDTH,   // Full width with padding
         height: CANVAS_TOTAL_HEIGHT,  // Full height with padding
-        backgroundColor: '#f3f4f6', // Light gray background to match design
+        backgroundColor: '#d1d5db', // Gray background to contrast with white case area
         containerClass: 'canvas-container',
         selection: false,  // Disable background drag-to-select box
         allowTouchScrolling: true,  // Allow browser to handle touch scrolling
@@ -1802,23 +1808,8 @@ export default function Editor() {
       fabricCanvas.add(verticalLine);
       fabricCanvas.add(horizontalLine);
       
-      // Override renderAll to ensure crosshairs are always drawn last
-      const originalRenderAll = fabricCanvas.renderAll.bind(fabricCanvas);
-      fabricCanvas.renderAll = function() {
-        // First render everything normally
-        originalRenderAll();
-        
-        // Then redraw crosshairs on top
-        const ctx = fabricCanvas.getContext();
-        if (ctx && verticalLine && horizontalLine) {
-          ctx.save();
-          verticalLine.render(ctx);
-          horizontalLine.render(ctx);
-          ctx.restore();
-        }
-        
-        return fabricCanvas;
-      };
+      // Crosshairs are added as fabric objects above, so they respect the clipPath
+      // and only show within the phone case shape
       
       // Configure canvas to allow proper overflow behavior
       fabricCanvas.controlsAboveOverlay = true;
@@ -1911,8 +1902,9 @@ export default function Editor() {
         }
         
         // If not locked, check for initial snap
-        const centerX = CONTROL_PADDING + DISPLAY_WIDTH / 2;   // Center with padding
-        const centerY = VERTICAL_PADDING + DISPLAY_HEIGHT / 2;  // Center with padding
+        // Use printable area center if available (accounts for camera cutout)
+        const centerX = printableCenterRef.current?.x ?? (CONTROL_PADDING + DISPLAY_WIDTH / 2);
+        const centerY = printableCenterRef.current?.y ?? (VERTICAL_PADDING + DISPLAY_HEIGHT / 2);
         
         if (!isLockedX || !isLockedY) {
           const objBoundingRect = obj.getBoundingRect(true);
@@ -2224,7 +2216,7 @@ export default function Editor() {
       return () => {
         fabricCanvas.dispose();
       };
-  }, [fabric, isCheckingSession, isSessionLocked, showWaitingForPayment, showThankYou]); // Removed isCropMode to prevent re-initialization
+  }, [fabric, isCheckingSession, isSessionLocked, showWaitingForPayment, showThankYou, phoneModel?.dimensions, isDemoMode]); // Removed isCropMode to prevent re-initialization
 
   // Load print_img and use it as canvas clipPath for exact phone case outline
   useEffect(() => {
@@ -2266,26 +2258,57 @@ export default function Editor() {
       // Set as canvas clipPath - this clips content to the print template's opaque areas
       canvas.clipPath = clipImg;
 
-      // Add the print_img as a semi-transparent overlay on top to show the phone case outline
-      // This shows users exactly where the cutouts and edges are
-      const borderOverlay = new fabric.Image(img, {
-        left: CONTROL_PADDING,
-        top: VERTICAL_PADDING,
-        scaleX: DISPLAY_WIDTH / img.width,
-        scaleY: DISPLAY_HEIGHT / img.height,
-        selectable: false,
-        evented: false,
-        excludeFromExport: true,
-        opacity: 0.25,  // Subtle overlay to show the shape/cutouts (increased for better visibility)
-        isPrintImgBorder: true,
-      });
+      // ClipPath alone handles the phone shape - no overlay needed
+      // The design is clipped to the case outline, making the shape visible
 
-      canvas.add(borderOverlay);
-      canvas.bringObjectToFront(borderOverlay);
+      // Recenter crosshairs on the opaque (printable) region of the print_img
+      // Analyze the image to find the vertical center of opaque pixels
+      if (crosshairLines?.vertical && crosshairLines?.horizontal) {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = img.width;
+        tempCanvas.height = img.height;
+        const ctx = tempCanvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        const imageData = ctx.getImageData(0, 0, img.width, img.height);
+        const pixels = imageData.data;
 
-      // Keep crosshairs on top
-      if (crosshairLines?.vertical) canvas.bringObjectToFront(crosshairLines.vertical);
-      if (crosshairLines?.horizontal) canvas.bringObjectToFront(crosshairLines.horizontal);
+        // Find top and bottom bounds of opaque pixels
+        let minY = img.height, maxY = 0;
+        let minX = img.width, maxX = 0;
+        for (let y = 0; y < img.height; y++) {
+          for (let x = 0; x < img.width; x++) {
+            const alpha = pixels[(y * img.width + x) * 4 + 3];
+            if (alpha > 128) {
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+            }
+          }
+        }
+
+        // Calculate center of opaque region in display coordinates
+        const scaleXRatio = DISPLAY_WIDTH / img.width;
+        const scaleYRatio = DISPLAY_HEIGHT / img.height;
+        const centerX = CONTROL_PADDING + ((minX + maxX) / 2) * scaleXRatio;
+        const centerY = VERTICAL_PADDING + ((minY + maxY) / 2) * scaleYRatio;
+
+        // Update crosshair positions
+        crosshairLines.vertical.set({
+          x1: centerX, y1: VERTICAL_PADDING,
+          x2: centerX, y2: VERTICAL_PADDING + DISPLAY_HEIGHT
+        });
+        crosshairLines.horizontal.set({
+          x1: CONTROL_PADDING, y1: centerY,
+          x2: CONTROL_PADDING + DISPLAY_WIDTH, y2: centerY
+        });
+
+        canvas.bringObjectToFront(crosshairLines.vertical);
+        canvas.bringObjectToFront(crosshairLines.horizontal);
+        // Store for use by image upload centering and snap logic
+        printableCenterRef.current = { x: centerX, y: centerY };
+        console.log('✅ Crosshairs recentered on printable area:', { centerX, centerY, opaqueRegion: { minX, maxX, minY, maxY } });
+      }
 
       canvas.renderAll();
 
@@ -2308,13 +2331,16 @@ export default function Editor() {
     });
 
     // Update the uploaded image position and scale to fit new dimensions
-    const newScale = SCALE_FACTOR;
-    const newLeft = CONTROL_PADDING + (DISPLAY_WIDTH / 2);
-    const newTop = VERTICAL_PADDING + (DISPLAY_HEIGHT / 2);
+    // Scale to fill full canvas height, center horizontally on printable area
+    const newScale = DISPLAY_HEIGHT / (uploadedImage.height || 1);
+    const newLeft = printableCenterRef.current?.x ?? (CONTROL_PADDING + (DISPLAY_WIDTH / 2));
+    const newTop = VERTICAL_PADDING + DISPLAY_HEIGHT / 2;
 
     uploadedImage.set({
       left: newLeft,
-      top: newTop
+      top: newTop,
+      scaleX: newScale,
+      scaleY: newScale
     });
 
     canvas.renderAll();
@@ -3305,10 +3331,11 @@ export default function Editor() {
             const scale = DISPLAY_HEIGHT / fabricImage.height!;
             fabricImage.scale(scale);
 
-            // Center the image on the canvas (accounting for padding)
+            // Center image: horizontally on printable area center, vertically on full canvas center
+            // This ensures the image fills top-to-bottom while being horizontally centered on the printable area
             fabricImage.set({
-              left: CONTROL_PADDING + DISPLAY_WIDTH / 2,  // Center position horizontally
-              top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,   // Center position vertically
+              left: printableCenterRef.current?.x ?? (CONTROL_PADDING + DISPLAY_WIDTH / 2),
+              top: VERTICAL_PADDING + DISPLAY_HEIGHT / 2,
               originX: 'center',
               originY: 'center',
               // Ensure object is selectable and manipulable
