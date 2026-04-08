@@ -6291,9 +6291,9 @@ export default function Editor() {
               </div>
             )}
 
-            {/* Upload card overlay - NO SCROLLING, fixed layout */}
+            {/* Upload card overlay - NO SCROLLING, fixed layout, covers full viewport */}
             {!uploadedImage && !hasRestoredImage && (
-              <div className="absolute inset-0 z-30 bg-white flex flex-col">
+              <div className="fixed inset-0 z-30 bg-white flex flex-col max-w-sm mx-auto">
                 {/* Header - Fixed at top */}
                 <div className="flex-shrink-0 px-4 py-3">
                   <div className="flex items-center gap-3 relative">
