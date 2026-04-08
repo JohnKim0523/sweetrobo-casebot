@@ -41,7 +41,7 @@ async function bootstrap() {
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
 
-      if (allowedOrigins.includes(origin) || origin.includes('localhost')) {
+      if (allowedOrigins.includes(origin) || origin.includes('localhost') || origin.includes('.vercel.app')) {
         callback(null, true);
       } else if (process.env.NODE_ENV !== 'production') {
         callback(null, true);
