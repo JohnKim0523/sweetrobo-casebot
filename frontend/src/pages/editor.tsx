@@ -2418,22 +2418,28 @@ export default function Editor() {
     };
   }, [canvas, fabric, machineId, isDemoMode, DISPLAY_WIDTH, DISPLAY_HEIGHT, CONTROL_PADDING, VERTICAL_PADDING]);
 
-  // Keep watermark on top when new objects are added
+  // Keep crosshairs and watermark on top when new objects are added
   useEffect(() => {
     if (!canvas) return;
 
-    const bringWatermarkToFront = () => {
+    const bringOverlaysToFront = () => {
+      // Watermark on top of content
       if (watermarkObjRef.current) {
         canvas.bringObjectToFront(watermarkObjRef.current);
       }
+      // Crosshairs always on top of everything
+      if (crosshairLines?.vertical) canvas.bringObjectToFront(crosshairLines.vertical);
+      if (crosshairLines?.horizontal) canvas.bringObjectToFront(crosshairLines.horizontal);
     };
 
-    canvas.on('object:added', bringWatermarkToFront);
+    canvas.on('object:added', bringOverlaysToFront);
+    canvas.on('object:modified', bringOverlaysToFront);
 
     return () => {
-      canvas.off('object:added', bringWatermarkToFront);
+      canvas.off('object:added', bringOverlaysToFront);
+      canvas.off('object:modified', bringOverlaysToFront);
     };
-  }, [canvas]);
+  }, [canvas, crosshairLines]);
 
   // Ensure custom controls are always applied to uploaded image
   useEffect(() => {
